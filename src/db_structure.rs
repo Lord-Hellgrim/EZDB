@@ -20,6 +20,7 @@ impl fmt::Display for StrictError {
     }
 }
 
+// This struct is here to future proof the StrictTable. More metadata will be added in future.
 #[derive(PartialEq, Clone, Debug)]
 pub struct Metadata {
     name: String,
