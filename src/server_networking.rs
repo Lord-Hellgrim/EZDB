@@ -1,17 +1,24 @@
 use std::io::Write;
-use std::net::{self, TcpStream, TcpListener};
+use std::net::TcpListener;
 use std::error::Error;
 
-pub fn listener() -> Result<(), Box<dyn Error>> {
-    let l = TcpListener::bind("127.0.0.1:3004")?;
+pub fn server() -> Result<(), Box<dyn Error>> {
+    let l = TcpListener::bind("127.0.0.1:8080")?;
 
     for stream in l.incoming() {
-        let mut x = match stream {
-            Ok(value) => value,
-            Err(_) => panic!(),
-        };
-        let s = "Hello";
-        x.write(s.as_bytes()).unwrap();
+        
+        std::thread::spawn(|| {
+            let mut x = match stream {
+                Ok(value) => value,
+                Err(e) => panic!("{}", e),
+            };
+            let mut i = 0;
+            while i < 10 {
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                x.write(format!("String {}\n", i).as_bytes()).unwrap();
+                i += 1;
+            }
+        });
         continue;
     }
 
@@ -23,7 +30,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_Listener() {
-        listener();
+    fn test_listener() {
+        server();
     }
 }
