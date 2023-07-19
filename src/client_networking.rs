@@ -1,23 +1,30 @@
-use std::{net::{TcpListener, TcpStream}, io::Read};
+use std::{net::{TcpListener, TcpStream}, io::{Read, Write}};
+
+// pub fn client() {
+//     let mut x = TcpStream::connect("127.0.0.1:3004").unwrap();
+//     let mut s = String::from("");
+//     match x.read_to_string(&mut s) {
+//         Ok(n) => {
+//             println!("Read {} bytes", n);
+//             println!("spacer\n\n");    
+//         },
+//         Err(_) => panic!(),
+//     };
+//     println!("{}", s);
+// }
 
 pub fn client() {
-    let mut x = TcpStream::connect("127.0.0.1:3004").unwrap();
-    let mut s = String::from("");
-    match x.read_to_string(&mut s) {
-        Ok(n) => {
-            println!("Read {} bytes", n);
-            println!("spacer\n\n");    
-        },
-        Err(_) => panic!(),
-    };
-    println!("{}", s);
-}
-
-pub fn client_bits() {
-    let mut x = TcpStream::connect("127.0.0.1:3004").unwrap();
+    let mut stream = TcpStream::connect("127.0.0.1:3004").unwrap();
     let mut s: [u8;1000] = [0;1000];
+
+    match stream.write("give me five!".as_bytes()) {
+        Ok(n) => println!("Wrote {n} bytes"),
+        Err(e) => panic!("{e}"),
+    };
+    // stream.flush().unwrap();
+    std::thread::sleep(std::time::Duration::from_secs(1));
     loop {
-        match x.read(&mut s) {
+        match stream.read(&mut s) {
             Ok(n) => {
                 if n == 0 {
                     println!("end of file");
@@ -41,7 +48,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_Listener() {
-        client_bits();
+    fn test_client() {
+        client();
     }
 }

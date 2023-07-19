@@ -1,23 +1,46 @@
-use std::io::Write;
+use std::io::{Write, Read};
 use std::net::TcpListener;
 use std::error::Error;
 
 pub fn server() -> Result<(), Box<dyn Error>> {
-    let l = TcpListener::bind("127.0.0.1:8080")?;
+    let l = TcpListener::bind("127.0.0.1:3004")?;
 
     for stream in l.incoming() {
-        
+        println!("Accepted connection");
         std::thread::spawn(|| {
-            let mut x = match stream {
-                Ok(value) => value,
+            println!("Spawned thread");
+            let mut stream = match stream {
+                Ok(value) => {println!("Unwrapped Result"); value},
                 Err(e) => panic!("{}", e),
             };
-            let mut i = 0;
-            while i < 10 {
-                std::thread::sleep(std::time::Duration::from_secs(1));
-                x.write(format!("String {}\n", i).as_bytes()).unwrap();
-                i += 1;
+
+            let mut instructions: [u8;15] = [0;15];
+            println!("Initialized string buffer");
+            loop {
+                match stream.read(&mut instructions) {
+                    Ok(n) => {
+                        println!("Read {n} bytes");
+                        break;
+                    },
+                    Err(e) => panic!("{e}"),
+                };
             }
+            
+            let mut instruction_string = "".to_owned();
+            for byte in instructions {
+                instruction_string.push(char::from(byte));
+            }
+            println!("{}", &instruction_string);
+
+            // There is some problem here.
+            if &instruction_string == "give me five!" {
+                println!("matching...");
+                match stream.write("FIVE!".as_bytes()) {
+                    Ok(n) => println!("Wrote {n} bytes"),
+                    Err(e) => panic!("{e}"),
+                };
+            }
+
         });
         continue;
     }
