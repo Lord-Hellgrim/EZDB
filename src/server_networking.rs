@@ -28,11 +28,14 @@ pub fn server() -> Result<(), Box<dyn Error>> {
             
             let mut instruction_string = "".to_owned();
             for byte in instructions {
+                if byte == 0 {
+                    break;
+                }
                 instruction_string.push(char::from(byte));
             }
+            dbg!(instruction_string.as_bytes());
             println!("{}", &instruction_string);
 
-            // There is some problem here.
             if &instruction_string == "give me five!" {
                 println!("matching...");
                 match stream.write("FIVE!".as_bytes()) {

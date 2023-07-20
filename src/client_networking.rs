@@ -22,7 +22,7 @@ pub fn client() {
         Err(e) => panic!("{e}"),
     };
     // stream.flush().unwrap();
-    std::thread::sleep(std::time::Duration::from_secs(1));
+    // std::thread::sleep(std::time::Duration::from_secs(1));
     loop {
         match stream.read(&mut s) {
             Ok(n) => {
@@ -33,6 +33,9 @@ pub fn client() {
                 println!("Read {} bytes", n);
                 let mut output = String::from("");
                 for byte in s {
+                    if byte == 0 {
+                        break;
+                    }
                     output.push(char::from(byte));
                 }
                 println!("{}", output);
