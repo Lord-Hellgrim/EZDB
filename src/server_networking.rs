@@ -1,6 +1,43 @@
+use std::fmt;
 use std::io::{Write, Read};
 use std::net::TcpListener;
 use std::error::Error;
+
+use crate::db_structure;
+
+
+const MAX_INSTRUCTION_LENGTH: usize = 1024;
+
+pub enum Request {
+    Upload,
+    Download,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum InstructionError {
+    Invalid(String),
+    TooLong,
+}
+
+impl fmt::Display for InstructionError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            InstructionError::Invalid(instruction) => write!(f, "The instruction:\n\n{instruction}\n\nis invalid. See documentation for valid instructions\n\n"),
+            InstructionError::TooLong => write!(f, "Your instructions are too long. Maximum instruction length is: {MAX_INSTRUCTION_LENGTH}\n\n"),
+        }
+    }
+}
+
+
+pub fn parse_instructions(instructions: &String) -> Result<Request, InstructionError> {
+    match instructions {
+        
+        _ => return Err(InstructionError::Invalid(instructions.clone())),
+    }
+
+    Ok(Request::Download)
+}
+
 
 pub fn server() -> Result<(), Box<dyn Error>> {
     let l = TcpListener::bind("127.0.0.1:3004")?;
@@ -35,6 +72,12 @@ pub fn server() -> Result<(), Box<dyn Error>> {
             }
             dbg!(instruction_string.as_bytes());
             println!("{}", &instruction_string);
+
+            /*
+            
+            parse_instructions(&instruction_string);
+
+             */
 
             if &instruction_string == "give me five!" {
                 println!("matching...");
