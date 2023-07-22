@@ -3,7 +3,7 @@ use std::io::{Write, Read};
 use std::net::TcpListener;
 use std::error::Error;
 
-use crate::db_structure;
+use crate::db_structure::{self, StrictTable};
 
 
 const MAX_INSTRUCTION_LENGTH: usize = 1024;
@@ -29,18 +29,10 @@ impl fmt::Display for InstructionError {
 }
 
 
-pub fn parse_instructions(instructions: &String) -> Result<Request, InstructionError> {
-    match instructions {
-        
-        _ => return Err(InstructionError::Invalid(instructions.clone())),
-    }
-
-    Ok(Request::Download)
-}
 
 
-pub fn server() -> Result<(), Box<dyn Error>> {
-    let l = TcpListener::bind("127.0.0.1:3004")?;
+pub fn server(address: &str, TableVec: &mut Vec<StrictTable>) -> Result<(), Box<dyn Error>> {
+    let l = TcpListener::bind(address)?;
 
     for stream in l.incoming() {
         println!("Accepted connection");
@@ -51,10 +43,10 @@ pub fn server() -> Result<(), Box<dyn Error>> {
                 Err(e) => panic!("{}", e),
             };
 
-            let mut instructions: [u8;15] = [0;15];
+            let mut instructions = String::new();
             println!("Initialized string buffer");
             loop {
-                match stream.read(&mut instructions) {
+                match stream.read_to_string(&mut instructions) {
                     Ok(n) => {
                         println!("Read {n} bytes");
                         break;
@@ -62,30 +54,31 @@ pub fn server() -> Result<(), Box<dyn Error>> {
                     Err(e) => panic!("{e}"),
                 };
             }
-            
-            let mut instruction_string = "".to_owned();
-            for byte in instructions {
-                if byte == 0 {
-                    break;
-                }
-                instruction_string.push(char::from(byte));
-            }
-            dbg!(instruction_string.as_bytes());
-            println!("{}", &instruction_string);
 
-            /*
-            
-            parse_instructions(&instruction_string);
-
-             */
-
-            if &instruction_string == "give me five!" {
-                println!("matching...");
-                match stream.write("FIVE!".as_bytes()) {
+            if instructions == "Sending CSV" {
+                match stream.write("OK".as_bytes()) {
                     Ok(n) => println!("Wrote {n} bytes"),
                     Err(e) => panic!("{e}"),
                 };
             }
+
+            let mut csv = String::new();
+            loop {
+                match stream.read_to_string(&mut csv) {
+                    Ok(n) => {
+                        match stream.write(&n.to_be_bytes()) {
+                            Ok(_) => println!("Confirmed reception"),
+                            Err(e) => {return Err(e);},                        
+                        };
+                        break;
+                    },
+                    Err(e) => {return Err(e)},
+                };
+            }
+
+            // TODO Need to parse the CSV for correctness before saving
+            TableVec.push(db_structure::create_StrictTable_from_csv(&csv));
+            Ok(())
 
         });
         continue;
@@ -100,6 +93,6 @@ mod tests {
 
     #[test]
     fn test_listener() {
-        server();
+        server("127.0.0.1:3004");
     }
 }

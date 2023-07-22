@@ -1,5 +1,4 @@
 use std::{fmt, collections::BTreeMap};
-use crate::basic_io_functions;
 
 #[derive(Debug, PartialEq)]
 pub enum StrictError {
@@ -205,13 +204,6 @@ impl StrictTable {
         printer = printer.trim().to_owned();
         printer
     }
-
-
-
-
-
-
-
 
 }
 
