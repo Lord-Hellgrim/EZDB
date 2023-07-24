@@ -3,7 +3,6 @@ use std::net::TcpStream;
 use std::io::{Read, Write};
 use std::error::Error;
 use std::time::{Duration, self, SystemTime};
-
 // pub fn client() {
 //     let mut x = TcpStream::connect("127.0.0.1:3004").unwrap();
 //     let mut s = String::from("");
@@ -27,6 +26,18 @@ pub enum ConnectionError {
     CorruptTransaction,
 }
 
+impl fmt::Display for ConnectionError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ConnectionError::Io(e) => write!(f, "There has been an io error: {}", e),
+            ConnectionError::TimeOut => write!(f, "Connection timed out\n"),
+            ConnectionError::InvalidRequest(s) => write!(f, "Request: {}\nis invalid. For list of valid requests, see documentation", s),
+            ConnectionError::UnconfirmedTransaction => write!(f, "Transaction was not confirmed by server and may not have been received"),
+            Self::CorruptTransaction => write!(f, "Transaction may be corrupted"),
+        }
+    }
+}
+
 
 pub fn send_csv(request: &str, csv: &String, address: &str) -> Result<String, ConnectionError> {
 
@@ -35,14 +46,15 @@ pub fn send_csv(request: &str, csv: &String, address: &str) -> Result<String, Co
         Ok(stream) => connection = stream,
         Err(e) => {return Err(ConnectionError::Io(e));},
     };
-    let mut buffer = String::new();
-
+    
     match connection.write(request.as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes\n"),
         Err(e) => {return Err(ConnectionError::Io(e));},
     };
-
+    
+    let mut buffer = String::new();
     let timer = SystemTime::now();
+    println!("Waiting for response");
     loop {
         if timer.elapsed().unwrap() > Duration::from_secs(5) {
             return Err(ConnectionError::TimeOut);         
@@ -53,7 +65,10 @@ pub fn send_csv(request: &str, csv: &String, address: &str) -> Result<String, Co
         }
     }
 
+
+
     let sent_bytes: usize;
+    println!("Response: {buffer}\n received");
     if buffer == "OK" {
         match connection.write(csv.as_bytes()) {
             Ok(n) => sent_bytes = n,
@@ -82,52 +97,20 @@ pub fn send_csv(request: &str, csv: &String, address: &str) -> Result<String, Co
 }
 
 
-
-pub fn client() {
-    let mut stream = TcpStream::connect("127.0.0.1:3004").unwrap();
-    let mut s: [u8;1000] = [0;1000];
-
-    match stream.write("give me five!".as_bytes()) {
-        Ok(n) => println!("Wrote {n} bytes"),
-        Err(e) => panic!("{e}"),
-    };
-    // stream.flush().unwrap();
-    // std::thread::sleep(std::time::Duration::from_secs(1));
-    loop {
-        match stream.read(&mut s) {
-            Ok(n) => {
-                if n == 0 {
-                    println!("end of file");
-                    break;
-                }
-                println!("Read {} bytes", n);
-                let mut output = String::from("");
-                for byte in s {
-                    if byte == 0 {
-                        break;
-                    }
-                    output.push(char::from(byte));
-                }
-                println!("{}", output);
-            },
-            Err(_) => break,
-        };
-    }
-}
-
-
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
 
     #[test]
-    fn test_client() {
-        client();
-    }
-
-
-    #[test]
     fn test_send_csv() {
-        
+        let csv = std::fs::read_to_string("sample_data.txt").unwrap();
+        let address = "127.0.0.1:3004";
+        let e = send_csv("Sending CSV", &csv, address);
+        match e {
+            Ok(_) => println!("OK"),
+            Err(e) => println!("{}", e),
+        }
     }
 }

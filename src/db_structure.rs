@@ -22,8 +22,8 @@ impl fmt::Display for StrictError {
 // This struct is here to future proof the StrictTable. More metadata will be added in future.
 #[derive(PartialEq, Clone, Debug)]
 pub struct Metadata {
-    name: String,
-    header: Vec<DbEntry>,
+    pub name: String,
+    pub header: Vec<DbEntry>,
 }
 
 #[derive(PartialEq, Clone, Debug)]
@@ -41,8 +41,8 @@ pub struct CasualTable<T> {
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct StrictTable {
-    metadata: Metadata,
-    table: BTreeMap<String, Vec<DbEntry>>,
+    pub metadata: Metadata,
+    pub table: BTreeMap<String, Vec<DbEntry>>,
 }
 
 impl StrictTable {
@@ -211,6 +211,7 @@ impl StrictTable {
 pub fn create_StrictTable_from_csv(s: &String) -> Result<StrictTable, StrictError> {    
     let mut header = Vec::new();
     
+
     {    /* Checking for unique header */
         let mut rownum = 0;
         for item in s.lines().next().unwrap().split(';') {
