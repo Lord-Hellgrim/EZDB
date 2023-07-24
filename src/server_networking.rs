@@ -4,6 +4,7 @@ use std::io::{Write, Read};
 use std::net::TcpListener;
 use std::error::Error;
 use std::sync::{Arc, Mutex};
+use std::str::{self, Utf8Error};
 
 use crate::db_structure::{self, StrictTable, create_StrictTable_from_csv};
 
@@ -14,6 +15,14 @@ pub enum Request {
     Upload,
     Download,
 }
+
+
+pub enum ServerError {
+    Utf8(Utf8Error),
+    Io(std::io::Error),
+    
+}
+
 
 #[derive(Debug, PartialEq)]
 pub enum InstructionError {
@@ -58,14 +67,10 @@ pub fn server(address: &str, global: Arc<Mutex<HashMap<String, StrictTable>>>) -
                 };
             }
             
-            let mut instruction_string = String::new();
-            for byte in instructions {
-                if byte == 0 {
-                    break
-                } else {
-                    instruction_string.push(char::from(byte));
-                }
-            }
+            let mut instruction_string = match str::from_utf8(&instructions) {
+                Ok(value) => value,
+                Err(e) => 
+            };
 
             if instruction_string == "Sending CSV" {
                 match stream.write("OK".as_bytes()) {

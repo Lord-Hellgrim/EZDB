@@ -69,9 +69,10 @@ pub fn send_csv(request: &str, csv: &String, address: &str) -> Result<String, Co
 
     let sent_bytes: usize;
     println!("Response: {buffer}\n received");
+    let csv_transmission = csv.push_str
     if buffer == "OK" {
-        match connection.write(csv.as_bytes()) {
-            Ok(n) => sent_bytes = n,
+        match connection.write_all(csv.as_bytes()) {
+            Ok(_) => sent_bytes = csv.as_bytes().len(),
             Err(e) => {return Err(ConnectionError::Io(e));},
         }
     } else {
