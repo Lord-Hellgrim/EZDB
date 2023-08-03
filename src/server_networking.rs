@@ -6,7 +6,8 @@ use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::str::{self, Utf8Error};
 
-use crate::db_structure::{self, StrictTable, create_StrictTable_from_csv};
+use crate::client_networking::ConnectionError;
+use crate::db_structure::{self, StrictTable, create_StrictTable_from_csv, StrictError};
 
 
 const MAX_INSTRUCTION_LENGTH: usize = 1024;
@@ -16,11 +17,11 @@ pub enum Request {
     Download,
 }
 
-
+#[derive(FromResidual)]
 pub enum ServerError {
     Utf8(Utf8Error),
     Io(std::io::Error),
-    
+
 }
 
 
@@ -52,7 +53,7 @@ pub fn server(address: &str, global: Arc<Mutex<HashMap<String, StrictTable>>>) -
             println!("Spawned thread");
             let mut stream = match stream {
                 Ok(value) => {println!("Unwrapped Result"); value},
-                Err(e) => panic!("{}", e),
+                Err(e) => {return Err(ServerError::Io(e));},
             };
 
             let mut instructions: [u8; 1024] = [0; 1024];
@@ -63,21 +64,25 @@ pub fn server(address: &str, global: Arc<Mutex<HashMap<String, StrictTable>>>) -
                         println!("Read {n} bytes");
                         break;
                     },
-                    Err(e) => panic!("{e}"),
+                    Err(e) => {return Err(ServerError::Io(e));},
                 };
             }
             
-            let mut instruction_string = match str::from_utf8(&instructions) {
+            let instruction_string = match str::from_utf8(&instructions) {
                 Ok(value) => value,
-                Err(e) => 
+                Err(e) => {return Err(ServerError::Utf8(e));},
             };
 
-            if instruction_string == "Sending CSV" {
+            let instruction: Vec<&str> = instruction_string.split('|').collect();
+            let (instruction, buffer_size) = (instruction[0], instruction[1].parse::<usize>()?);
+
+            if instru{
                 match stream.write("OK".as_bytes()) {
                     Ok(n) => println!("Wrote {n} bytes"),
-                    Err(e) => panic!("{e}"),
+                    Err(e) => {return Err(ServerError::Io(e));},
                 };
             }
+
             stream.flush();
             println!("Flushed stream");
 
@@ -89,7 +94,7 @@ pub fn server(address: &str, global: Arc<Mutex<HashMap<String, StrictTable>>>) -
                         b = n;
                         break;
                     },
-                    Err(e) => {return Err(e)},
+                    Err(e) => {return Err(ServerError::Io(e));},
                 };
             }
 
@@ -97,17 +102,18 @@ pub fn server(address: &str, global: Arc<Mutex<HashMap<String, StrictTable>>>) -
                 Ok(table) => {
                     match stream.write(&b.to_be_bytes()) {
                         Ok(_) => println!("Confirmed correctness with client"),
-                        Err(e) => {return Err(e)},
+                        Err(e) => {return Err(ServerError::Io(e));},
                     };
                     //need to append the new table to global data here
                     thread_global.lock().unwrap().insert(table.metadata.name.clone(), table);
                 },
-                Err(e) => match stream.write(e.to_string().as_bytes()){
+                Err(e) => match stream.write_all(e.to_string().as_bytes()){
                     Ok(_) => println!("Informed client of corruption"),
-                    Err(e) => {return Err(e)},
+                    Err(e) => {return Err(ServerError::Io(e));},
                 },
             };
 
+            stream.flush();
 
             Ok(())
 
