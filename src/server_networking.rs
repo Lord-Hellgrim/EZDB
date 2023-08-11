@@ -110,7 +110,7 @@ pub fn server(address: &str, global: Arc<Mutex<HashMap<String, StrictTable>>>) -
             }
 
             // Here we read the transmitted CSV from the stream into a rust String (aka a Vec)
-            let mut csv = String::from("");
+            let mut csv = "".to_owned();
             let b: usize;
             loop {
                 match stream.read_to_string(&mut csv) {

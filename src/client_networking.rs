@@ -4,18 +4,7 @@ use std::io::{Read, Write};
 use std::error::Error;
 use std::time::{Duration, self, SystemTime};
 use std::str::{self, Utf8Error};
-// pub fn client() {
-//     let mut x = TcpStream::connect("127.0.0.1:3004").unwrap();
-//     let mut s = String::from("");
-//     match x.read_to_string(&mut s) {
-//         Ok(n) => {
-//             println!("Read {} bytes", n);
-//             println!("spacer\n\n");    
-//         },
-//         Err(_) => panic!(),
-//     };
-//     println!("{}", s);
-// }
+
 
 
 #[derive(Debug)]
