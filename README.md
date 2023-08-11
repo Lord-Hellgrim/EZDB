@@ -15,3 +15,5 @@ This is not meant to be a replacement for Postgres or other SQL monsters, just a
 data in a small application.
 
 Can I?
+
+No you cannot!

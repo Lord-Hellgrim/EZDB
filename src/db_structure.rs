@@ -46,7 +46,7 @@ pub struct StrictTable {
 }
 
 impl StrictTable {
-    pub fn from_csv_string(s: &String) -> Result<StrictTable, StrictError> {
+    pub fn from_csv_string(s: &String, name: &str) -> Result<StrictTable, StrictError> {
         let mut header = Vec::new();
         
         {    /* Checking for unique header */
@@ -159,7 +159,7 @@ impl StrictTable {
 
 
         let r = StrictTable {
-            metadata: Metadata {name: "test".to_owned(), header: header},
+            metadata: Metadata {name: name.to_owned(), header: header},
             table: output,
         };
 
@@ -208,7 +208,7 @@ impl StrictTable {
 }
 
 
-pub fn create_StrictTable_from_csv(s: &String) -> Result<StrictTable, StrictError> {    
+pub fn create_StrictTable_from_csv(s: &String, name: &str) -> Result<StrictTable, StrictError> {    
     let mut header = Vec::new();
     
 
@@ -322,7 +322,7 @@ pub fn create_StrictTable_from_csv(s: &String) -> Result<StrictTable, StrictErro
 
 
     let r = StrictTable {
-        metadata: Metadata {name: "test".to_owned(), header: header},
+        metadata: Metadata {name: name.to_owned(), header: header},
         table: output,
     };
 
@@ -339,7 +339,7 @@ mod tests {
     fn test_StrictError_fewer() {
         let s = "here baby;1;2\n3;4".to_owned();
         let out: StrictTable;
-        match create_StrictTable_from_csv(&s) {
+        match create_StrictTable_from_csv(&s, "test") {
             Ok(o) => out = o,
             Err(e) => {
                 println!("{}", e);
@@ -353,7 +353,7 @@ mod tests {
     fn test_StrictError_more() {
         let s = "here baby;1;2\n3;4;5;6".to_owned();
         let out: StrictTable;
-        match create_StrictTable_from_csv(&s) {
+        match create_StrictTable_from_csv(&s, "test") {
             Ok(o) => out = o,
             Err(e) => {
                 println!("{}", e);
@@ -367,7 +367,7 @@ mod tests {
     fn test_StrictError_repeating_header() {
         let s = "here baby;1;1\n3;4;5".to_owned();
         let out: StrictTable;
-        match create_StrictTable_from_csv(&s) {
+        match create_StrictTable_from_csv(&s, "test") {
             Ok(o) => out = o,
             Err(e) => {
                 println!("{}", e);
@@ -381,7 +381,7 @@ mod tests {
     fn test_method_equals_function() {
         let s = "here baby;1;2\n3;4;5".to_owned();
         let out1: StrictTable;
-        match StrictTable::from_csv_string(&s) {
+        match StrictTable::from_csv_string(&s, "test") {
             Ok(o) => out1 = o,
             Err(e) => {
                 println!("{}", e);
@@ -389,7 +389,7 @@ mod tests {
             },
         };
         let out2: StrictTable;
-        match create_StrictTable_from_csv(&s) {
+        match create_StrictTable_from_csv(&s, "test") {
             Ok(o) => out2 = o,
             Err(e) => {
                 println!("{}", e);
@@ -403,7 +403,7 @@ mod tests {
 
     #[test]
     fn test_StrictTable_to_csv_string() {
-        let t = StrictTable::from_csv_string(&"1;here baby;3;2\n2;3;4;5".to_owned()).unwrap();
+        let t = StrictTable::from_csv_string(&"1;here baby;3;2\n2;3;4;5".to_owned(), "test").unwrap();
         let x = t.to_csv_string();
         println!("{}", x);
         assert_eq!(x, "1;here baby;3;2\n2;3;4;5".to_owned());
