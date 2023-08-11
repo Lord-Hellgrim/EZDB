@@ -14,4 +14,6 @@ Future features, in order, are planned as:
 This is not meant to be a replacement for Postgres or other SQL monsters, just a easy little database for co-ordinating
 data in a small application.
 
+Can I?
+
 No you cannot!
