@@ -124,7 +124,7 @@ pub fn server(address: &str, global: Arc<Mutex<HashMap<String, StrictTable>>>) -
             }
 
             // Here we create a StrictTable from the csv and supplied name
-            match create_StrictTable_from_csv(&csv, name) {
+            match StrictTable::from_csv_string(&csv, name) {
                 Ok(table) => {
                     match stream.write(&b.to_be_bytes()) {
                         Ok(_) => println!("Confirmed correctness with client"),
