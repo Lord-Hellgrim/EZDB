@@ -6,11 +6,12 @@ use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::str::{self, Utf8Error};
 
+use crate::networking_utilities::bytes_to_str;
 use crate::client_networking::ConnectionError;
 use crate::db_structure::{self, StrictTable, create_StrictTable_from_csv, StrictError};
 
 
-const MAX_INSTRUCTION_LENGTH: usize = 1024;
+const BUFFER_SIZE: usize = 1024;
 
 pub enum Request {
     Upload,
@@ -33,8 +34,8 @@ pub enum InstructionError {
 impl fmt::Display for InstructionError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            InstructionError::Invalid(instruction) => write!(f, "The instruction:\n\n{instruction}\n\nis invalid. See documentation for valid instructions\n\n"),
-            InstructionError::TooLong => write!(f, "Your instructions are too long. Maximum instruction length is: {MAX_INSTRUCTION_LENGTH}\n\n"),
+            InstructionError::Invalid(instruction) => write!(f, "The instruction:\n\n{instruction}\n\nis invalid. See documentation for valid buffer\n\n"),
+            InstructionError::TooLong => write!(f, "Your buffer are too long. Maximum instruction length is: {BUFFER_SIZE}\n\n"),
         }
     }
 }
@@ -70,11 +71,11 @@ pub fn server(address: &str, global: Arc<Mutex<HashMap<String, StrictTable>>>) -
             };
 
             /* Then we allocate an instruction buffer. It's size should vary according to the incoming transmission. It doesn't currently */
-            let mut instructions: [u8; 1024] = [0; 1024];
+            let mut buffer: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
             println!("Initialized string buffer");
             loop {
                 /* This loop should handle differentl sized transmissions and break when there is no more data */
-                match stream.read(&mut instructions) {
+                match stream.read(&mut buffer) {
                     Ok(n) => {
                         println!("Read {n} bytes");
                         break;
@@ -84,7 +85,7 @@ pub fn server(address: &str, global: Arc<Mutex<HashMap<String, StrictTable>>>) -
             }
             
             /* Depending on the instructions received, a different action should be taken */
-            let instruction = match str::from_utf8(&instructions) {
+            let instruction = match bytes_to_str(&buffer) {
                 Ok(value) => {
                     println!("{}", value);
                     value
@@ -93,6 +94,7 @@ pub fn server(address: &str, global: Arc<Mutex<HashMap<String, StrictTable>>>) -
             };
 
             let instruction: Vec<&str> = instruction.split('|').collect();
+            println!("{}", instruction.len());
             if instruction.len() != 2 {
                 return Err(ServerError::Instruction(InstructionError::Invalid(instruction[0].to_owned())));
             }
@@ -110,18 +112,23 @@ pub fn server(address: &str, global: Arc<Mutex<HashMap<String, StrictTable>>>) -
             }
 
             // Here we read the transmitted CSV from the stream into a rust String (aka a Vec)
-            let mut csv = "".to_owned();
+            let mut buffer = [0;BUFFER_SIZE];
             let b: usize;
             loop {
-                match stream.read_to_string(&mut csv) {
+                match stream.read(&mut buffer) {
                     Ok(n) => {
                         b = n;
-                        println!("{}", &csv);
+                        println!("Read {} bytes", n);
                         break;
                     },
                     Err(e) => {return Err(ServerError::Io(e));},
                 };
             }
+
+            let csv = match bytes_to_str(&buffer) {
+                Ok(value) => value.to_owned(),
+                Err(e) => {return Err(ServerError::Utf8(e));},
+            };
 
             // Here we create a StrictTable from the csv and supplied name
             match StrictTable::from_csv_string(&csv, name) {
@@ -131,9 +138,15 @@ pub fn server(address: &str, global: Arc<Mutex<HashMap<String, StrictTable>>>) -
                         Err(e) => {return Err(ServerError::Io(e));},
                     };
                     //need to append the new table to global data here
+                    println!("Appending to global");
+                    println!("{:?}", &table.table);
                     thread_global.lock().unwrap().insert(table.metadata.name.clone(), table);
+                    let check = &*thread_global;
+                    let check_guard = check.lock().unwrap();
+                    let map = &*check_guard;
+                    println!("Printing global data:\n\n{:?}", map["test"]);
                 },
-                Err(e) => match stream.write_all(e.to_string().as_bytes()){
+                Err(e) => match stream.write(e.to_string().as_bytes()){
                     Ok(_) => println!("Informed client of corruption"),
                     Err(e) => {return Err(ServerError::Io(e));},
                 },
@@ -142,6 +155,7 @@ pub fn server(address: &str, global: Arc<Mutex<HashMap<String, StrictTable>>>) -
             Ok(())
 
         });
+        println!("Thread finished!");
         continue;
     }
 
@@ -157,5 +171,9 @@ mod tests {
         let mut global: HashMap<String, StrictTable> = HashMap::new();
         let arc_global = Arc::new(Mutex::new(global));
         server("127.0.0.1:3004", arc_global.clone());
+        let check = &*arc_global;
+        let check_guard = check.lock().unwrap();
+        let map = &*check_guard;
+        println!("{:?}", map["test"]);
     }
 }

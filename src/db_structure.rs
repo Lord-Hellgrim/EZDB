@@ -49,6 +49,11 @@ pub struct StrictTable {
 
 impl StrictTable {
     pub fn from_csv_string(s: &String, name: &str) -> Result<StrictTable, StrictError> {
+        
+        if s.len() < 1 {
+            return Err(StrictError::Empty)
+        }
+        
         let mut header = Vec::new();
         
         {    /* Checking for unique header */

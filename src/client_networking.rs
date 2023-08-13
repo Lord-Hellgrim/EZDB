@@ -5,6 +5,10 @@ use std::error::Error;
 use std::time::{Duration, self, SystemTime};
 use std::str::{self, Utf8Error};
 
+use crate::networking_utilities::bytes_to_str;
+
+
+const BUFFER_SIZE: usize = 1024;
 
 
 #[derive(Debug)]
@@ -58,16 +62,16 @@ pub fn send_csv(request: &str, csv: &String, address: &str) -> Result<String, Co
     }
 
     let sent_bytes: usize;
-    let buffer = match str::from_utf8(&buffer) {
+    let buffer = match bytes_to_str(&buffer) {
         Ok(value) => {
             println!("{}", value);
             value
         },
         Err(e) => {return Err(ConnectionError::Utf8(e));}
     };
-    println!("Response: '{buffer}' - received");
+    println!("Response: '{:?}' - received", buffer.as_bytes());
     if buffer.trim() == "OK" {
-        match connection.write_all(csv.as_bytes()) {
+        match connection.write(csv.as_bytes()) {
             Ok(_) => sent_bytes = csv.as_bytes().len(),
             Err(e) => {return Err(ConnectionError::Io(e));},
         }
@@ -76,21 +80,21 @@ pub fn send_csv(request: &str, csv: &String, address: &str) -> Result<String, Co
     }
 
     let timer = SystemTime::now();
-    let mut buffer = String::new();
+    let mut buffer: [u8; BUFFER_SIZE] = [0;BUFFER_SIZE];
     loop {
         if timer.elapsed().unwrap() > Duration::from_secs(5) {
             return Err(ConnectionError::UnconfirmedTransaction);         
         }
-        match connection.read_to_string(&mut buffer) {
+        match connection.read(&mut buffer) {
             Ok(_) => break,
             Err(_) => {return Err(ConnectionError::UnconfirmedTransaction);},
         }
     }
-    if buffer.parse::<usize>().unwrap() == sent_bytes {
-        Ok("Transaction cofirmed by server".to_owned())
-    } else {
-        Err(ConnectionError::CorruptTransaction)
-    }
+
+    println!("Final buffer: {:?}", &buffer);
+    
+    Ok("Transaction successful".to_owned())
+
 }
 
 
