@@ -9,7 +9,7 @@ use std::str::{self, Utf8Error};
 use crate::networking_utilities::bytes_to_str;
 
 
-const BUFFER_SIZE: usize = 1024;
+const BUFFER_SIZE: usize = 1_000_000;
 
 
 #[derive(Debug)]

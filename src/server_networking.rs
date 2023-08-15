@@ -51,26 +51,27 @@ pub fn parse_instruction(s: &str) -> Result<Request, InstructionError> {
 
 
 
-pub fn server(address: &str, global: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<(), Box<dyn Error>> {
-    let l = TcpListener::bind(address)?;
+pub fn server(address: &str, global: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<(), ServerError> {
+    let l = match TcpListener::bind(address) {
+        Ok(value) => value,
+        Err(e) => {return Err(ServerError::Io(e));},
+    };
 
     
     /* This is the main loop of the function. Here we accept incoming connections and process them */
-    for stream in l.incoming() {
-        println!("Accepted connection");
+    // for stream in l.incoming() {
+    loop {
+        let (mut stream, client_address) = match l.accept() {
+            Ok((n,m)) => (n, m),
+            Err(e) => {return Err(ServerError::Io(e));},
+        };
+        println!("Accepted connection from: {}", client_address);
 
         // Spawn a new thread for each connection for some semblence of scalability
         let thread_global = global.clone();
         std::thread::spawn(move || {
 
-            /* The first thing the thread does is match on the accepted connection and return a ServerError if there is a problem */
-            println!("Spawned thread");
-            let mut stream = match stream {
-                Ok(value) => {println!("Unwrapped Result"); value},
-                Err(e) => {return Err(ServerError::Io(e));},
-            };
-
-            /* Then we allocate an instruction buffer. It's size should vary according to the incoming transmission. It doesn't currently */
+            /* Then we allocate an instruction buffer. Considering a macro to change the buffer size according to local cache size */
             let mut buffer: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
             println!("Initialized string buffer");
             loop {
@@ -173,9 +174,5 @@ mod tests {
         let mut global: HashMap<String, StrictTable> = HashMap::new();
         let arc_global = Arc::new(Mutex::new(global));
         server("127.0.0.1:3004", arc_global.clone());
-        let check = &*arc_global;
-        let check_guard = check.lock().unwrap();
-        let map = &*check_guard;
-        println!("{:?}", map["test"]);
     }
 }
