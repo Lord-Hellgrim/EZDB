@@ -8,7 +8,7 @@ use std::str::{self, Utf8Error};
 
 use crate::networking_utilities::bytes_to_str;
 use crate::client_networking::ConnectionError;
-use crate::db_structure::{self, StrictTable, create_StrictTable_from_csv, StrictError};
+use crate::db_structure::{self, StrictTable, StrictError};
 
 
 const BUFFER_SIZE: usize = 1024;
@@ -133,18 +133,20 @@ pub fn server(address: &str, global: Arc<Mutex<HashMap<String, StrictTable>>>) -
             // Here we create a StrictTable from the csv and supplied name
             match StrictTable::from_csv_string(&csv, name) {
                 Ok(table) => {
-                    match stream.write(&b.to_be_bytes()) {
+                    match stream.write(format!("X{}X", b).as_bytes()) {
                         Ok(_) => println!("Confirmed correctness with client"),
                         Err(e) => {return Err(ServerError::Io(e));},
                     };
+
                     //need to append the new table to global data here
                     println!("Appending to global");
                     println!("{:?}", &table.table);
                     thread_global.lock().unwrap().insert(table.metadata.name.clone(), table);
-                    let check = &*thread_global;
-                    let check_guard = check.lock().unwrap();
-                    let map = &*check_guard;
-                    println!("Printing global data:\n\n{:?}", map["test"]);
+                    // This is just to check whether it worked
+                    // let check = &*thread_global;
+                    // let check_guard = check.lock().unwrap();
+                    // let map = &*check_guard;
+                    // println!("Printing global data:\n\n{:?}", map["test"]);
                 },
                 Err(e) => match stream.write(e.to_string().as_bytes()){
                     Ok(_) => println!("Informed client of corruption"),

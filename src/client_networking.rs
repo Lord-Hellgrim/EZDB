@@ -1,3 +1,4 @@
+use core::num;
 use std::fmt;
 use std::net::TcpStream;
 use std::io::{Read, Write};
@@ -28,7 +29,7 @@ impl fmt::Display for ConnectionError {
             ConnectionError::TimeOut => write!(f, "Connection timed out\n"),
             ConnectionError::InvalidRequest(s) => write!(f, "Request: '{}' is invalid. For list of valid requests, see documentation", s),
             ConnectionError::UnconfirmedTransaction => write!(f, "Transaction was not confirmed by server and may not have been received"),
-            Self::CorruptTransaction => write!(f, "Transaction may be corrupted"),
+            ConnectionError::CorruptTransaction => write!(f, "Transaction may be corrupted"),
             ConnectionError::Utf8(e) => write!(f, "There has been a utf8 error: {}", e)
         }
     }
@@ -44,13 +45,13 @@ pub fn send_csv(request: &str, csv: &String, address: &str) -> Result<String, Co
     };
     
     match connection.write(request.as_bytes()) {
-        Ok(n) => println!("Wrote {n} bytes"),
+        Ok(n) => println!("Wrote request: {request}\nas {n} bytes"),
         Err(e) => {return Err(ConnectionError::Io(e));},
     };
     
     let mut buffer: [u8;1024] = [0;1024];
     let timer = SystemTime::now();
-    println!("Waiting for response");
+    println!("Waiting for response from server");
     loop {
         if timer.elapsed().unwrap() > Duration::from_secs(5) {
             return Err(ConnectionError::TimeOut);         
@@ -64,13 +65,13 @@ pub fn send_csv(request: &str, csv: &String, address: &str) -> Result<String, Co
     let sent_bytes: usize;
     let buffer = match bytes_to_str(&buffer) {
         Ok(value) => {
-            println!("{}", value);
             value
         },
         Err(e) => {return Err(ConnectionError::Utf8(e));}
     };
-    println!("Response: '{:?}' - received", buffer.as_bytes());
+    println!("Response: '{}' - received", buffer);
     if buffer.trim() == "OK" {
+        println!("Sending data...");
         match connection.write(csv.as_bytes()) {
             Ok(_) => sent_bytes = csv.as_bytes().len(),
             Err(e) => {return Err(ConnectionError::Io(e));},
@@ -78,6 +79,8 @@ pub fn send_csv(request: &str, csv: &String, address: &str) -> Result<String, Co
     } else {
         return Err(ConnectionError::InvalidRequest(buffer.to_owned()));
     }
+
+    println!("Data sent.\nWaiting for confirmation...");
 
     let timer = SystemTime::now();
     let mut buffer: [u8; BUFFER_SIZE] = [0;BUFFER_SIZE];
@@ -91,7 +94,25 @@ pub fn send_csv(request: &str, csv: &String, address: &str) -> Result<String, Co
         }
     }
 
-    println!("Final buffer: {:?}", &buffer);
+    let final_answer = match bytes_to_str(&buffer) {
+        Ok(value) => value.to_owned(),
+        Err(e) => { return Err(ConnectionError::UnconfirmedTransaction);}
+    };
+
+    let mut bytes_received = "".to_owned();
+    let mut num_switch = 0;
+    for c in final_answer.chars() {
+        if c == 'X' {
+            num_switch = num_switch ^ 1;
+            continue;
+        }
+        if num_switch == 1 {
+            bytes_received.push(c);
+        }
+    }
+    let bytes_received = bytes_received.parse::<usize>().unwrap_or(0xBAD);
+
+    println!("Bytes received: {:X}", bytes_received);
     
     Ok("Transaction successful".to_owned())
 

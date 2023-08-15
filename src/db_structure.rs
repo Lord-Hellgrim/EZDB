@@ -56,6 +56,7 @@ impl StrictTable {
         
         let mut header = Vec::new();
         
+        
         {    /* Checking for unique header */
             let mut rownum = 0;
             for item in s.lines().next().unwrap().split(';') {
@@ -108,6 +109,7 @@ impl StrictTable {
             }
         }
 
+
         { // Checking that all rows have same number of items as header
             let mut count_rows: usize = 0;
             let mut count_columns: usize = 0;
@@ -127,6 +129,7 @@ impl StrictTable {
                 count_columns += 1;
             }
         } // Finished checking
+
 
         let mut output = BTreeMap::new();
         let mut rownum: usize = 0;
@@ -172,11 +175,6 @@ impl StrictTable {
 
         Ok(r)
     }
-
-
-
-
-
 
 
     pub fn to_csv_string(&self) -> String {
@@ -225,6 +223,8 @@ pub fn create_StrictTable_from_csv(s: &String, name: &str) -> Result<StrictTable
     r
     
 }
+
+
 
 #[cfg(test)]
 mod tests {

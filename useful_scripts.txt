@@ -1,2 +1,2 @@
 git ls-files | xargs wc -l
-git ls-files| grep'\.rs' | xargs wc -l
+git ls-files| grep '\.rs' | xargs wc -l
