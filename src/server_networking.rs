@@ -75,10 +75,17 @@ fn handle_sending_csv(mut stream: TcpStream, name: &str, thread_global: Arc<Mute
     };
 
     // Here we read the transmitted CSV from the stream into a rust String (aka a Vec)
+    println!("Allocating csv buffer");
     let mut buffer = [0;CSV_BUFFER];
     let b: usize;
     loop {
-        stream.read(&mut buffer)?;
+        match stream.read(&mut buffer) {
+            Ok(n) => {
+                b = n;
+                println!("Read {n} bytes");
+                break;},
+            Err(e) => {return Err(ServerError::Io(e));},
+        };
     }
 
     let csv = bytes_to_str(&buffer)?;
