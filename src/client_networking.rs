@@ -36,20 +36,39 @@ impl fmt::Display for ConnectionError {
 }
 
 
-pub fn send_csv(request: &str, csv: &String, address: &str) -> Result<String, ConnectionError> {
+pub fn request_csv(name: &str, address: &str) -> Result<String, ConnectionError> {
+
+    let mut connection: TcpStream = match TcpStream::connect(address) {
+        Ok(stream) => stream,
+        Err(e) => {return Err(ConnectionError::Io(e));}
+    };
+    
+    match connection.write(format!("Requesting csv|{}", name).as_bytes()) {
+        Ok(n) => println!("Wrote request as {n} bytes"),
+        Err(e) => {return Err(ConnectionError::Io(e));},
+    };
+
+    
+
+
+    Ok("".to_owned())
+}
+
+
+pub fn send_csv(name: &str, csv: &String, address: &str) -> Result<String, ConnectionError> {
 
     let mut connection: TcpStream;
-    match TcpStream::connect("127.0.0.1:3004") {
+    match TcpStream::connect(address) {
         Ok(stream) => connection = stream,
         Err(e) => {return Err(ConnectionError::Io(e));},
     };
-    
-    match connection.write(request.as_bytes()) {
-        Ok(n) => println!("Wrote request: {request}\nas {n} bytes"),
+
+    match connection.write(format!("Sending csv|{}", name).as_bytes()) {
+        Ok(n) => println!("Wrote request as {n} bytes"),
         Err(e) => {return Err(ConnectionError::Io(e));},
     };
     
-    let mut buffer: [u8;1024] = [0;1024];
+    let mut buffer: [u8;BUFFER_SIZE] = [0;BUFFER_SIZE];
     let timer = SystemTime::now();
     println!("Waiting for response from server");
     loop {
@@ -129,7 +148,7 @@ mod tests {
     fn test_send_csv() {
         let csv = std::fs::read_to_string("sample_data.txt").unwrap();
         let address = "127.0.0.1:3004";
-        let e = send_csv("Sending CSV|test", &csv, address);
+        let e = send_csv("test", &csv, address);
         match e {
             Ok(_) => println!("OK"),
             Err(e) => println!("{}", e),

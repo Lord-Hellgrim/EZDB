@@ -8,6 +8,7 @@ mod db_structure;
 mod server_networking;
 mod client_networking;
 mod networking_utilities;
+mod logger;
 
 fn main() {
     let mut global: HashMap<String, db_structure::StrictTable> = HashMap::new();

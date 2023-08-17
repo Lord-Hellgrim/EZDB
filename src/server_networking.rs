@@ -1,7 +1,7 @@
 use std::collections::HashMap;
-use std::fmt;
+use std::{fmt, error};
 use std::io::{Write, Read};
-use std::net::TcpListener;
+use std::net::{TcpListener, TcpStream};
 use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::str::{self, Utf8Error};
@@ -11,21 +11,47 @@ use crate::client_networking::ConnectionError;
 use crate::db_structure::{self, StrictTable, StrictError};
 
 
-const BUFFER_SIZE: usize = 1024;
+const INSTRUCTION_BUFFER: usize = 1024;
+const CSV_BUFFER: usize = 1_000_000;
 
 pub enum Request {
     Upload,
     Download(String)
 }
 
+#[derive(Debug)]
 pub enum ServerError {
     Utf8(Utf8Error),
     Io(std::io::Error),
     Instruction(InstructionError),
+    Confirmation(Vec<u8>),
+}
+
+impl fmt::Display for ServerError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ServerError::Utf8(e) => write!(f, "Encontered invalid utf-8: {}", e),
+            ServerError::Io(e) => write!(f, "Encountered an IO error: {}", e),
+            ServerError::Instruction(e) => write!(f, "{}", e),
+            ServerError::Confirmation(e) => write!(f, "Received corrupt confirmation {:?}", e),
+        }
+    }
+}
+
+impl From<std::io::Error> for ServerError {
+    fn from(e: std::io::Error) -> Self {
+        ServerError::Io(e)
+    }
+}
+
+impl From<Utf8Error> for ServerError {
+    fn from(e: Utf8Error) -> Self {
+        ServerError::Utf8(e)
+    }
 }
 
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum InstructionError {
     Invalid(String),
     TooLong,
@@ -34,21 +60,92 @@ pub enum InstructionError {
 impl fmt::Display for InstructionError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            InstructionError::Invalid(instruction) => write!(f, "The instruction:\n\n{instruction}\n\nis invalid. See documentation for valid buffer\n\n"),
-            InstructionError::TooLong => write!(f, "Your buffer are too long. Maximum instruction length is: {BUFFER_SIZE}\n\n"),
+            InstructionError::Invalid(instruction) => write!(f, "The instruction:\n\n\t{instruction}\n\nis invalid. See documentation for valid buffer\n\n"),
+            InstructionError::TooLong => write!(f, "Your buffer are too long. Maximum instruction length is: {INSTRUCTION_BUFFER}\n\n"),
         }
     }
 }
 
 
-pub fn parse_instruction(s: &str) -> Result<Request, InstructionError> {
-    match s {
-        "Sending CSV" => Ok(Request::Upload),
-        _ => Err(InstructionError::Invalid(s.to_owned())),
+fn handle_sending_csv(mut stream: TcpStream, name: &str, thread_global: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<(), ServerError> {
+
+    match stream.write("OK".as_bytes()) {
+        Ok(n) => println!("Wrote {n} bytes"),
+        Err(e) => {return Err(ServerError::Io(e));},
+    };
+
+    // Here we read the transmitted CSV from the stream into a rust String (aka a Vec)
+    let mut buffer = [0;CSV_BUFFER];
+    let b: usize;
+    loop {
+        stream.read(&mut buffer)?;
     }
+
+    let csv = bytes_to_str(&buffer)?;
+
+    // Here we create a StrictTable from the csv and supplied name
+    match StrictTable::from_csv_string(csv, name) {
+        Ok(table) => {
+            match stream.write(format!("X{}X", b).as_bytes()) {
+                Ok(_) => println!("Confirmed correctness with client"),
+                Err(e) => {return Err(ServerError::Io(e));},
+            };
+
+            //need to append the new table to global data here
+            println!("Appending to global");
+            println!("{:?}", &table.table);
+            thread_global.lock().unwrap().insert(table.metadata.name.clone(), table);
+            // This is just to check whether it worked
+            // let check = &*thread_global;
+            // let check_guard = check.lock().unwrap();
+            // let map = &*check_guard;
+            // println!("Printing global data:\n\n{:?}", map["test"]);
+        },
+        Err(e) => match stream.write(e.to_string().as_bytes()){
+            Ok(_) => println!("Informed client of corruption"),
+            Err(e) => {return Err(ServerError::Io(e));},
+        },
+    };
+
+    Ok(())
 }
 
 
+fn handle_requesting_csv(mut stream: TcpStream, name: &str, thread_global: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<(), ServerError> {
+    
+    let requested_table = thread_global.lock().unwrap();
+    let requested_table = match requested_table.get(name) {
+        Some(table) => table,
+        None => {return Err(ServerError::Instruction(InstructionError::Invalid(format!("No table named {}", name).to_owned())))},
+    };
+
+    match stream.write("OK".as_bytes()) {
+        Ok(n) => println!("Wrote {n} bytes"),
+        Err(e) => {return Err(ServerError::Io(e));},
+    };
+
+    match stream.write(requested_table.to_csv_string().as_bytes()) {
+        Ok(n) => println!("Wrote {n} bytes"),
+        Err(e) => {return Err(ServerError::Io(e));},
+    }
+
+    let mut buffer: [u8;INSTRUCTION_BUFFER] = [0;INSTRUCTION_BUFFER];
+    match stream.read(&mut buffer) {
+        Ok(n) => println!("Wrote {n} bytes"),
+        Err(_) => println!("Did not confirm transmission with client"),
+    }
+
+    let confirmation = match bytes_to_str(&buffer) {
+        Ok(value) => value,
+        Err(e) => {return Err(ServerError::Utf8(e));},
+    };
+
+    if confirmation == "OK" {
+        Ok(())
+    } else {
+        Err(ServerError::Confirmation(Vec::from(confirmation)))
+    }
+}
 
 
 pub fn server(address: &str, global: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<(), ServerError> {
@@ -71,11 +168,9 @@ pub fn server(address: &str, global: Arc<Mutex<HashMap<String, StrictTable>>>) -
         let thread_global = global.clone();
         std::thread::spawn(move || {
 
-            /* Then we allocate an instruction buffer. Considering a macro to change the buffer size according to local cache size */
-            let mut buffer: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
+            let mut buffer: [u8; INSTRUCTION_BUFFER] = [0; INSTRUCTION_BUFFER];
             println!("Initialized string buffer");
             loop {
-                /* This loop should handle differentl sized transmissions and break when there is no more data */
                 match stream.read(&mut buffer) {
                     Ok(n) => {
                         println!("Read {n} bytes");
@@ -85,7 +180,6 @@ pub fn server(address: &str, global: Arc<Mutex<HashMap<String, StrictTable>>>) -
                 };
             }
             
-            /* Depending on the instructions received, a different action should be taken */
             let instruction = match bytes_to_str(&buffer) {
                 Ok(value) => {
                     println!("{}", value);
@@ -102,60 +196,17 @@ pub fn server(address: &str, global: Arc<Mutex<HashMap<String, StrictTable>>>) -
             let (instruction, name) = (instruction[0], instruction[1]);
 
             // Here we parse the instructions. I would like to figure out how to make this a function that propagates an InstructionError
-            if instruction == "Sending CSV" {
-                match stream.write("OK".as_bytes()) {
-                    Ok(n) => println!("Wrote {n} bytes"),
-                    Err(e) => {return Err(ServerError::Io(e));},
-                };
+            if instruction == "Sending csv" {
+                match handle_sending_csv(stream, name, thread_global.clone()) {
+                    Ok(_) => {return Ok(());},
+                    Err(e) => {return Err(e);}
+                }
             } else {
                 stream.write("Invalid request".as_bytes()).expect("Panicked while informing client of invalid request");
                 return Err(ServerError::Instruction(InstructionError::Invalid(instruction.to_owned())));
             }
 
-            // Here we read the transmitted CSV from the stream into a rust String (aka a Vec)
-            let mut buffer = [0;BUFFER_SIZE];
-            let b: usize;
-            loop {
-                match stream.read(&mut buffer) {
-                    Ok(n) => {
-                        b = n;
-                        println!("Read {} bytes", n);
-                        break;
-                    },
-                    Err(e) => {return Err(ServerError::Io(e));},
-                };
-            }
-
-            let csv = match bytes_to_str(&buffer) {
-                Ok(value) => value.to_owned(),
-                Err(e) => {return Err(ServerError::Utf8(e));},
-            };
-
-            // Here we create a StrictTable from the csv and supplied name
-            match StrictTable::from_csv_string(&csv, name) {
-                Ok(table) => {
-                    match stream.write(format!("X{}X", b).as_bytes()) {
-                        Ok(_) => println!("Confirmed correctness with client"),
-                        Err(e) => {return Err(ServerError::Io(e));},
-                    };
-
-                    //need to append the new table to global data here
-                    println!("Appending to global");
-                    println!("{:?}", &table.table);
-                    thread_global.lock().unwrap().insert(table.metadata.name.clone(), table);
-                    // This is just to check whether it worked
-                    // let check = &*thread_global;
-                    // let check_guard = check.lock().unwrap();
-                    // let map = &*check_guard;
-                    // println!("Printing global data:\n\n{:?}", map["test"]);
-                },
-                Err(e) => match stream.write(e.to_string().as_bytes()){
-                    Ok(_) => println!("Informed client of corruption"),
-                    Err(e) => {return Err(ServerError::Io(e));},
-                },
-            };
-
-            Ok(())
+            
 
         });
         println!("Thread finished!");

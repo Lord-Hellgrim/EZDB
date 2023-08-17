@@ -48,7 +48,7 @@ pub struct StrictTable {
 }
 
 impl StrictTable {
-    pub fn from_csv_string(s: &String, name: &str) -> Result<StrictTable, StrictError> {
+    pub fn from_csv_string(s: &str, name: &str) -> Result<StrictTable, StrictError> {
         
         if s.len() < 1 {
             return Err(StrictError::Empty)
@@ -223,8 +223,6 @@ pub fn create_StrictTable_from_csv(s: &String, name: &str) -> Result<StrictTable
     r
     
 }
-
-
 
 #[cfg(test)]
 mod tests {
