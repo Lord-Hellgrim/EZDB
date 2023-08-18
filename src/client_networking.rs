@@ -35,6 +35,19 @@ impl fmt::Display for ConnectionError {
     }
 }
 
+impl From<std::io::Error> for ConnectionError {
+    fn from(e: std::io::Error) -> Self {
+        ConnectionError::Io(e)
+    }
+}
+
+impl From<Utf8Error> for ConnectionError {
+    fn from(e: Utf8Error) -> Self {
+        ConnectionError::Utf8(e)
+    }
+}
+
+
 
 pub fn request_csv(name: &str, address: &str) -> Result<String, ConnectionError> {
 
