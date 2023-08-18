@@ -48,6 +48,12 @@ pub fn request_csv(name: &str, address: &str) -> Result<String, ConnectionError>
         Err(e) => {return Err(ConnectionError::Io(e));},
     };
 
+    let mut buffer: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
+    loop {
+        match connection.read(&mut buffer) {
+            Ok(_) => break,
+            Err(e) => {return Err(ConnectionError::Io(e));}        }
+    }
     
 
 
@@ -153,5 +159,12 @@ mod tests {
             Ok(_) => println!("OK"),
             Err(e) => println!("{}", e),
         }
+    }
+
+    fn test_receive_csv() {
+        test_send_csv();
+        let name = "test";
+        let address = "127.0.0.1:3004";
+
     }
 }
