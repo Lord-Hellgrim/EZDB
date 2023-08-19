@@ -129,20 +129,23 @@ fn handle_requesting_csv(mut stream: TcpStream, name: &str, thread_global: Arc<M
     };
 
     match stream.write(requested_table.to_csv_string().as_bytes()) {
-        Ok(n) => println!("Wrote {n} bytes"),
+        Ok(n) => println!("Wrote requested csv as {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e));},
     }
 
+    // Waiting for confirmation from client
     let mut buffer: [u8;INSTRUCTION_BUFFER] = [0;INSTRUCTION_BUFFER];
-    match stream.read(&mut buffer) {
-        Ok(n) => println!("Wrote {n} bytes"),
-        Err(_) => println!("Did not confirm transmission with client"),
+    loop {
+        match stream.read(&mut buffer) {
+            Ok(n) => {
+                println!("Confirmation '{}' received", bytes_to_str(&buffer)?);
+                break;
+            },
+            Err(_) => println!("Did not confirm transmission with client"),
+        }
     }
 
-    let confirmation = match bytes_to_str(&buffer) {
-        Ok(value) => value,
-        Err(e) => {return Err(ServerError::Utf8(e));},
-    };
+    let confirmation = bytes_to_str(&buffer)?;
 
     if confirmation == "OK" {
         Ok(())
@@ -202,23 +205,26 @@ pub fn server(address: &str, global: Arc<Mutex<HashMap<String, StrictTable>>>) -
             // Here we parse the instructions. I would like to figure out how to make this a function that propagates an InstructionError
             if instruction == "Sending csv" {
                 match handle_sending_csv(stream, name, thread_global.clone()) {
-                    Ok(_) => {return Ok(());},
+                    Ok(_) => {
+                        println!("Thread finished!");
+                        return Ok(());
+                    },
                     Err(e) => {return Err(e);}
                 }
             } else if instruction == "Requesting csv" {
                 match handle_requesting_csv(stream, name, thread_global.clone()) {
-                    Ok(_) => {return Ok(());},
+                    Ok(_) => {
+                        println!("Thread finished!");
+                        return Ok(());
+                    },
                     Err(e) => {return Err(e);}
                 }
             } else {
                 stream.write("Invalid request".as_bytes()).expect("Panicked while informing client of invalid request");
                 return Err(ServerError::Instruction(InstructionError::Invalid(instruction.to_owned())));
             }
-
             
-
         });
-        println!("Thread finished!");
         continue;
     }
 

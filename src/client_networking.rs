@@ -186,10 +186,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_send_csv() {
-        let csv = std::fs::read_to_string("sample_data.txt").unwrap();
+    fn test_send_good_csv() {
+        let csv = std::fs::read_to_string("good_csv.txt").unwrap();
         let address = "127.0.0.1:3004";
-        let e = send_csv("test", &csv, address);
+        let e = send_csv("good_csv", &csv, address);
+        match e {
+            Ok(_) => println!("OK"),
+            Err(e) => println!("{}", e),
+        }
+    }
+
+    #[test]
+    fn test_send_bad_csv() {
+        let csv = std::fs::read_to_string("bad_csv.txt").unwrap();
+        let address = "127.0.0.1:3004";
+        let e = send_csv("bad_csv", &csv, address);
         match e {
             Ok(_) => println!("OK"),
             Err(e) => println!("{}", e),
@@ -199,8 +210,8 @@ mod tests {
     #[test]
     fn test_receive_csv() {
         println!("Sending...\n##########################");
-        test_send_csv();
-        let name = "test";
+        test_send_good_csv();
+        let name = "good_csv";
         let address = "127.0.0.1:3004";
         println!("Receiving\n############################");
         let table = request_csv(name, address).unwrap();

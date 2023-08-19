@@ -182,17 +182,6 @@ impl StrictTable {
         let map = &self.table;
         let header = &self.metadata.header;
 
-        // for item in header {
-        //     match item {
-        //         DbEntry::Float(value) => printer.push_str(&value.to_string()),
-        //         DbEntry::Int(value) => printer.push_str(&value.to_string()),
-        //         DbEntry::Text(value) => printer.push_str(&value),
-        //     };
-        //     printer.push(';');
-        // }
-        // printer.pop().unwrap();
-        // printer.push('\n');
-
         for (_, line) in map.iter() {
             for item in line {
                 match item {
@@ -209,6 +198,8 @@ impl StrictTable {
         printer = printer.trim().to_owned();
         printer
     }
+
+
 
 }
 
@@ -292,6 +283,7 @@ mod tests {
     #[test]
     fn test_StrictTable_to_csv_string() {
         let t = StrictTable::from_csv_string(&"1;here baby;3;2\n2;3;4;5".to_owned(), "test").unwrap();
+        println!("{:?}", t.metadata.header);
         let x = t.to_csv_string();
         println!("{}", x);
         assert_eq!(x, "1;here baby;3;2\n2;3;4;5".to_owned());

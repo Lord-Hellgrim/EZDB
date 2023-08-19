@@ -130,10 +130,10 @@ mod tests {
 
     #[test]
     fn test_destructor() {
-        let mut logger = Logger::new("logs".to_owned());
+        let mut logger = Logger::new("testlogs".to_owned());
         logger.log("Here is a log");
         if true {
-            let mut logg = Logger::new("logs1".to_owned());
+            let mut logg = Logger::new("testlogs1".to_owned());
             logg.log("Here is a different log");
         }
         println!("Here something is happening");
@@ -141,7 +141,7 @@ mod tests {
 
     #[test]
     fn test_too_big_log() {
-        let mut logger = Logger::new("logs".to_owned());
+        let mut logger = Logger::new("testlogs".to_owned());
         let mut s = "".to_owned();
         let mut i = 0;
         while i < 2000 {
@@ -154,7 +154,7 @@ mod tests {
     #[test]
     fn test_many_logs() {
         let mut i = 0;
-        let mut logger = Logger::new("logs".to_owned());
+        let mut logger = Logger::new("testlogs".to_owned());
         while i <1_000_000 {
             logger.log(&format!("Log nr. {}", i));
             i += 1;
