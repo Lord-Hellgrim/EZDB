@@ -1,22 +1,21 @@
 use std::collections::HashMap;
-use std::{fmt, error};
+use std::fmt;
 use std::io::{Write, Read};
 use std::net::{TcpListener, TcpStream};
-use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::str::{self, Utf8Error};
 
 use crate::networking_utilities::bytes_to_str;
-use crate::client_networking::ConnectionError;
-use crate::db_structure::{self, StrictTable, StrictError};
+use crate::db_structure::StrictTable;
 
 
 const INSTRUCTION_BUFFER: usize = 1024;
 const CSV_BUFFER: usize = 1_000_000;
 
-pub enum Request {
-    Upload,
-    Download(String)
+pub enum Instruction {
+    Upload(String),
+    Download(String),
+    Update(String, String),
 }
 
 #[derive(Debug)]
@@ -50,11 +49,18 @@ impl From<Utf8Error> for ServerError {
     }
 }
 
+impl From<InstructionError> for ServerError {
+    fn from(e: InstructionError) -> Self {
+        ServerError::Instruction(e)
+    }
+}
+
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum InstructionError {
     Invalid(String),
     TooLong,
+    Utf8(Utf8Error),
 }
 
 impl fmt::Display for InstructionError {
@@ -62,7 +68,33 @@ impl fmt::Display for InstructionError {
         match self {
             InstructionError::Invalid(instruction) => write!(f, "The instruction:\n\n\t{instruction}\n\nis invalid. See documentation for valid buffer\n\n"),
             InstructionError::TooLong => write!(f, "Your buffer are too long. Maximum instruction length is: {INSTRUCTION_BUFFER}\n\n"),
+            InstructionError::Utf8(e) => write!(f, "Invalid utf-8: {e}"),
         }
+    }
+}
+
+impl From<Utf8Error> for InstructionError {
+    fn from(e: Utf8Error) -> Self {
+        InstructionError::Utf8(e)
+    }
+}
+
+
+pub fn parse_instruction(buffer: &[u8]) -> Result<Instruction, InstructionError> {
+
+    let instruction = bytes_to_str(&buffer)?;
+    let instruction_block: Vec<&str> = instruction.split('|').collect();
+
+    if instruction_block.len() == 2 {
+        match instruction_block[0] {
+            "Sending csv" => {return Ok(Instruction::Upload(instruction_block[1].to_owned()));}
+            "Requesting csv" => {return Ok(Instruction::Download(instruction_block[1].to_owned()));}
+            _ => {return Err(InstructionError::Invalid(instruction.to_owned()));}
+        };
+    } else if instruction_block.len() == 3 {
+        {return Ok(Instruction::Update(instruction_block[1].to_owned(), instruction_block[2].to_owned()));}
+    } else {
+        return Err(InstructionError::Invalid(bytes_to_str(&buffer)?.to_owned()))
     }
 }
 
