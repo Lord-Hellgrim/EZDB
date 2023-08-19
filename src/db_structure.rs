@@ -7,6 +7,7 @@ pub enum StrictError {
     RepeatingHeader(usize, usize),
     FloatPrimaryKey,
     Empty,
+    Update(String),
 }
 
 impl fmt::Display for StrictError {
@@ -17,6 +18,7 @@ impl fmt::Display for StrictError {
             StrictError::RepeatingHeader(n, m) => write!(f, "Item {} and {} are repeated in the header.\n", n, m),
             StrictError::FloatPrimaryKey => write!(f, "Primary key can't be a floating point number. Must be an integer or string."),
             StrictError::Empty => write!(f, "Don't pass an empty string."),
+            StrictError::Update(s) => write!(f, "Failed to update because:\n{s}"),
         }
     }
 }
@@ -199,7 +201,20 @@ impl StrictTable {
         printer
     }
 
+    pub fn update(&mut self, csv: &str) -> Result<(), StrictError>{
 
+        let mut mapped_csv = StrictTable::from_csv_string(csv, "update")?;
+
+        if mapped_csv.metadata.header != self.metadata.header {
+            {return Err(StrictError::Update("Headers don't match".to_owned()));}
+        }
+
+        for (key, value) in mapped_csv.table {
+            self.table.insert(key, value.clone());
+        }
+
+        Ok(())
+    }
 
 }
 
@@ -287,6 +302,17 @@ mod tests {
         let x = t.to_csv_string();
         println!("{}", x);
         assert_eq!(x, "1;here baby;3;2\n2;3;4;5".to_owned());
+    }
+
+    #[test]
+    fn test_update_StrictTable() {
+        let s = std::fs::read_to_string("good_csv.txt").unwrap();
+        let mut t = StrictTable::from_csv_string(&s, "test").unwrap();
+        println!("t:\n{:?}", t.table);
+        let update_csv = "vnr;heiti;magn\n0113030;Flotsement;50";
+        t.update(update_csv);
+        println!("Updated t:\n{:?}", t.table);
+
     }
 
 }
