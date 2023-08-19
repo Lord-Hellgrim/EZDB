@@ -215,12 +215,7 @@ impl StrictTable {
 
 pub fn create_StrictTable_from_csv(s: &String, name: &str) -> Result<StrictTable, StrictError> {    
     
-    let r =  match StrictTable::from_csv_string(s, name) {
-        Ok(r) => Ok(r),
-        Err(e) => Err(e),
-    };
-
-    r
+    StrictTable::from_csv_string(s, name)
     
 }
 

@@ -6,6 +6,7 @@ use std::error::Error;
 use std::time::{Duration, self, SystemTime};
 use std::str::{self, Utf8Error};
 
+use crate::db_structure::{StrictTable, StrictError};
 use crate::networking_utilities::bytes_to_str;
 
 
@@ -20,6 +21,7 @@ pub enum ConnectionError {
     UnconfirmedTransaction,
     CorruptTransaction,
     Utf8(Utf8Error),
+    Strict(StrictError),
 }
 
 impl fmt::Display for ConnectionError {
@@ -30,7 +32,8 @@ impl fmt::Display for ConnectionError {
             ConnectionError::InvalidRequest(s) => write!(f, "Request: '{}' is invalid. For list of valid requests, see documentation", s),
             ConnectionError::UnconfirmedTransaction => write!(f, "Transaction was not confirmed by server and may not have been received"),
             ConnectionError::CorruptTransaction => write!(f, "Transaction may be corrupted"),
-            ConnectionError::Utf8(e) => write!(f, "There has been a utf8 error: {}", e)
+            ConnectionError::Utf8(e) => write!(f, "There has been a utf8 error: {}", e),
+            ConnectionError::Strict(e) => write!(f, "The requested table is not strict:\n{}", e),
         }
     }
 }
@@ -47,9 +50,15 @@ impl From<Utf8Error> for ConnectionError {
     }
 }
 
+impl From<StrictError> for ConnectionError {
+    fn from(e: StrictError) -> Self {
+        ConnectionError::Strict(e)
+    }
+}
 
 
-pub fn request_csv(name: &str, address: &str) -> Result<String, ConnectionError> {
+
+pub fn request_csv(name: &str, address: &str) -> Result<StrictTable, ConnectionError> {
 
     let mut connection: TcpStream = match TcpStream::connect(address) {
         Ok(stream) => stream,
@@ -67,10 +76,23 @@ pub fn request_csv(name: &str, address: &str) -> Result<String, ConnectionError>
             Ok(_) => break,
             Err(e) => {return Err(ConnectionError::Io(e));}        }
     }
+
+    let csv = bytes_to_str(&buffer)?;
+    if csv == "No such table" {
+        return Err(ConnectionError::InvalidRequest("No such table".to_owned()));
+    }
+
+    let table = StrictTable::from_csv_string(csv, name)?;
+
+    match connection.write("OK".as_bytes()) {
+        Ok(n) => println!("Wrote 'OK' as {n} bytes"),
+        Err(e) => {return Err(ConnectionError::Io(e));}
+    };
+
+    Ok(table)
     
 
 
-    Ok("".to_owned())
 }
 
 
@@ -174,10 +196,15 @@ mod tests {
         }
     }
 
+    #[test]
     fn test_receive_csv() {
+        println!("Sending...\n##########################");
         test_send_csv();
         let name = "test";
         let address = "127.0.0.1:3004";
+        println!("Receiving\n############################");
+        let table = request_csv(name, address).unwrap();
+        println!("{:?}", table.table);
 
     }
 }

@@ -123,12 +123,9 @@ fn handle_requesting_csv(mut stream: TcpStream, name: &str, thread_global: Arc<M
     let requested_table = thread_global.lock().unwrap();
     let requested_table = match requested_table.get(name) {
         Some(table) => table,
-        None => {return Err(ServerError::Instruction(InstructionError::Invalid(format!("No table named {}", name).to_owned())))},
-    };
-
-    match stream.write("OK".as_bytes()) {
-        Ok(n) => println!("Wrote {n} bytes"),
-        Err(e) => {return Err(ServerError::Io(e));},
+        None => {stream.write("No such table".as_bytes());
+            return Err(ServerError::Instruction(InstructionError::Invalid(format!("No table named {}", name).to_owned())));
+        },
     };
 
     match stream.write(requested_table.to_csv_string().as_bytes()) {
@@ -205,6 +202,11 @@ pub fn server(address: &str, global: Arc<Mutex<HashMap<String, StrictTable>>>) -
             // Here we parse the instructions. I would like to figure out how to make this a function that propagates an InstructionError
             if instruction == "Sending csv" {
                 match handle_sending_csv(stream, name, thread_global.clone()) {
+                    Ok(_) => {return Ok(());},
+                    Err(e) => {return Err(e);}
+                }
+            } else if instruction == "Requesting csv" {
+                match handle_requesting_csv(stream, name, thread_global.clone()) {
                     Ok(_) => {return Ok(());},
                     Err(e) => {return Err(e);}
                 }
