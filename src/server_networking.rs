@@ -234,26 +234,27 @@ pub fn server(address: &str, global: Arc<Mutex<HashMap<String, StrictTable>>>) -
             }
             let (instruction, name) = (instruction[0], instruction[1]);
 
-            // Here we parse the instructions. I would like to figure out how to make this a function that propagates an InstructionError
-            if instruction == "Sending csv" {
-                match handle_sending_csv(stream, name, thread_global.clone()) {
-                    Ok(_) => {
-                        println!("Thread finished!");
-                        return Ok(());
-                    },
-                    Err(e) => {return Err(e);}
+            match parse_instruction(&buffer)? {
+                Instruction::Upload(name) => {
+                    match handle_sending_csv(stream, &name, thread_global.clone()) {
+                        Ok(_) => {
+                            println!("Thread finished!");
+                            return Ok(());
+                        },
+                        Err(e) => {return Err(e);}
+                    }
+                },
+                Instruction::Download(name) => {
+                    match handle_requesting_csv(stream, &name, thread_global.clone()) {
+                        Ok(_) => {
+                            println!("Thread finished!");
+                            return Ok(());
+                        },
+                        Err(e) => {return Err(e);}
+                    }
                 }
-            } else if instruction == "Requesting csv" {
-                match handle_requesting_csv(stream, name, thread_global.clone()) {
-                    Ok(_) => {
-                        println!("Thread finished!");
-                        return Ok(());
-                    },
-                    Err(e) => {return Err(e);}
-                }
-            } else {
-                stream.write("Invalid request".as_bytes()).expect("Panicked while informing client of invalid request");
-                return Err(ServerError::Instruction(InstructionError::Invalid(instruction.to_owned())));
+                Instruction::Update(name, update) => todo!(),
+
             }
             
         });
