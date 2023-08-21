@@ -1,4 +1,6 @@
-use std::{fmt, collections::BTreeMap};
+use std::{fmt, collections::BTreeMap, time::Duration, sync::Arc};
+
+use crate::logger::get_current_time;
 
 #[derive(Debug, PartialEq)]
 pub enum StrictError {
@@ -26,8 +28,35 @@ impl fmt::Display for StrictError {
 // This struct is here to future proof the StrictTable. More metadata will be added in future.
 #[derive(PartialEq, Clone, Debug)]
 pub struct Metadata {
-    pub name: String,
-    pub header: Vec<DbEntry>,
+    pub last_access: u64,
+    pub times_accessed: u64,
+    pub created_by: String,
+    pub accessed_by: BTreeMap<String, Actions>,
+}
+
+impl Metadata {
+    pub fn new(client: &str) -> Metadata{
+        Metadata{
+            last_access: get_current_time(),
+            times_accessed: 0,
+            created_by: String::from(client),
+            accessed_by: BTreeMap::from([(String::from(client), Actions::new())]),
+        }
+    }
+}
+
+#[derive(PartialEq, Clone, Debug)]
+pub struct Actions {
+    pub uploaded: bool,
+    pub downloaded: u64,
+    pub updated: u64,
+    pub queried: u64,
+}
+
+impl Actions {
+    fn new() -> Actions {
+        Actions { uploaded: true, downloaded: 0, updated: 0, queried: 0 }
+    }
 }
 
 #[derive(PartialEq, Clone, Debug)]
@@ -46,6 +75,8 @@ pub struct CasualTable<T> {
 #[derive(PartialEq, Clone, Debug)]
 pub struct StrictTable {
     pub metadata: Metadata,
+    pub name: String,
+    pub header: Vec<DbEntry>,
     pub table: BTreeMap<String, Vec<DbEntry>>,
 }
 
@@ -57,7 +88,6 @@ impl StrictTable {
         }
         
         let mut header = Vec::new();
-        
         
         {    /* Checking for unique header */
             let mut rownum = 0;
@@ -90,7 +120,7 @@ impl StrictTable {
             }
             let mut rownum: usize = 0;
             let mut colnum: usize = 0;
-            
+        
             loop {
                 loop{
                     if rownum == header.len()-1 {
@@ -171,7 +201,9 @@ impl StrictTable {
 
 
         let r = StrictTable {
-            metadata: Metadata {name: name.to_owned(), header: header},
+            metadata: Metadata::new(name),
+            header: header,
+            name: String::from(name),
             table: output,
         };
 
@@ -182,7 +214,7 @@ impl StrictTable {
     pub fn to_csv_string(&self) -> String {
         let mut printer = String::from("");
         let map = &self.table;
-        let header = &self.metadata.header;
+        let header = &self.header;
 
         for (_, line) in map.iter() {
             for item in line {
@@ -205,7 +237,7 @@ impl StrictTable {
 
         let mut mapped_csv = StrictTable::from_csv_string(csv, "update")?;
 
-        if mapped_csv.metadata.header != self.metadata.header {
+        if mapped_csv.header != self.header {
             {return Err(StrictError::Update("Headers don't match".to_owned()));}
         }
 
@@ -298,7 +330,7 @@ mod tests {
     #[test]
     fn test_StrictTable_to_csv_string() {
         let t = StrictTable::from_csv_string(&"1;here baby;3;2\n2;3;4;5".to_owned(), "test").unwrap();
-        println!("{:?}", t.metadata.header);
+        println!("{:?}", t.header);
         let x = t.to_csv_string();
         println!("{}", x);
         assert_eq!(x, "1;here baby;3;2\n2;3;4;5".to_owned());

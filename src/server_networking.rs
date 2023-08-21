@@ -133,7 +133,7 @@ fn handle_sending_csv(mut stream: TcpStream, name: &str, thread_global: Arc<Mute
             //need to append the new table to global data here
             println!("Appending to global");
             println!("{:?}", &table.table);
-            thread_global.lock().unwrap().insert(table.metadata.name.clone(), table);
+            thread_global.lock().unwrap().insert(table.name.clone(), table);
             // This is just to check whether it worked
             // let check = &*thread_global;
             // let check_guard = check.lock().unwrap();
