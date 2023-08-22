@@ -88,7 +88,7 @@ impl StrictTable {
         }
         
         let mut header = Vec::new();
-        
+
         {    /* Checking for unique header */
             let mut rownum = 0;
             for item in s.lines().next().unwrap().split(';') {
@@ -118,56 +118,53 @@ impl StrictTable {
 
                 rownum += 1;
             }
-            let mut rownum: usize = 0;
-            let mut colnum: usize = 0;
+            let mut index1: usize = 0;
+            let mut index2: usize = 0;
         
             loop {
                 loop{
-                    if rownum == header.len()-1 {
+                    if index1 == header.len()-1 {
                         break;
-                    } else if rownum == colnum {
-                        rownum += 1;
+                    } else if index1 == index2 {
+                        index1 += 1;
                         continue;
-                    } else if header[rownum] == header[colnum]{
-                        return Err(StrictError::RepeatingHeader(colnum, rownum))
+                    } else if header[index1] == header[index2]{
+                        return Err(StrictError::RepeatingHeader(index2, index1))
                     } else {
-                        rownum += 1;
+                        index1 += 1;
                     }
                 }
-                if colnum == header.len()-1 {
+                if index2 == header.len()-1 {
                     break;
                 }
-                colnum += 1;
+                index2 += 1;
             }
         }
 
 
         { // Checking that all rows have same number of items as header
-            let mut count_rows: usize = 0;
-            let mut count_columns: usize = 0;
-            let mut row_check: usize = 0;
-            for line in s.split('\n') {
-                count_rows = line.split(';').count();
-                if count_columns == 0 {
-                    row_check = count_rows;
+            let mut linenum = 0;
+            for line in s.lines() {
+                if line.split(';').count() < header.len() {
+                    return Err(StrictError::FewerItemsThanHeader(linenum));
+                } else if line.split(';').count() > header.len() {
+                    return Err(StrictError::MoreItemsThanHeader(linenum));
                 } else {
-                    if row_check < count_rows {
-                        return Err(StrictError::MoreItemsThanHeader(count_columns))
-                    } else if row_check > count_rows {
-                        return Err(StrictError::FewerItemsThanHeader(count_columns))
-                    }
+                    linenum += 1;
                 }
-                count_rows = 0;
-                count_columns += 1;
             }
         } // Finished checking
 
 
         let mut output = BTreeMap::new();
         let mut rownum: usize = 0;
-        let mut colnum: usize = 0;
         for row in s.lines() {
-            let mut temp = Vec::new();
+            println!("{row}");
+            if rownum == 0 {
+                rownum += 1;
+                continue;
+            }
+            let mut temp = Vec::with_capacity(header.len());
             for col in row.split(';') {
                 match col.parse::<i64>() {
                     Ok(value) => {
@@ -185,18 +182,15 @@ impl StrictTable {
                     Err(_) => (),
                 };
 
-
                 temp.push(DbEntry::Text(col.to_owned()));
                 
                 rownum += 1;
             }
             match &temp[0] {
-                DbEntry::Text(value) => output.insert(value.to_owned(), temp.clone()),
-                DbEntry::Int(value) => output.insert(value.to_string(), temp.clone()),
+                DbEntry::Text(value) => output.insert(value.to_owned(), temp),
+                DbEntry::Int(value) => output.insert(value.to_string(), temp),
                 _ => panic!("This is not supposed to happen"),
             };
-            rownum = 0;
-            colnum += 1;
         }
 
 
@@ -216,6 +210,17 @@ impl StrictTable {
         let map = &self.table;
         let header = &self.header;
 
+        for item in header {
+            match item {
+                DbEntry::Float(value) => printer.push_str(&value.to_string()),
+                DbEntry::Int(value) => printer.push_str(&value.to_string()),
+                DbEntry::Text(value) => printer.push_str(value),
+            }
+            printer.push(';');
+        }
+        printer.pop().unwrap();
+        printer.push('\n');
+
         for (_, line) in map.iter() {
             for item in line {
                 match item {
@@ -229,7 +234,8 @@ impl StrictTable {
             printer.push('\n');
         }
 
-        printer = printer.trim().to_owned();
+        printer.pop();
+        printer = printer.to_owned();
         printer
     }
 
@@ -242,7 +248,7 @@ impl StrictTable {
         }
 
         for (key, value) in mapped_csv.table {
-            self.table.insert(key, value.clone());
+            self.table.insert(key, value);
         }
 
         Ok(())
@@ -329,11 +335,13 @@ mod tests {
 
     #[test]
     fn test_StrictTable_to_csv_string() {
-        let t = StrictTable::from_csv_string(&"1;here baby;3;2\n2;3;4;5".to_owned(), "test").unwrap();
+        let csv = std::fs::read_to_string("good_csv.txt").unwrap();
+        let t = StrictTable::from_csv_string(&csv, "test").unwrap();
         println!("{:?}", t.header);
+        println!("{:?}", t.table);
         let x = t.to_csv_string();
         println!("{}", x);
-        assert_eq!(x, "1;here baby;3;2\n2;3;4;5".to_owned());
+        assert_eq!(x, "vnr;heiti;magn\n'0113000;undirlegg2;100\n'0113035;undirlegg;200\n'18572054;flísalím;42");
     }
 
     #[test]
