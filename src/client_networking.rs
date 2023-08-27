@@ -65,7 +65,7 @@ pub fn request_csv(name: &str, address: &str) -> Result<StrictTable, ConnectionE
         Err(e) => {return Err(ConnectionError::Io(e));}
     };
     
-    match connection.write(format!("Requesting csv|{}", name).as_bytes()) {
+    match connection.write(format!("admin|admin|Requesting|{}", name).as_bytes()) {
         Ok(n) => println!("Wrote request as {n} bytes"),
         Err(e) => {return Err(ConnectionError::Io(e));},
     };
@@ -104,7 +104,7 @@ pub fn send_csv(name: &str, csv: &String, address: &str) -> Result<String, Conne
         Err(e) => {return Err(ConnectionError::Io(e));},
     };
 
-    match connection.write(format!("Sending csv|{}", name).as_bytes()) {
+    match connection.write(format!("admin|admin|Sending|{}", name).as_bytes()) {
         Ok(n) => println!("Wrote request as {n} bytes"),
         Err(e) => {return Err(ConnectionError::Io(e));},
     };

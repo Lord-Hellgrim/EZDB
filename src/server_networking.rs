@@ -1,21 +1,25 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::io::{Write, Read};
-use std::net::{TcpListener, TcpStream};
+use std::net::{TcpListener, TcpStream, IpAddr};
 use std::sync::{Arc, Mutex};
 use std::str::{self, Utf8Error};
 
+use crate::auth::{self, authenticate_client, User, AuthenticationError};
 use crate::networking_utilities::bytes_to_str;
 use crate::db_structure::StrictTable;
 
 
 const INSTRUCTION_BUFFER: usize = 1024;
 const CSV_BUFFER: usize = 1_000_000;
+const MIN_INSTRUCTION_LENGTH: usize = 4;
+const MAX_INSTRUCTION_LENGTH: usize = 4;
+
 
 pub enum Instruction {
     Upload(String),
     Download(String),
-    Update(String, String),
+    Update(String),
 }
 
 #[derive(Debug)]
@@ -24,6 +28,7 @@ pub enum ServerError {
     Io(std::io::Error),
     Instruction(InstructionError),
     Confirmation(Vec<u8>),
+    Authentication(AuthenticationError)
 }
 
 impl fmt::Display for ServerError {
@@ -33,6 +38,7 @@ impl fmt::Display for ServerError {
             ServerError::Io(e) => write!(f, "Encountered an IO error: {}", e),
             ServerError::Instruction(e) => write!(f, "{}", e),
             ServerError::Confirmation(e) => write!(f, "Received corrupt confirmation {:?}", e),
+            ServerError::Authentication(e) => write!(f, "{}", e),
         }
     }
 }
@@ -55,20 +61,28 @@ impl From<InstructionError> for ServerError {
     }
 }
 
+impl From<AuthenticationError> for ServerError {
+    fn from(e: AuthenticationError) -> Self {
+        ServerError::Authentication(e)
+    }
+}
+
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum InstructionError {
     Invalid(String),
     TooLong,
     Utf8(Utf8Error),
+    InvalidTable(String),
 }
 
 impl fmt::Display for InstructionError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             InstructionError::Invalid(instruction) => write!(f, "The instruction:\n\n\t{instruction}\n\nis invalid. See documentation for valid buffer\n\n"),
-            InstructionError::TooLong => write!(f, "Your buffer are too long. Maximum instruction length is: {INSTRUCTION_BUFFER}\n\n"),
+            InstructionError::TooLong => write!(f, "Your instruction is too long. Maximum instruction length is: {INSTRUCTION_BUFFER}\n\n"),
             InstructionError::Utf8(e) => write!(f, "Invalid utf-8: {e}"),
+            InstructionError::InvalidTable(s) => write!(f, "Table: {} does not exist.", s),
         }
     }
 }
@@ -79,22 +93,56 @@ impl From<Utf8Error> for InstructionError {
     }
 }
 
+pub fn parse_instruction(buffer: &[u8], users: &HashMap<String, User>, global: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<Instruction, ServerError> {
 
-pub fn parse_instruction(buffer: &[u8]) -> Result<Instruction, InstructionError> {
-
+    println!("parsing 1...");
     let instruction = bytes_to_str(&buffer)?;
     let instruction_block: Vec<&str> = instruction.split('|').collect();
 
-    if instruction_block.len() == 2 {
-        match instruction_block[0] {
-            "Sending csv" => {return Ok(Instruction::Upload(instruction_block[1].to_owned()));}
-            "Requesting csv" => {return Ok(Instruction::Download(instruction_block[1].to_owned()));}
-            _ => {return Err(InstructionError::Invalid(instruction.to_owned()));}
-        };
-    } else if instruction_block.len() == 3 {
-        {return Ok(Instruction::Update(instruction_block[1].to_owned(), instruction_block[2].to_owned()));}
+    println!("parsing 2...");
+    if instruction_block.len() < MIN_INSTRUCTION_LENGTH {
+        return Err(ServerError::Authentication(AuthenticationError::MissingField));
+    } else if instruction_block.len() > MAX_INSTRUCTION_LENGTH {
+        return Err(ServerError::Instruction(InstructionError::Invalid(instruction.to_owned())));
+    }
+    
+    println!("parsing 3...");
+    let (
+        username, 
+        passHash, 
+        action, 
+        tableName
+    ) = (
+        instruction_block[0], 
+        instruction_block[1], 
+        instruction_block[2], 
+        instruction_block[3],
+    );
+
+    println!("parsing 4...");
+    if !users.contains_key(username) {
+        return Err(ServerError::Authentication(AuthenticationError::WrongUser(username.to_owned())));
+    } else if users[username].PasswordHash != passHash {
+        return Err(ServerError::Authentication(AuthenticationError::WrongPassword(passHash.to_owned())));
     } else {
-        return Err(InstructionError::Invalid(bytes_to_str(&buffer)?.to_owned()))
+        match action {
+            "Sending" => Ok(Instruction::Upload(tableName.to_owned())),
+            "Requesting" => {
+                if !global.lock().unwrap().contains_key(tableName) {
+                    return Err(ServerError::Instruction(InstructionError::InvalidTable(tableName.to_owned())));
+                } else {
+                    Ok(Instruction::Download(tableName.to_owned()))
+                }
+            },
+            "Updating" => {
+                if !global.lock().unwrap().contains_key(tableName) {
+                    return Err(ServerError::Instruction(InstructionError::InvalidTable(tableName.to_owned())));
+                } else {
+                    Ok(Instruction::Update(tableName.to_owned()))
+                }
+            },
+            _ => {return Err(ServerError::Instruction(InstructionError::Invalid(action.to_owned())));},
+        }
     }
 }
 
@@ -188,11 +236,26 @@ fn handle_requesting_csv(mut stream: TcpStream, name: &str, thread_global: Arc<M
 
 
 pub fn server(address: &str, global: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<(), ServerError> {
+    println!("Starting server...\n###########################");
+    println!("Binding to address: {address}");
     let l = match TcpListener::bind(address) {
         Ok(value) => value,
         Err(e) => {return Err(ServerError::Io(e));},
     };
 
+    println!("Reading users config into memory");
+    let temp = std::fs::read_to_string("users.txt").unwrap();
+    let mut users = HashMap::new();
+    for line in temp.lines() {
+        if line.as_bytes()[0] == '#' as u8 {
+            continue
+        }
+        let t: Vec<&str> = line.split(';').collect();
+        users.insert(t[0].to_owned(), User::from_str(line));
+    }
+    let users = Arc::new(users);
+
+    dbg!(&users);
     
     /* This is the main loop of the function. Here we accept incoming connections and process them */
     // for stream in l.incoming() {
@@ -205,6 +268,7 @@ pub fn server(address: &str, global: Arc<Mutex<HashMap<String, StrictTable>>>) -
 
         // Spawn a new thread for each connection for some semblence of scalability
         let thread_global = global.clone();
+        let thread_users = users.clone();
         std::thread::spawn(move || {
 
             let mut buffer: [u8; INSTRUCTION_BUFFER] = [0; INSTRUCTION_BUFFER];
@@ -218,43 +282,37 @@ pub fn server(address: &str, global: Arc<Mutex<HashMap<String, StrictTable>>>) -
                     Err(e) => {return Err(ServerError::Io(e));},
                 };
             }
-            
-            let instruction = match bytes_to_str(&buffer) {
-                Ok(value) => {
-                    println!("{}", value);
-                    value
-                },
-                Err(e) => {return Err(ServerError::Utf8(e));},
-            };
 
-            let instruction: Vec<&str> = instruction.split('|').collect();
-            println!("{}", instruction.len());
-            if instruction.len() != 2 {
-                return Err(ServerError::Instruction(InstructionError::Invalid(instruction[0].to_owned())));
-            }
-            let (instruction, name) = (instruction[0], instruction[1]);
+            println!("Parsing instructions...");
+            match parse_instruction(&buffer, &thread_users, thread_global.clone()) {
+                Ok(I) => match I {
 
-            match parse_instruction(&buffer)? {
-                Instruction::Upload(name) => {
-                    match handle_sending_csv(stream, &name, thread_global.clone()) {
-                        Ok(_) => {
-                            println!("Thread finished!");
-                            return Ok(());
-                        },
-                        Err(e) => {return Err(e);}
+                    Instruction::Upload(name) => {
+                        match handle_sending_csv(stream, &name, thread_global.clone()) {
+                            Ok(_) => {
+                                println!("Thread finished!");
+                                return Ok(());
+                            },
+                            Err(e) => {return Err(e);}
+                        }
+                    },
+                    Instruction::Download(name) => {
+                        match handle_requesting_csv(stream, &name, thread_global.clone()) {
+                            Ok(_) => {
+                                println!("Thread finished!");
+                                return Ok(());
+                            },
+                            Err(e) => {return Err(e);}
+                        }
                     }
-                },
-                Instruction::Download(name) => {
-                    match handle_requesting_csv(stream, &name, thread_global.clone()) {
-                        Ok(_) => {
-                            println!("Thread finished!");
-                            return Ok(());
-                        },
-                        Err(e) => {return Err(e);}
-                    }
+                    Instruction::Update(name) => todo!(),
                 }
-                Instruction::Update(name, update) => todo!(),
-
+                
+                Err(e) => {
+                    println!("Thread finished on error: {e}");
+                    return Err(e);
+                },
+                    
             }
             
         });
