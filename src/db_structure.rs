@@ -239,6 +239,7 @@ impl StrictTable {
         printer
     }
 
+
     pub fn update(&mut self, csv: &str) -> Result<(), StrictError>{
 
         let mut mapped_csv = StrictTable::from_csv_string(csv, "update")?;
@@ -250,6 +251,9 @@ impl StrictTable {
         for (key, value) in mapped_csv.table {
             self.table.insert(key, value);
         }
+
+        self.metadata.last_access = get_current_time();
+        self.metadata.times_accessed += 1;
 
         Ok(())
     }

@@ -10,6 +10,7 @@ mod server_networking;
 mod client_networking;
 mod networking_utilities;
 mod logger;
+mod auth;
 
 fn main() -> Result<(), server_networking::ServerError> {
 
