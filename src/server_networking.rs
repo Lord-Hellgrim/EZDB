@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::io::{Write, Read};
-use std::net::{TcpListener, TcpStream, IpAddr};
+use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::str::{self, Utf8Error};
 
-use crate::auth::{self, authenticate_client, User, AuthenticationError};
+use crate::auth::{User, AuthenticationError};
 use crate::networking_utilities::bytes_to_str;
-use crate::db_structure::StrictTable;
+use crate::db_structure::{StrictTable, StrictError};
 
 
 const INSTRUCTION_BUFFER: usize = 1024;
@@ -28,7 +28,8 @@ pub enum ServerError {
     Io(std::io::Error),
     Instruction(InstructionError),
     Confirmation(Vec<u8>),
-    Authentication(AuthenticationError)
+    Authentication(AuthenticationError),
+    Strict(StrictError),
 }
 
 impl fmt::Display for ServerError {
@@ -39,6 +40,7 @@ impl fmt::Display for ServerError {
             ServerError::Instruction(e) => write!(f, "{}", e),
             ServerError::Confirmation(e) => write!(f, "Received corrupt confirmation {:?}", e),
             ServerError::Authentication(e) => write!(f, "{}", e),
+            ServerError::Strict(e) => write!(f, "{}", e),
         }
     }
 }
@@ -67,10 +69,17 @@ impl From<AuthenticationError> for ServerError {
     }
 }
 
+impl From<StrictError> for ServerError {
+    fn from(e: StrictError) -> Self {
+        ServerError::Strict(e)
+    }
+}
+
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum InstructionError {
     Invalid(String),
+    // TooLong may be unnecessary because of the instruction buffer
     TooLong,
     Utf8(Utf8Error),
     InvalidTable(String),
@@ -93,7 +102,7 @@ impl From<Utf8Error> for InstructionError {
     }
 }
 
-pub fn parse_instruction(buffer: &[u8], users: &HashMap<String, User>, global: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<Instruction, ServerError> {
+pub fn parse_instruction(buffer: &[u8], users: &HashMap<String, User>, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<Instruction, ServerError> {
 
     println!("parsing 1...");
     let instruction = bytes_to_str(&buffer)?;
@@ -109,9 +118,9 @@ pub fn parse_instruction(buffer: &[u8], users: &HashMap<String, User>, global: A
     println!("parsing 3...");
     let (
         username, 
-        passHash, 
+        pass_hash, 
         action, 
-        tableName
+        table_name
     ) = (
         instruction_block[0], 
         instruction_block[1], 
@@ -122,23 +131,23 @@ pub fn parse_instruction(buffer: &[u8], users: &HashMap<String, User>, global: A
     println!("parsing 4...");
     if !users.contains_key(username) {
         return Err(ServerError::Authentication(AuthenticationError::WrongUser(username.to_owned())));
-    } else if users[username].PasswordHash != passHash {
-        return Err(ServerError::Authentication(AuthenticationError::WrongPassword(passHash.to_owned())));
+    } else if users[username].PasswordHash != pass_hash {
+        return Err(ServerError::Authentication(AuthenticationError::WrongPassword(pass_hash.to_owned())));
     } else {
         match action {
-            "Sending" => Ok(Instruction::Upload(tableName.to_owned())),
+            "Sending" => Ok(Instruction::Upload(table_name.to_owned())),
             "Requesting" => {
-                if !global.lock().unwrap().contains_key(tableName) {
-                    return Err(ServerError::Instruction(InstructionError::InvalidTable(tableName.to_owned())));
+                if !global_tables.lock().unwrap().contains_key(table_name) {
+                    return Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())));
                 } else {
-                    Ok(Instruction::Download(tableName.to_owned()))
+                    Ok(Instruction::Download(table_name.to_owned()))
                 }
             },
             "Updating" => {
-                if !global.lock().unwrap().contains_key(tableName) {
-                    return Err(ServerError::Instruction(InstructionError::InvalidTable(tableName.to_owned())));
+                if !global_tables.lock().unwrap().contains_key(table_name) {
+                    return Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())));
                 } else {
-                    Ok(Instruction::Update(tableName.to_owned()))
+                    Ok(Instruction::Update(table_name.to_owned()))
                 }
             },
             _ => {return Err(ServerError::Instruction(InstructionError::Invalid(action.to_owned())));},
@@ -147,7 +156,7 @@ pub fn parse_instruction(buffer: &[u8], users: &HashMap<String, User>, global: A
 }
 
 
-fn handle_sending_csv(mut stream: TcpStream, name: &str, thread_global: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<(), ServerError> {
+fn handle_upload_request(mut stream: TcpStream, name: &str, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<(), ServerError> {
 
     match stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
@@ -157,13 +166,20 @@ fn handle_sending_csv(mut stream: TcpStream, name: &str, thread_global: Arc<Mute
     // Here we read the transmitted CSV from the stream into a rust String (aka a Vec)
     println!("Allocating csv buffer");
     let mut buffer = [0;CSV_BUFFER];
-    let b: usize;
+    let mut b: usize = 0;
+    let mut i = 0;
     loop {
+        if i < 100 {
+            println!("still going");
+            i += 1;
+        }
         match stream.read(&mut buffer) {
             Ok(n) => {
-                b = n;
+                b += n;
                 println!("Read {n} bytes");
-                break;},
+                if n == 0 {break;}
+                //else {continue;}
+            },
             Err(e) => {return Err(ServerError::Io(e));},
         };
     }
@@ -181,7 +197,7 @@ fn handle_sending_csv(mut stream: TcpStream, name: &str, thread_global: Arc<Mute
             //need to append the new table to global data here
             println!("Appending to global");
             println!("{:?}", &table.table);
-            thread_global.lock().unwrap().insert(table.name.clone(), table);
+            global_tables.lock().unwrap().insert(table.name.clone(), table);
             // This is just to check whether it worked
             // let check = &*thread_global;
             // let check_guard = check.lock().unwrap();
@@ -198,12 +214,12 @@ fn handle_sending_csv(mut stream: TcpStream, name: &str, thread_global: Arc<Mute
 }
 
 
-fn handle_requesting_csv(mut stream: TcpStream, name: &str, thread_global: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<(), ServerError> {
+fn handle_download_request(mut stream: TcpStream, name: &str, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<(), ServerError> {
     
-    let requested_table = thread_global.lock().unwrap();
+    let requested_table = global_tables.lock().unwrap();
     let requested_table = match requested_table.get(name) {
         Some(table) => table,
-        None => {stream.write("No such table".as_bytes());
+        None => {stream.write(format!("No table named: {}", name).as_bytes())?;
             return Err(ServerError::Instruction(InstructionError::Invalid(format!("No table named {}", name).to_owned())));
         },
     };
@@ -217,7 +233,7 @@ fn handle_requesting_csv(mut stream: TcpStream, name: &str, thread_global: Arc<M
     let mut buffer: [u8;INSTRUCTION_BUFFER] = [0;INSTRUCTION_BUFFER];
     loop {
         match stream.read(&mut buffer) {
-            Ok(n) => {
+            Ok(_) => {
                 println!("Confirmation '{}' received", bytes_to_str(&buffer)?);
                 break;
             },
@@ -235,7 +251,21 @@ fn handle_requesting_csv(mut stream: TcpStream, name: &str, thread_global: Arc<M
 }
 
 
-pub fn server(address: &str, global: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<(), ServerError> {
+pub fn handle_update_request(mut stream: TcpStream, name: &str, updates: &str, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<(), ServerError> {
+
+    let mut requested_table = global_tables.lock().unwrap();
+    if !requested_table.contains_key(name) {
+        stream.write(format!("No table named: {}", name).as_bytes())?;
+        return Err(ServerError::Instruction(InstructionError::Invalid(format!("No table named {}", name).to_owned())));   
+    }
+
+    requested_table.get_mut(name).unwrap().update(updates)?;
+
+    Ok(())
+}
+
+
+pub fn server(address: &str, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<(), ServerError> {
     println!("Starting server...\n###########################");
     println!("Binding to address: {address}");
     let l = match TcpListener::bind(address) {
@@ -267,28 +297,25 @@ pub fn server(address: &str, global: Arc<Mutex<HashMap<String, StrictTable>>>) -
         println!("Accepted connection from: {}", client_address);
 
         // Spawn a new thread for each connection for some semblence of scalability
-        let thread_global = global.clone();
+        let thread_global = global_tables.clone();
         let thread_users = users.clone();
         std::thread::spawn(move || {
 
             let mut buffer: [u8; INSTRUCTION_BUFFER] = [0; INSTRUCTION_BUFFER];
             println!("Initialized string buffer");
-            loop {
-                match stream.read(&mut buffer) {
-                    Ok(n) => {
-                        println!("Read {n} bytes");
-                        break;
-                    },
-                    Err(e) => {return Err(ServerError::Io(e));},
-                };
-            }
+            match stream.read(&mut buffer) {
+                Ok(n) => {
+                    println!("Read {n} bytes");
+                },
+                Err(e) => {return Err(ServerError::Io(e));},
+            };
 
             println!("Parsing instructions...");
             match parse_instruction(&buffer, &thread_users, thread_global.clone()) {
-                Ok(I) => match I {
+                Ok(i) => match i {
 
                     Instruction::Upload(name) => {
-                        match handle_sending_csv(stream, &name, thread_global.clone()) {
+                        match handle_upload_request(stream, &name, thread_global.clone()) {
                             Ok(_) => {
                                 println!("Thread finished!");
                                 return Ok(());
@@ -297,7 +324,7 @@ pub fn server(address: &str, global: Arc<Mutex<HashMap<String, StrictTable>>>) -
                         }
                     },
                     Instruction::Download(name) => {
-                        match handle_requesting_csv(stream, &name, thread_global.clone()) {
+                        match handle_download_request(stream, &name, thread_global.clone()) {
                             Ok(_) => {
                                 println!("Thread finished!");
                                 return Ok(());
@@ -319,8 +346,8 @@ pub fn server(address: &str, global: Arc<Mutex<HashMap<String, StrictTable>>>) -
         continue;
     }
 
-    Ok(())
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -328,7 +355,7 @@ mod tests {
 
     #[test]
     fn test_listener() {
-        let mut global: HashMap<String, StrictTable> = HashMap::new();
+        let global: HashMap<String, StrictTable> = HashMap::new();
         let arc_global = Arc::new(Mutex::new(global));
         server("127.0.0.1:3004", arc_global.clone());
     }

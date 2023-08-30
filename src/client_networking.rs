@@ -218,4 +218,16 @@ mod tests {
         println!("{:?}", table.table);
 
     }
+
+    #[test]
+    fn test_send_large_csv() {
+        let csv = std::fs::read_to_string("large.csv").unwrap();
+        let address = "127.0.0.1:3004";
+        let e = send_csv("large_csv", &csv, address);
+        match e {
+            Ok(_) => println!("OK"),
+            Err(e) => println!("{}", e),
+        }
+    }
+
 }
