@@ -122,7 +122,6 @@ pub fn send_csv(name: &str, csv: &String, address: &str) -> Result<String, Conne
         }
     }
 
-    let sent_bytes: usize;
     let buffer = match bytes_to_str(&buffer) {
         Ok(value) => {
             value
@@ -132,10 +131,7 @@ pub fn send_csv(name: &str, csv: &String, address: &str) -> Result<String, Conne
     println!("Response: '{}' - received", buffer);
     if buffer.trim() == "OK" {
         println!("Sending data...");
-        match connection.write(csv.as_bytes()) {
-            Ok(_) => sent_bytes = csv.as_bytes().len(),
-            Err(e) => {return Err(ConnectionError::Io(e));},
-        }
+        connection.write(csv.as_bytes())?;
     } else {
         return Err(ConnectionError::InvalidRequest(buffer.to_owned()));
     }
@@ -181,7 +177,8 @@ pub fn send_csv(name: &str, csv: &String, address: &str) -> Result<String, Conne
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    #[allow(unused)]
+    use std::{path::Path, fs::remove_file};
 
     use super::*;
 
@@ -221,6 +218,21 @@ mod tests {
 
     #[test]
     fn test_send_large_csv() {
+
+        // create the large_csv
+        let mut i = 0;
+        let mut printer = String::from("vnr;heiti;magn\n");
+        loop {
+            if i > 1_000_000 {
+                break;
+            }
+            printer.push_str(&format!("i{};product name;569\n", i));
+            i+= 1;
+        }
+        let mut file = std::fs::File::create("large.csv").unwrap();
+        file.write_all(printer.as_bytes()).unwrap();
+
+
         let csv = std::fs::read_to_string("large.csv").unwrap();
         let address = "127.0.0.1:3004";
         let e = send_csv("large_csv", &csv, address);
@@ -228,6 +240,9 @@ mod tests {
             Ok(_) => println!("OK"),
             Err(e) => println!("{}", e),
         }
+
+        //delete the large_csv
+        remove_file("large.csv").unwrap();
     }
 
 }

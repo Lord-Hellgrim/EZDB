@@ -164,25 +164,23 @@ fn handle_upload_request(mut stream: TcpStream, name: &str, global_tables: Arc<M
     };
 
     // Here we read the transmitted CSV from the stream into a rust String (aka a Vec)
+    // WORK IN PROGRESS working on handling large files...
     println!("Allocating csv buffer");
     let mut buffer = [0;CSV_BUFFER];
     let mut b: usize = 0;
-    let mut i = 0;
+    //stream.set_nonblocking(true)?;
     loop {
-        if i < 100 {
-            println!("still going");
-            i += 1;
-        }
         match stream.read(&mut buffer) {
             Ok(n) => {
                 b += n;
-                println!("Read {n} bytes");
-                if n == 0 {break;}
+                println!("Read {n} bytes\nTotal read: {b}");
+                break;
                 //else {continue;}
             },
             Err(e) => {return Err(ServerError::Io(e));},
         };
     }
+    //stream.set_nonblocking(false)?;
 
     let csv = bytes_to_str(&buffer)?;
 
