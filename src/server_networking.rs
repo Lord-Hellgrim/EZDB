@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::str::{self, Utf8Error};
 
 use crate::auth::{User, AuthenticationError};
-use crate::networking_utilities::bytes_to_str;
+use crate::networking_utilities::{bytes_to_str, bytes_to_usize};
 use crate::db_structure::{StrictTable, StrictError};
 
 
@@ -166,35 +166,35 @@ fn handle_upload_request(mut stream: TcpStream, name: &str, global_tables: Arc<M
     // Here we read the transmitted CSV from the stream into a rust String (aka a Vec)
     // WORK IN PROGRESS working on handling large files...
     println!("Allocating csv buffer");
+    let mut size_buffer: [u8;8] = [0;8];
     let mut buffer = [0;CSV_BUFFER];
-    let mut b: usize = 0;
-    //stream.set_nonblocking(true)?;
+    let mut total_read: usize = 0;
+    stream.read(&mut size_buffer)?;
+    let data_len = bytes_to_usize(size_buffer);
+    println!("Expected data length: {}", data_len);
+    let mut csv = String::new();
     loop {
-        match stream.read(&mut buffer) {
-            Ok(n) => {
-                b += n;
-                println!("Read {n} bytes\nTotal read: {b}");
-                break;
-                //else {continue;}
-            },
-            Err(e) => {return Err(ServerError::Io(e));},
-        };
+        if total_read >= data_len {
+         break
+        }
+       let bytes_received = stream.read(&mut buffer)?;
+       csv.push_str(bytes_to_str(&buffer)?);
+       buffer = [0;CSV_BUFFER];
+       total_read += bytes_received;
+       println!("Read {bytes_received} bytes. Total read {total_read}");
     }
-    //stream.set_nonblocking(false)?;
-
-    let csv = bytes_to_str(&buffer)?;
 
     // Here we create a StrictTable from the csv and supplied name
-    match StrictTable::from_csv_string(csv, name) {
+    match StrictTable::from_csv_string(&csv, name) {
         Ok(table) => {
-            match stream.write(format!("X{}X", b).as_bytes()) {
+            match stream.write(format!("X{}X", total_read).as_bytes()) {
                 Ok(_) => println!("Confirmed correctness with client"),
                 Err(e) => {return Err(ServerError::Io(e));},
             };
 
             //need to append the new table to global data here
             println!("Appending to global");
-            println!("{:?}", &table.table);
+            println!("{:?}", &table.header);
             global_tables.lock().unwrap().insert(table.name.clone(), table);
             // This is just to check whether it worked
             // let check = &*thread_global;

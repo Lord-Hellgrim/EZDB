@@ -1,9 +1,7 @@
-use core::num;
 use std::fmt;
 use std::net::TcpStream;
 use std::io::{Read, Write};
-use std::error::Error;
-use std::time::{Duration, self, SystemTime};
+use std::time::{Duration, SystemTime};
 use std::str::{self, Utf8Error};
 
 use crate::db_structure::{StrictTable, StrictError};
@@ -98,13 +96,13 @@ pub fn request_csv(name: &str, address: &str) -> Result<StrictTable, ConnectionE
 
 pub fn send_csv(name: &str, csv: &String, address: &str) -> Result<String, ConnectionError> {
 
-    let mut connection: TcpStream;
+    let mut stream: TcpStream;
     match TcpStream::connect(address) {
-        Ok(stream) => connection = stream,
+        Ok(s) => stream = s,
         Err(e) => {return Err(ConnectionError::Io(e));},
     };
 
-    match connection.write(format!("admin|admin|Sending|{}", name).as_bytes()) {
+    match stream.write(format!("admin|admin|Sending|{}", name).as_bytes()) {
         Ok(n) => println!("Wrote request as {n} bytes"),
         Err(e) => {return Err(ConnectionError::Io(e));},
     };
@@ -116,7 +114,7 @@ pub fn send_csv(name: &str, csv: &String, address: &str) -> Result<String, Conne
         if timer.elapsed().unwrap() > Duration::from_secs(5) {
             return Err(ConnectionError::TimeOut);         
         }
-        match connection.read(&mut buffer) {
+        match stream.read(&mut buffer) {
             Ok(_) => break,
             Err(e) => {return Err(ConnectionError::Io(e));},
         }
@@ -130,8 +128,18 @@ pub fn send_csv(name: &str, csv: &String, address: &str) -> Result<String, Conne
     };
     println!("Response: '{}' - received", buffer);
     if buffer.trim() == "OK" {
+        println!("Sending data size");
+        stream.write(&csv.len().to_be_bytes())?;
         println!("Sending data...");
-        connection.write(csv.as_bytes())?;
+        let temp_buffer = String::from(csv);
+        let mut index = 0;
+        while index+4096 < csv.len() {
+            stream.write(temp_buffer[index..index+4096].as_bytes())?;
+            index += 4096;
+        }
+        stream.write(temp_buffer[index..temp_buffer.len()-1].as_bytes())?;
+        stream.write(&[0])?;
+
     } else {
         return Err(ConnectionError::InvalidRequest(buffer.to_owned()));
     }
@@ -144,7 +152,7 @@ pub fn send_csv(name: &str, csv: &String, address: &str) -> Result<String, Conne
         if timer.elapsed().unwrap() > Duration::from_secs(5) {
             return Err(ConnectionError::UnconfirmedTransaction);         
         }
-        match connection.read(&mut buffer) {
+        match stream.read(&mut buffer) {
             Ok(_) => break,
             Err(_) => {return Err(ConnectionError::UnconfirmedTransaction);},
         }
@@ -152,7 +160,7 @@ pub fn send_csv(name: &str, csv: &String, address: &str) -> Result<String, Conne
 
     let final_answer = match bytes_to_str(&buffer) {
         Ok(value) => value.to_owned(),
-        Err(e) => { return Err(ConnectionError::UnconfirmedTransaction);}
+        Err(_) => { return Err(ConnectionError::UnconfirmedTransaction);}
     };
 
     let mut bytes_received = "".to_owned();

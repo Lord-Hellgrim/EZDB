@@ -34,6 +34,17 @@ pub fn bytes_to_str(bytes: &[u8]) -> Result<&str, Utf8Error> {
 }
 
 
+pub fn bytes_to_usize(bytes: [u8; 8]) -> usize {
+    let mut value: usize = 0;
+
+    for &byte in bytes.iter() {
+        value = (value << 8) | (byte as usize);
+    }
+
+    value
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -159,7 +159,6 @@ impl StrictTable {
         let mut output = BTreeMap::new();
         let mut rownum: usize = 0;
         for row in s.lines() {
-            println!("{row}");
             if rownum == 0 {
                 rownum += 1;
                 continue;
