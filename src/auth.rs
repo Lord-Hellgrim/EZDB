@@ -1,6 +1,4 @@
 use std::fmt;
-use std::net::IpAddr;
-use std::collections::HashMap;
 
 
 #[derive(Debug, Clone)]
@@ -68,14 +66,5 @@ impl fmt::Display for AuthenticationError {
             AuthenticationError::WrongPassword(s) => write!(f, "PasswordHash: {}\nIs incorrect", s),
             AuthenticationError::MissingField => write!(f, "Missing username or password or both"),
         }
-    }
-}
-
-
-pub fn authenticate_client(client: &str, password_hash: &str, users: &mut HashMap<String, User>) -> bool {
-    if &users[client].PasswordHash != password_hash {
-        return false;
-    } else {
-        return true;
     }
 }
