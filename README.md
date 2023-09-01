@@ -30,3 +30,5 @@ The main data structure of EZDB (currently, planning schemaless tables in future
 essentially a BtreeMap with some tacked on metadata and identifiers and some methods for creating it to ensure it maintains the
 schema. All of the rest of the code is for sending, receiving, updating, querying, securing, and (soon) encrypting StrictTable
 structs.
+
+"aes.rs" is a work in progress. Read only if you are interested in incorrect implementations of AES.
