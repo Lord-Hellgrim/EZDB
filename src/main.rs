@@ -1,5 +1,7 @@
-//#![allow(unused)]
+#![allow(unused)]
 #![allow(non_snake_case)]
+#![feature(core_intrinsics, stdsimd)]
+
 
 use std::{collections::HashMap, sync::{Arc, Mutex}};
 
@@ -11,6 +13,7 @@ mod client_networking;
 mod networking_utilities;
 mod logger;
 mod auth;
+mod aes;
 
 fn main() -> Result<(), server_networking::ServerError> {
 
