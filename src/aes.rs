@@ -171,7 +171,7 @@ mod tests {
         //     print!("{:x}, ", delta);
         //     index += 1;
         // }
-        assert_eq!(chatGPT_expanded_key, ekey);
+        assert_eq!(official_expanded_key, ekey);
 
     }
 
