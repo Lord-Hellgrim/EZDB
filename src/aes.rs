@@ -24,6 +24,33 @@ const SBOX: [[u8;16];16] = [/*  0     1     2     3     4     5     6     7     
 
 const RCON: [u32;10] = [0x01000000, 0x02000000, 0x04000000, 0x08000000, 0x10000000, 0x20000000, 0x40000000, 0x80000000, 0x1b000000, 0x36000000];
 
+fn array_xor(a: [u8;16], b: [u8;16]) -> [u8;16] {
+    let mut c = [0u8;16];
+    let mut i = 0;
+    while i < 15 {
+        c[i] = a[i] ^ b[i];
+        i += 1;
+    }
+    c
+}   
+
+fn array_from_slice(slice: &[u8]) -> [u8;16] {
+    if slice.len() != 16 {
+        panic!();
+    }
+
+    let mut output = [0u8;16];
+    let mut i = 0;
+    while i < 16 {
+        output[i] = slice[i];
+        i += 1;
+    }
+    output
+
+
+}
+
+
 fn ROTWORD(a: u32) -> u32 {
     let a = a.to_be_bytes();
     // should be safe since a is derived from a u32 in the first place
@@ -96,22 +123,40 @@ pub unsafe fn encrypt(plaintext: [u8;16], key: &[u8;16]) -> [u8;16] {
     let exp_key = expand_key(key);
     let mut round_keys: [__m128i;11] = [_mm_setzero_si128();11];
     let mut i = 0;
-    let j = 0;
+    // putting the expanded key into an array of 128bit words
     while i < exp_key.len()-15 {
-        let mut temp = [0;16];
-        temp[j] = exp_key[i];
-        if i%16 == 0 {
-            let round_key = _mm_loadu_si128(temp.as_ptr() as *const __m128i);
-            round_keys[i/16] = round_key;
-        }
+        let temp = array_from_slice(&exp_key[i..i+16]);
+        // println!("temp: {:?}", temp);
+        // println!("rkey: {:?}", &exp_key[i..i+16]);
+        let round_key = _mm_loadu_si128(temp.as_ptr() as *const __m128i);
+        round_keys[i/16] = round_key;
         i += 1;
     }
+
+    // The main body of the AES128 algorithm
     let plaintext = _mm_loadu_si128(plaintext.as_ptr() as *const __m128i);
     let mut ciphertext = _mm_xor_si128(plaintext, round_keys[0]);
+    {
+        let mut value: [u8;16] = [0;16];
+        _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, ciphertext);
+        println!("state0: {:x?}", value);
+    }
     let mut i = 1;
     while i < 10 {
         ciphertext = _mm_aesenc_si128(plaintext, round_keys[i]);
+
+        {
+            let mut value: [u8;16] = [0;16];
+            _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, round_keys[i]);
+            println!("rkey {i}: {:x?}", value);
+        }
+
         i += 1;
+        {
+            let mut value: [u8;16] = [0;16];
+            _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, ciphertext);
+            println!("state{i}: {:x?}", value);
+        }
     }
     let ciphertext = _mm_aesenclast_si128(ciphertext, round_keys[10]);
     let mut value: [u8;16] = [0;16];
@@ -126,13 +171,9 @@ mod tests {
 
     #[test]
     fn test_aes() {
-        let Plaintext: [u8;16] = [0x00,0x11,0x22,0x33,0x44,0x55,0x66,0x77,0x88,0x99,0xaa,0xbb,0xcc,0xdd,0xee,0xff];
-        let Key: [u8;16] = [0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f];
-        let Ciphertext: [u8;16] = [69,0xc4,0xe0,0xd8,0x6a,0x7b,0x04,0x30,0xd8,0xcd,0xb7,0x80,0x70,0xb4,0xc5,0x5a];
-        let ctext = unsafe { encrypt(Plaintext, &Key) };
-        println!("key  : {:?}", Key);
-        println!("ptext: {:?}", Plaintext);
-        println!("ctext: {:?}", ctext);
+        let Plaintext: [u8;16] = [0x32, 0x43, 0xf6, 0xa8, 0x88, 0x5a, 0x30, 0x8d, 0x31, 0x31, 0x98, 0xa2, 0xe0, 0x37, 0x07, 0x34];
+        let Key: [u8;16] = [0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c];
+        let Ciphertext: [u8;16] = [0x39, 0x02, 0xdc, 0x19, 0x25, 0xdc, 0x11, 0x6a, 0x84, 0x09, 0x85, 0x0b, 0x1d, 0xfb, 0x97, 0x32];
         assert_eq!(unsafe{encrypt(Plaintext, &Key)}, Ciphertext);
     }
 
