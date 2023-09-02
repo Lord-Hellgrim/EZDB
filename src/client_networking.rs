@@ -99,6 +99,7 @@ pub fn request_csv(name: &str, address: &str) -> Result<StrictTable, ConnectionE
 
     // This would then be the result of the call to send_request, 
     // i'd maybe rename it "response" because its not necissarily csv which you clearly know ofc
+    // For the foreseeable future this will remain a csv and I like descriptive names.
     let csv = bytes_to_str(&buffer)?;
 
     if csv == "No such table" {
