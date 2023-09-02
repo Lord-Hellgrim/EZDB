@@ -60,10 +60,7 @@ impl From<StrictError> for ConnectionError {
 pub fn request_csv(name: &str, address: &str) -> Result<StrictTable, ConnectionError> {
     // Validating the server_address somehow and providing a descriptive error would probably be a good idea
 
-    let mut connection: TcpStream = match TcpStream::connect(address) {
-        Ok(stream) => stream,
-        Err(e) => {return Err(ConnectionError::Io(e));}
-    };
+    let mut connection: TcpStream = TcpStream::connect(address)?;
     
     // The writing to the connection here is the same code as elsewhere
     // perhaps you want to encapsulate the writing/communications themselves somehow. 
