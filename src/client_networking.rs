@@ -56,6 +56,7 @@ impl From<StrictError> for ConnectionError {
 
 
 // I'd change the declaration to: request_table(table_name: &str, server_address: &str)
+// Agree with name => table_name but this gets a csv. Should be called download_csv, though, to be consistent with server()
 pub fn request_csv(name: &str, address: &str) -> Result<StrictTable, ConnectionError> {
     // Validating the server_address somehow and providing a descriptive error would probably be a good idea
 
