@@ -5,8 +5,8 @@ A small database for small bespoke apps. Meant to be fast, easy to use with .csv
 Absolutely minimal dependencies, aiming for only the Rust standard library. May include some encryption crates for security later.
 
 Future features, in order, are planned as:
- - Uploading and querying csv tables, strictly or casually (schema or schemaless) --- close to completion
- - Encrypted connections --- no code yet
+ - Uploading and querying csv tables, strictly or casually (schema or schemaless) --- just needs update
+ - Encrypted connections --- almost finished
  - Command Line Interface --- no code yet
  - Graphical interface --- no code yet
  - Scaling solutions for larger datasets and more queries --- small baseline multithreading, nowhere near ready
@@ -31,4 +31,4 @@ essentially a BtreeMap with some tacked on metadata and identifiers and some met
 schema. All of the rest of the code is for sending, receiving, updating, querying, securing, and (soon) encrypting StrictTable
 structs.
 
-"aes.rs" is a work in progress. Read only if you are interested in incorrect implementations of AES.
+Ok, you should totally read aes.rs, I'm kinda proud of that. Encryption passing currently. Decryption coming soon!
