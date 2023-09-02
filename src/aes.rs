@@ -53,7 +53,6 @@ fn array_from_slice(slice: &[u8]) -> [u8;16] {
 
 fn ROTWORD(a: u32) -> u32 {
     let a = a.to_be_bytes();
-    // should be safe since a is derived from a u32 in the first place
     let output: u32 = word_from_bytes([a[1], a[2], a[3], a[0]]);
     output
 }
@@ -89,7 +88,7 @@ pub fn expand_key(key: &[u8;16]) -> [u8; 176] {
         //println!("w[{}]: {:x}", i, w[i]);
         //println!("{:x}", w[i]);
         i = i+1;
-    }         //. When the loop concludes, i = Nk.;
+    }
     while i <= 4 * Nr + 3 {
         let mut temp = w[i - 1];
         if i % Nk == 0 {
@@ -138,39 +137,28 @@ pub unsafe fn encrypt(plaintext: [u8;16], key: &[u8;16]) -> [u8;16] {
     let plaintext = _mm_loadu_si128(plaintext.as_ptr() as *const __m128i);
    
     let mut ciphertext = _mm_xor_si128(plaintext, round_keys[0]);
+    
     // {
     //     let mut value: [u8;16] = [0;16];
-    //     _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, round_keys[0]);
-    //     println!("rkey 0: {:x?}", value);
+    //     _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, ciphertext);
+    //     println!("state0: {:x?}", value);
     // }
-    {
-        let mut value: [u8;16] = [0;16];
-        _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, ciphertext);
-        println!("state0: {:x?}", value);
-    }
     let mut i = 1;
     while i < 10 {
+        ciphertext = _mm_aesenc_si128(ciphertext, round_keys[i]);
         // {
         //     let mut value: [u8;16] = [0;16];
-        //     _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, round_keys[i]);
-        //     println!("rkey {i}: {:x?}", value);
+        //     _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, ciphertext);
+        //     println!("state{i}: {:x?}", value);
         // }
-        ciphertext = _mm_aesenc_si128(ciphertext, round_keys[i]);
-
-
-        {
-            let mut value: [u8;16] = [0;16];
-            _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, ciphertext);
-            println!("state{i}: {:x?}", value);
-        }
         i += 1;
     }
     ciphertext = _mm_aesenclast_si128(ciphertext, round_keys[10]);
-    {
-        let mut value: [u8;16] = [0;16];
-        _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, ciphertext);
-        println!("state10: {:x?}", value);
-    }
+    // {
+    //     let mut value: [u8;16] = [0;16];
+    //     _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, ciphertext);
+    //     println!("state10: {:x?}", value);
+    // }
     let mut value: [u8;16] = [0;16];
     _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, ciphertext);
     value
