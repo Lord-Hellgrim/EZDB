@@ -79,6 +79,9 @@ pub fn request_csv(name: &str, address: &str) -> Result<StrictTable, ConnectionE
     // and 
     // send_confirmation(), which would send the "OK"
 
+    //      This is this way for the print statement for debugging reasons. Will be this in future:
+    //        connection.write(format!("admin|admin|Requesting|{}", name).as_bytes())?;
+
     match connection.write(format!("admin|admin|Requesting|{}", name).as_bytes()) {
         Ok(n) => println!("Wrote request as {n} bytes"),
         Err(e) => {return Err(ConnectionError::Io(e));},
