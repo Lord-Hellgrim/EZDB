@@ -1,4 +1,7 @@
 use std::{error::Error, mem::transmute};
+use std::arch::x86_64::{self, __m128i, _mm_loadu_si128, _mm_setzero_si128, _mm_aesenc_si128, _mm_xor_si128, _mm_aesenclast_si128, _mm_storeu_si128};
+
+use crate::networking_utilities::bytes_to_str;
 
 const SBOX: [[u8;16];16] = [/*  0     1     2     3     4     5     6     7     8     9     A     B     C     D     E     F */
                         /*0*/ [0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76],
@@ -41,9 +44,9 @@ fn SUBWORD(a: u32) -> u32 {
     let s1 = (((a[1]&0xF0) >> 4) as usize, (a[1] & 0x0F) as usize);
     let s2 = (((a[2]&0xF0) >> 4) as usize, (a[2] & 0x0F) as usize);
     let s3 = (((a[3]&0xF0) >> 4) as usize, (a[3] & 0x0F) as usize);
-    println!("s: {:x}{:x},{:x}{:x},{:x}{:x},{:x}{:x}", s0.0, s0.1, s1.0, s1.1, s2.0, s2.1, s3.0, s3.1);
+    //println!("s: {:x}{:x},{:x}{:x},{:x}{:x},{:x}{:x}", s0.0, s0.1, s1.0, s1.1, s2.0, s2.1, s3.0, s3.1);
     let output: u32 = word_from_bytes([SBOX[s0.0][s0.1], SBOX[s1.0][s1.1], SBOX[s2.0][s2.1], SBOX[s3.0][s3.1]]);
-    println!("SBOX: {:x},{:x},{:x},{:x},", SBOX[s0.0][s0.1], SBOX[s1.0][s1.1], SBOX[s2.0][s2.1], SBOX[s3.0][s3.1]);
+    //println!("SBOX: {:x},{:x},{:x},{:x},", SBOX[s0.0][s0.1], SBOX[s1.0][s1.1], SBOX[s2.0][s2.1], SBOX[s3.0][s3.1]);
 
     output
 }
@@ -56,18 +59,18 @@ pub fn expand_key(key: &[u8;16]) -> [u8; 176] {
     let key = key.clone();
     while i <= Nk - 1 {
         w[i] = word_from_bytes([key[4*i], key[4 * i+1], key[4 * i+2], key[4 * i+3]]);
-        println!("w[{}]: {:x}", i, w[i]);
+        //println!("w[{}]: {:x}", i, w[i]);
         //println!("{:x}", w[i]);
         i = i+1;
     }         //. When the loop concludes, i = Nk.;
     while i <= 4 * Nr + 3 {
         let mut temp = w[i - 1];
         if i % Nk == 0 {
-            println!("temp{}: {:x}", i, temp);
+            //println!("temp{}: {:x}", i, temp);
             let rot = ROTWORD(temp);
-            println!("rot{}: {:x}", i, rot);
+            //println!("rot{}: {:x}", i, rot);
             temp = SUBWORD(ROTWORD(temp)) ^ RCON[i/Nk - 1];
-            println!("sub{}: {:x}",i, temp);
+            //println!("sub{}: {:x}",i, temp);
         }else if (Nk > 6) && (i%Nk == 4) {
             temp = SUBWORD(temp);
         }
@@ -89,10 +92,31 @@ pub fn expand_key(key: &[u8;16]) -> [u8; 176] {
 }
 
 // AES128 encryption
-pub fn encrypt(plaintext: &str, key: &str) -> String {
-    println!("SBOX[0][0]: {}", SBOX[0][0]);
-    let Ciphertext: &str = "69c4e0d86a7b0430d8cdb78070b4c55a";
-    return Ciphertext.to_owned()
+pub unsafe fn encrypt(plaintext: [u8;16], key: &[u8;16]) -> [u8;16] {
+    let exp_key = expand_key(key);
+    let mut round_keys: [__m128i;11] = [_mm_setzero_si128();11];
+    let mut i = 0;
+    let j = 0;
+    while i < exp_key.len()-15 {
+        let mut temp = [0;16];
+        temp[j] = exp_key[i];
+        if i%16 == 0 {
+            let round_key = _mm_loadu_si128(temp.as_ptr() as *const __m128i);
+            round_keys[i/16] = round_key;
+        }
+        i += 1;
+    }
+    let plaintext = _mm_loadu_si128(plaintext.as_ptr() as *const __m128i);
+    let mut ciphertext = _mm_xor_si128(plaintext, round_keys[0]);
+    let mut i = 1;
+    while i < 10 {
+        ciphertext = _mm_aesenc_si128(plaintext, round_keys[i]);
+        i += 1;
+    }
+    let ciphertext = _mm_aesenclast_si128(ciphertext, round_keys[10]);
+    let mut value: [u8;16] = [0;16];
+    _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, ciphertext);
+    value
 }
 
 
@@ -102,14 +126,19 @@ mod tests {
 
     #[test]
     fn test_aes() {
-        let Plaintext: &str = "00112233445566778899aabbccddeeff";
-        let Key: &str = "000102030405060708090a0b0c0d0e0f";
-        let Ciphertext: &str = "69c4e0d86a7b0430d8cdb78070b4c55a";
-        assert_eq!(encrypt(Plaintext, Key), Ciphertext);
+        let Plaintext: [u8;16] = [0x00,0x11,0x22,0x33,0x44,0x55,0x66,0x77,0x88,0x99,0xaa,0xbb,0xcc,0xdd,0xee,0xff];
+        let Key: [u8;16] = [0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f];
+        let Ciphertext: [u8;16] = [69,0xc4,0xe0,0xd8,0x6a,0x7b,0x04,0x30,0xd8,0xcd,0xb7,0x80,0x70,0xb4,0xc5,0x5a];
+        let ctext = unsafe { encrypt(Plaintext, &Key) };
+        println!("key  : {:?}", Key);
+        println!("ptext: {:?}", Plaintext);
+        println!("ctext: {:?}", ctext);
+        assert_eq!(unsafe{encrypt(Plaintext, &Key)}, Ciphertext);
     }
 
     #[test]
     fn test_key_expansion() {
+        //these keys are from the official NIST AES standard
         let key: [u8; 16] = [
             0x2b,0x7e,0x15,0x16,
             0x28,0xae,0xd2,0xa6,
@@ -117,7 +146,6 @@ mod tests {
             0x09,0xcf,0x4f,0x3c,
         ];
         let official_expanded_key: [u8; 176] = [
-            
             0x2b,0x7e,0x15,0x16,
             0x28,0xae,0xd2,0xa6,
             0xab,0xf7,0x15,0x88,
