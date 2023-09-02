@@ -55,27 +55,47 @@ impl From<StrictError> for ConnectionError {
 }
 
 
-
+// I'd change the declaration to: request_table(table_name: &str, server_address: &str)
 pub fn request_csv(name: &str, address: &str) -> Result<StrictTable, ConnectionError> {
+    // Validating the server_address somehow and providing a descriptive error would probably be a good idea
 
     let mut connection: TcpStream = match TcpStream::connect(address) {
         Ok(stream) => stream,
         Err(e) => {return Err(ConnectionError::Io(e));}
     };
     
+    // The writing to the connection here is the same code as elsewhere
+    // perhaps you want to encapsulate the writing/communications themselves somehow. 
+    // E.g. say you change the server to accept json or another format, 
+    // you'd only want to make the formatting change in one place.
+    // It doesn't have to be a class but some intermideary between this request_table function
+    // and the connection that would surface say at least two methods: 
+    // send_request(method: requesting|sending|other, params: &str), 
+    //      where the method param would be an enum allowing you to 
+    //      switch between the appearent methods however that's best done in rust
+    //      and the other would be the params (like name) currently going into the formatted string.
+    //      This method could then also handle parsing the data from the server  (i.e. the read in the loop below)
+    //      and casting the bytes to a string
+    // and 
+    // send_confirmation(), which would send the "OK"
+
     match connection.write(format!("admin|admin|Requesting|{}", name).as_bytes()) {
         Ok(n) => println!("Wrote request as {n} bytes"),
         Err(e) => {return Err(ConnectionError::Io(e));},
     };
 
     let mut buffer: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
+    // What the hell are you looping over here? Hahah, rust looks weird coming from js 😂 but very cool
     loop {
         match connection.read(&mut buffer) {
             Ok(_) => break,
             Err(e) => {return Err(ConnectionError::Io(e));}        }
     }
 
+    // This would then be the result of the call to send_request, 
+    // i'd maybe rename it "response" because its not necissarily csv which you clearly know ofc
     let csv = bytes_to_str(&buffer)?;
+
     if csv == "No such table" {
         return Err(ConnectionError::InvalidRequest("No such table".to_owned()));
     }
