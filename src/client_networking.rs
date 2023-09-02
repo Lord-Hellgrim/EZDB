@@ -89,6 +89,8 @@ pub fn request_csv(name: &str, address: &str) -> Result<StrictTable, ConnectionE
 
     let mut buffer: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
     // What the hell are you looping over here? Hahah, rust looks weird coming from js 😂 but very cool
+    // This loop is needed to read large data but would not work as is. That problem is solved in server()
+    // but not here yet
     loop {
         match connection.read(&mut buffer) {
             Ok(_) => break,
