@@ -126,16 +126,23 @@ pub unsafe fn encrypt(plaintext: [u8;16], key: &[u8;16]) -> [u8;16] {
     // putting the expanded key into an array of 128bit words
     while i < exp_key.len()-15 {
         let temp = array_from_slice(&exp_key[i..i+16]);
-        // println!("temp: {:?}", temp);
-        // println!("rkey: {:?}", &exp_key[i..i+16]);
+        // println!("temp: {:x?}", temp);
+        // println!("rkey: {:x?}", &exp_key[i..i+16]);
         let round_key = _mm_loadu_si128(temp.as_ptr() as *const __m128i);
+        
         round_keys[i/16] = round_key;
-        i += 1;
+        i += 16;
     }
 
     // The main body of the AES128 algorithm
     let plaintext = _mm_loadu_si128(plaintext.as_ptr() as *const __m128i);
+   
     let mut ciphertext = _mm_xor_si128(plaintext, round_keys[0]);
+    // {
+    //     let mut value: [u8;16] = [0;16];
+    //     _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, round_keys[0]);
+    //     println!("rkey 0: {:x?}", value);
+    // }
     {
         let mut value: [u8;16] = [0;16];
         _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, ciphertext);
@@ -143,22 +150,27 @@ pub unsafe fn encrypt(plaintext: [u8;16], key: &[u8;16]) -> [u8;16] {
     }
     let mut i = 1;
     while i < 10 {
-        ciphertext = _mm_aesenc_si128(plaintext, round_keys[i]);
+        // {
+        //     let mut value: [u8;16] = [0;16];
+        //     _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, round_keys[i]);
+        //     println!("rkey {i}: {:x?}", value);
+        // }
+        ciphertext = _mm_aesenc_si128(ciphertext, round_keys[i]);
 
-        {
-            let mut value: [u8;16] = [0;16];
-            _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, round_keys[i]);
-            println!("rkey {i}: {:x?}", value);
-        }
 
-        i += 1;
         {
             let mut value: [u8;16] = [0;16];
             _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, ciphertext);
             println!("state{i}: {:x?}", value);
         }
+        i += 1;
     }
-    let ciphertext = _mm_aesenclast_si128(ciphertext, round_keys[10]);
+    ciphertext = _mm_aesenclast_si128(ciphertext, round_keys[10]);
+    {
+        let mut value: [u8;16] = [0;16];
+        _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, ciphertext);
+        println!("state10: {:x?}", value);
+    }
     let mut value: [u8;16] = [0;16];
     _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, ciphertext);
     value
@@ -173,7 +185,11 @@ mod tests {
     fn test_aes() {
         let Plaintext: [u8;16] = [0x32, 0x43, 0xf6, 0xa8, 0x88, 0x5a, 0x30, 0x8d, 0x31, 0x31, 0x98, 0xa2, 0xe0, 0x37, 0x07, 0x34];
         let Key: [u8;16] = [0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c];
-        let Ciphertext: [u8;16] = [0x39, 0x02, 0xdc, 0x19, 0x25, 0xdc, 0x11, 0x6a, 0x84, 0x09, 0x85, 0x0b, 0x1d, 0xfb, 0x97, 0x32];
+        let Ciphertext: [u8;16] = [0x39, 0x25, 0x84, 0x1d, 
+                                   0x02, 0xdc, 0x09, 0x0fb,
+                                   0xdc, 0x11, 0x85, 0x97,
+                                   0x19, 0x6a, 0x0b, 0x32
+                                  ];
         assert_eq!(unsafe{encrypt(Plaintext, &Key)}, Ciphertext);
     }
 
@@ -191,42 +207,52 @@ mod tests {
             0x28,0xae,0xd2,0xa6,
             0xab,0xf7,0x15,0x88,
             0x09,0xcf,0x4f,0x3c,
+
             0xa0,0xfa,0xfe,0x17,
             0x88,0x54,0x2c,0xb1,
             0x23,0xa3,0x39,0x39,
             0x2a,0x6c,0x76,0x05,
+
             0xf2,0xc2,0x95,0xf2,
             0x7a,0x96,0xb9,0x43,
             0x59,0x35,0x80,0x7a,
             0x73,0x59,0xf6,0x7f,
+
             0x3d,0x80,0x47,0x7d,
             0x47,0x16,0xfe,0x3e,
             0x1e,0x23,0x7e,0x44,
             0x6d,0x7a,0x88,0x3b,
+
             0xef,0x44,0xa5,0x41,
             0xa8,0x52,0x5b,0x7f,
             0xb6,0x71,0x25,0x3b,
             0xdb,0x0b,0xad,0x00,
+
             0xd4,0xd1,0xc6,0xf8,
             0x7c,0x83,0x9d,0x87,
             0xca,0xf2,0xb8,0xbc,
             0x11,0xf9,0x15,0xbc,
+
             0x6d,0x88,0xa3,0x7a,
             0x11,0x0b,0x3e,0xfd,
             0xdb,0xf9,0x86,0x41,
             0xca,0x00,0x93,0xfd,
+
             0x4e,0x54,0xf7,0x0e,
             0x5f,0x5f,0xc9,0xf3,
             0x84,0xa6,0x4f,0xb2,
             0x4e,0xa6,0xdc,0x4f,
+
             0xea,0xd2,0x73,0x21,
             0xb5,0x8d,0xba,0xd2,
             0x31,0x2b,0xf5,0x60,
             0x7f,0x8d,0x29,0x2f,
+
             0xac,0x77,0x66,0xf3,
             0x19,0xfa,0xdc,0x21,
             0x28,0xd1,0x29,0x41,
             0x57,0x5c,0x00,0x6e,
+
             0xd0,0x14,0xf9,0xa8,
             0xc9,0xee,0x25,0x89,
             0xe1,0x3f,0x0c,0xc8,
