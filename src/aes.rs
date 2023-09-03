@@ -93,7 +93,7 @@ pub fn expand_key(key: &[u8;16]) -> [u8; 176] {
         let mut temp = w[i - 1];
         if i % Nk == 0 {
             //println!("temp{}: {:x}", i, temp);
-            let rot = ROTWORD(temp);
+            //let rot = ROTWORD(temp);
             //println!("rot{}: {:x}", i, rot);
             temp = SUBWORD(ROTWORD(temp)) ^ RCON[i/Nk - 1];
             //println!("sub{}: {:x}",i, temp);
@@ -118,6 +118,7 @@ pub fn expand_key(key: &[u8;16]) -> [u8; 176] {
 }
 
 // AES128 encryption
+#[cfg(target_arch="x86_64")]
 pub unsafe fn encrypt(plaintext: [u8;16], key: &[u8;16]) -> [u8;16] {
     let exp_key = expand_key(key);
     let mut round_keys: [__m128i;11] = [_mm_setzero_si128();11];
@@ -248,12 +249,7 @@ mod tests {
 
         ];
         let ekey = expand_key(&key);
-        let mut index = 0;
-        // while index < 176 {
-        //     let delta = ekey[index] as i32 - chatGPT_expanded_key[index] as i32;
-        //     print!("{:x}, ", delta);
-        //     index += 1;
-        // }
+        
         assert_eq!(official_expanded_key, ekey);
 
     }

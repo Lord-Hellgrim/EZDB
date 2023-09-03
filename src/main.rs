@@ -1,4 +1,4 @@
-#![allow(unused)]
+//#![allow(unused)]
 #![allow(non_snake_case)]
 #![feature(core_intrinsics, stdsimd)]
 
@@ -15,7 +15,7 @@ mod logger;
 mod auth;
 mod aes;
 
-fn main() -> Result<(), server_networking::ServerError> {
+fn main() -> Result<(), networking_utilities::ServerError> {
 
     let global: HashMap<String, db_structure::StrictTable> = HashMap::new();
     let arc_global = Arc::new(Mutex::new(global));

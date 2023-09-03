@@ -62,8 +62,8 @@ pub enum AuthenticationError {
 impl fmt::Display for AuthenticationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            AuthenticationError::WrongUser(s) => write!(f, "Username: {}\nIs incorrect", s),
-            AuthenticationError::WrongPassword(s) => write!(f, "PasswordHash: {}\nIs incorrect", s),
+            AuthenticationError::WrongUser(_) => write!(f, "Username is incorrect"),
+            AuthenticationError::WrongPassword(_) => write!(f, "Password is incorrect"),
             AuthenticationError::MissingField => write!(f, "Missing username or password or both"),
         }
     }

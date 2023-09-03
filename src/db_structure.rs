@@ -241,7 +241,7 @@ impl StrictTable {
 
     pub fn update(&mut self, csv: &str) -> Result<(), StrictError>{
 
-        let mut mapped_csv = StrictTable::from_csv_string(csv, "update")?;
+        let mapped_csv = StrictTable::from_csv_string(csv, "update")?;
 
         if mapped_csv.header != self.header {
             {return Err(StrictError::Update("Headers don't match".to_owned()));}
