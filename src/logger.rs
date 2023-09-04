@@ -38,19 +38,19 @@ pub fn unix_time_to_real(seconds: u64) -> String {
     let months: u64;
     
     match days {
-        1..=31 => { months = 1;}
-        32..=59 => {months = 2; days -= 31}
-        60..=90 => {months = 3; days -= 59}
-        91..=120 => {months = 4; days -= 90}
-        121..=151 => {months = 5; days -= 120}
-        152..=181 => {months = 6; days -= 151}
-        182..=212 => {months = 7; days -= 181}
-        213..=243 => {months = 8; days -= 212}
-        244..=273 => {months = 9; days -= 243}
-        274..=304 => {months = 10; days -= 273}
-        305..=334 => {months = 11; days -= 304}
-        335..=366 => {months = 12; days -= 334}
-        _ => {months = 12;}
+        1..=31 => { months = 1;},
+        32..=59 => {months = 2; days -= 31},
+        60..=90 => {months = 3; days -= 59},
+        91..=120 => {months = 4; days -= 90},
+        121..=151 => {months = 5; days -= 120},
+        152..=181 => {months = 6; days -= 151},
+        182..=212 => {months = 7; days -= 181},
+        213..=243 => {months = 8; days -= 212},
+        244..=273 => {months = 9; days -= 243},
+        274..=304 => {months = 10; days -= 273},
+        305..=334 => {months = 11; days -= 304},
+        335..=366 => {months = 12; days -= 334},
+        _ => {months = 12;},
     }
     // if days <= 31 { months = 1;}
     // else if days > 31 && days <= 59 {months = 2; days -= 31}
