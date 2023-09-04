@@ -36,19 +36,35 @@ pub fn unix_time_to_real(seconds: u64) -> String {
 
     let mut days = (seconds%YEAR - ((seconds / YEAR)/4) * DAY) / DAY + 1;
     let months: u64;
-    if days <= 31 { months = 1;}
-    else if days > 31 && days <= 59 {months = 2; days -= 31}
-    else if days > 59 && days <= 90 {months = 3; days -= 59}
-    else if days > 90 && days <= 120 {months = 4; days -= 90}
-    else if days > 120 && days <= 151 {months = 5; days -= 120}
-    else if days > 151 && days <= 181 {months = 6; days -= 151}
-    else if days > 181 && days <= 212 {months = 7; days -= 181}
-    else if days > 212 && days <= 243 {months = 8; days -= 212}
-    else if days > 243 && days <= 273 {months = 9; days -= 243}
-    else if days > 273 && days <= 304 {months = 10; days -= 273}
-    else if days > 304 && days <= 334 {months = 11; days -= 304}
-    else if days > 334 && days <= 366 {months = 12; days -= 334}
-    else {months = 12;}
+    
+    match days {
+        1..=31 => { months = 1;},
+        32..=59 => {months = 2; days -= 31},
+        60..=90 => {months = 3; days -= 59},
+        91..=120 => {months = 4; days -= 90},
+        121..=151 => {months = 5; days -= 120},
+        152..=181 => {months = 6; days -= 151},
+        182..=212 => {months = 7; days -= 181},
+        213..=243 => {months = 8; days -= 212},
+        244..=273 => {months = 9; days -= 243},
+        274..=304 => {months = 10; days -= 273},
+        305..=334 => {months = 11; days -= 304},
+        335..=366 => {months = 12; days -= 334},
+        _ => {months = 12;},
+    }
+    // if days <= 31 { months = 1;}
+    // else if days > 31 && days <= 59 {months = 2; days -= 31}
+    // else if days > 59 && days <= 90 {months = 3; days -= 59}
+    // else if days > 90 && days <= 120 {months = 4; days -= 90}
+    // else if days > 120 && days <= 151 {months = 5; days -= 120}
+    // else if days > 151 && days <= 181 {months = 6; days -= 151}
+    // else if days > 181 && days <= 212 {months = 7; days -= 181}
+    // else if days > 212 && days <= 243 {months = 8; days -= 212}
+    // else if days > 243 && days <= 273 {months = 9; days -= 243}
+    // else if days > 273 && days <= 304 {months = 10; days -= 273}
+    // else if days > 304 && days <= 334 {months = 11; days -= 304}
+    // else if days > 334 && days <= 366 {months = 12; days -= 334}
+    // else {months = 12;}
 
     let minutes: String;
     if (seconds%HOUR)/MINUTE < 10 {

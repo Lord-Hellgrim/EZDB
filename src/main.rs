@@ -6,7 +6,6 @@
 use std::{collections::HashMap, sync::{Arc, Mutex}};
 
 
-mod basic_io_functions;
 mod db_structure;
 mod server_networking;
 mod client_networking;
@@ -15,7 +14,7 @@ mod logger;
 mod auth;
 mod aes;
 
-fn main() -> Result<(), server_networking::ServerError> {
+fn main() -> Result<(), networking_utilities::ServerError> {
 
     let global: HashMap<String, db_structure::StrictTable> = HashMap::new();
     let arc_global = Arc::new(Mutex::new(global));
