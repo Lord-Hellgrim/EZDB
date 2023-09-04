@@ -149,7 +149,33 @@ pub fn hash_function(a: &str) -> &str{
 }
 
 
-pub fn send_data(stream: &mut TcpStream, data: &str) -> Result<String, ServerError> {
+pub fn instruction_send_and_confirm(username: &str, password: &str, instruction: Instruction, stream: &mut TcpStream) -> Result<String, ServerError> {
+
+    let instruction = match instruction {
+        Instruction::Download(table_name) => format!("Requesting|{}", table_name),
+        Instruction::Upload(table_name) => format!("Sending|{}", table_name),
+        Instruction::Update(table_name) => format!("Updating|{}", table_name),
+
+    };
+
+    match stream.write(format!("{username}|{password}|{instruction}").as_bytes()) {
+        Ok(n) => println!("Wrote request as {n} bytes"),
+        Err(e) => {return Err(ServerError::Io(e));},
+    };
+    
+    let mut buffer: [u8;INSTRUCTION_BUFFER] = [0;INSTRUCTION_BUFFER];
+    println!("Waiting for response from server");
+    stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+    let total_read = stream.read(&mut buffer)?;
+
+    let response = bytes_to_str(&buffer)?;
+
+    Ok(response.to_owned())
+    
+}
+
+
+pub fn data_send_and_confirm(stream: &mut TcpStream, data: &str) -> Result<String, ServerError> {
 
     println!("Sending data size...");
     stream.write(&data.len().to_be_bytes())?;
@@ -163,7 +189,7 @@ pub fn send_data(stream: &mut TcpStream, data: &str) -> Result<String, ServerErr
         Ok(_) => {
             println!("Confirmation '{}' received", bytes_to_str(&buffer)?);
         },
-        Err(_) => println!("Did not confirm transmission with client"),
+        Err(_) => println!("Did not confirm transmission with peer"),
         
     }
     

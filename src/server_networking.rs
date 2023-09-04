@@ -63,7 +63,29 @@ pub fn parse_instruction(buffer: &[u8], users: &HashMap<String, User>, global_ta
 }
 
 
-fn handle_upload_request(mut stream: TcpStream, name: &str, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<(), ServerError> {
+fn handle_download_request(mut stream: TcpStream, name: &str, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<(), ServerError> {
+    
+    match stream.write("OK".as_bytes()) {
+        Ok(n) => println!("Wrote {n} bytes"),
+        Err(e) => {return Err(ServerError::Io(e));},
+    };
+
+    let mutex_binding = global_tables.lock().unwrap();
+    let requested_table = mutex_binding.get(name).expect("Instruction parser should have verified table");
+    let requested_csv = requested_table.to_csv_string();
+
+    let response = data_send_and_confirm(&mut stream, &requested_csv)?;
+
+    if response == "OK" {
+        return Ok(())
+    } else {
+        return Err(ServerError::Confirmation(Vec::from(response)))
+    }
+
+}
+
+
+fn handle_upload_request(mut stream: TcpStream, name: &str, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<String, ServerError> {
 
     match stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
@@ -91,45 +113,34 @@ fn handle_upload_request(mut stream: TcpStream, name: &str, global_tables: Arc<M
         },
     };
 
-    Ok(())
+    Ok("OK".to_owned())
 }
-
-
-fn handle_download_request(mut stream: TcpStream, name: &str, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<(), ServerError> {
     
-    let requested_table = global_tables.lock().unwrap();
-    let requested_table = match requested_table.get(name) {
-        Some(table) => table,
-        None => {stream.write(format!("No table named: {}", name).as_bytes())?;
-            return Err(ServerError::Instruction(InstructionError::Invalid(format!("No table named {}", name).to_owned())));
+    
+pub fn handle_update_request(mut stream: TcpStream, name: &str, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<String, ServerError> {
+    
+    match stream.write("OK".as_bytes()) {
+        Ok(n) => println!("Wrote {n} bytes"),
+        Err(e) => {return Err(ServerError::Io(e));},
+    };
+
+    let (csv, total_read) = receive_data(&mut stream)?;
+
+    let mut mutex_binding = global_tables.lock().unwrap();
+
+    let requested_table = mutex_binding.get_mut(name).expect("Instruction parser should have verified existence of table");
+    
+    match requested_table.update(&csv) {
+        Ok(_) => {
+            stream.write(total_read.to_string().as_bytes())?;
+        },
+        Err(e) => {
+            stream.write(e.to_string().as_bytes())?;
+            return Err(ServerError::Strict(e));
         },
     };
-    let requested_csv = requested_table.to_csv_string();
 
-
-
-    let response = send_data(&mut stream, &requested_csv)?;
-
-    if response == "OK" {
-        return Ok(())
-    } else {
-        return Err(ServerError::Confirmation(Vec::from(response)))
-    }
-
-}
-    
-    
-pub fn handle_update_request(mut stream: TcpStream, name: &str, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<(), ServerError> {
-    
-    let requested_table = global_tables.lock().unwrap();
-    if !requested_table.contains_key(name) {
-        stream.write(format!("No table named: {}", name).as_bytes())?;
-        return Err(ServerError::Instruction(InstructionError::Invalid(format!("No table named {}", name).to_owned())));   
-    }
-    todo!();
-
-    //requested_table.get_mut(name).unwrap().update(updates)?;
-
+    Ok("OK".to_owned())
 }
 
 
