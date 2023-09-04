@@ -6,7 +6,6 @@
 use std::{collections::HashMap, sync::{Arc, Mutex}};
 
 
-mod basic_io_functions;
 mod db_structure;
 mod server_networking;
 mod client_networking;
