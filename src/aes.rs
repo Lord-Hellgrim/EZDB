@@ -1,4 +1,4 @@
-use std::arch::x86_64::{__m128i, _mm_loadu_si128, _mm_setzero_si128, _mm_aesenc_si128, _mm_xor_si128, _mm_aesenclast_si128, _mm_storeu_si128};
+use std::arch::x86_64::{__m128i, _mm_loadu_si128, _mm_setzero_si128, _mm_aesenc_si128, _mm_xor_si128, _mm_aesenclast_si128, _mm_storeu_si128, _mm_aesdec_si128, _mm_aesdeclast_si128, _mm_aesimc_si128};
 use std::str::from_utf8;
 
 
@@ -50,16 +50,18 @@ fn array_from_slice(slice: &[u8]) -> [u8;16] {
 }
 
 fn array_align16(a: &[u8]) -> Vec<u8> {
-    let output = Vec::new();
+    let mut output = Vec::new();
     if a.len()%16 == 0 {
-        return a;
+        output.extend_from_slice(a);
     } else {
-        let mut offset = a.len()%16;
+        output.extend_from_slice(a);
         let mut i = 0;
-        let mut 
-
-        return a;
+        while i < a.len()%16 {
+            output.push(0x0);
+            i += 1;
+        }
     }
+    output
 }
 
 
@@ -146,7 +148,7 @@ fn encrypt_one_block_128(plaintext: [u8;16], key: &[u8;16]) -> [u8;16] {
 
     // The main body of the AES128 algorithm
     let plaintext = unsafe { _mm_loadu_si128(plaintext.as_ptr() as *const __m128i) };
-   
+    
     let mut ciphertext = unsafe { _mm_xor_si128(plaintext, round_keys[0]) };
     
     
@@ -163,42 +165,66 @@ fn encrypt_one_block_128(plaintext: [u8;16], key: &[u8;16]) -> [u8;16] {
     value
 }
 
+
+fn decrypt_one_block_128(ciphertext: [u8;16], key: &[u8;16]) -> [u8;16] {
+    let exp_key = expand_key(key);
+    let mut round_keys: [__m128i;11] = unsafe { [_mm_setzero_si128();11] };
+    let mut i = 0;
+    // putting the expanded key into an array of 128bit words
+    while i < exp_key.len()-15 {
+        let temp = array_from_slice(&exp_key[i..i+16]);
+        println!("Round key {i}: {:x?}", temp);
+        let round_key = unsafe { _mm_loadu_si128(temp.as_ptr() as *const __m128i) };
+        
+        round_keys[i/16] = round_key;
+        i += 16;
+    }
+
+    // The main body of the AES128 algorithm
+    let ciphertext = unsafe { _mm_loadu_si128(ciphertext.as_ptr() as *const __m128i) };
+   
+    let mut plaintext = unsafe { _mm_xor_si128(ciphertext, round_keys[10]) };
+    { // This is a SIMD print statement
+        let mut value: [u8;16] = [0;16];
+        unsafe { _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, plaintext) };
+        println!("state10: {:x?}", value);
+    }
+    println!("Going into loop");
+    
+    for i in 1..10 {
+        let round_key = unsafe { _mm_aesimc_si128(round_keys[10-i]) };
+        plaintext = unsafe { _mm_aesdec_si128(plaintext, round_key) };
+        {// This is a SIMD print statement
+            let mut value: [u8;16] = [0;16];
+            unsafe { _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, plaintext) };
+            println!("state{}: {:x?}", 10-i, value);
+        }
+        
+    }
+    plaintext = unsafe { _mm_aesdeclast_si128(plaintext, round_keys[0]) };
+    {// This is a SIMD print statement
+        let mut value: [u8;16] = [0;16];
+        unsafe { _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, plaintext) };
+        println!("state0: {:x?}", value);
+    }
+   
+    let mut value: [u8;16] = [0;16];
+    unsafe { _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, plaintext) };
+    value
+}
+
+
 pub fn encrypt_128(data: &[u8], key: &[u8;16]) -> Vec<u8> {
 
-    let last_block = data.len()%16;
-    println!("last_block: {}", last_block);
-    let mut output: Vec<u8> = Vec::new();
-    if last_block == data.len() {
-        return Vec::from(encrypt_one_block_128(array_from_slice(data), key));
-    } else {
-        let mut i = 0;
-        while i < data.len() - last_block {
-            let slice = &data[i..i+16];
-            println!("slice.len(): {}", slice.len());
-            println!("slice: {:x?}", slice);
-            let block = array_from_slice(slice);
-            let block = encrypt_one_block_128(block, key);
-            output.extend_from_slice(&block);
-
-            i += 16;
-        }
-        if last_block == 0 {
-            return output
-        } else {
-
-            let block = &data[i..last_block];
-            let mut filler = [0u8;16];
-            let mut i = 0;
-            while i < last_block {
-                filler[i] = block[i];
-                i += 1;
-            }
+    let data = array_align16(data);
+    let mut output: Vec<u8> = Vec::with_capacity(data.len() + 1);
     
-            output.extend_from_slice(&encrypt_one_block_128(filler, key));
-    
-            return output
-        }
+    for i in 0..data.len()/16 {
+        let temp = encrypt_one_block_128(array_from_slice(&data[i..i+16]), key);
+        output.extend_from_slice(&temp);
     }
+
+    output
 
 }
 
@@ -208,6 +234,20 @@ mod tests {
     use crate::networking_utilities::bytes_to_str;
 
     use super::*;
+
+    #[test]
+    fn test_encrypt_then_decrypt_one_block() {
+        let Plaintext: [u8;16] = [0x32, 0x43, 0xf6, 0xa8, 0x88, 0x5a, 0x30, 0x8d, 0x31, 0x31, 0x98, 0xa2, 0xe0, 0x37, 0x07, 0x34];
+        let Key: [u8;16] = [0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c];
+        println!("Encrypting...");
+        let ciphertext = encrypt_one_block_128(Plaintext, &Key);
+        println!("Decrypting...");
+        let plaintext = decrypt_one_block_128(ciphertext, &Key);
+        println!("Plaintext: {:x?}", Plaintext);
+        println!("Encrypted: {:x?}", ciphertext);
+        println!("Decrypted: {:x?}", plaintext);
+        assert_eq!(Plaintext, plaintext)
+    }
 
     #[test]
     fn easy_test_unaligned_block() {
@@ -231,6 +271,7 @@ mod tests {
                                    0x02, 0xdc, 0x09, 0x0fb,
                                    0xdc, 0x11, 0x85, 0x97,
                                    0x19, 0x6a, 0x0b, 0x32,
+
                                   ]);
         assert_eq!(encrypt_128(&Plaintext, &Key), Ciphertext);
     }
@@ -246,6 +287,7 @@ mod tests {
             0x88, 0x5a, 0x30, 0x8d, 
             0x31, 0x31, 0x98, 0xa2, 
             0xe0, 0x37, 0x07, 0x34,
+            
             ];
         let Key: [u8;16] = [0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c];
         let Ciphertext = Vec::from([
