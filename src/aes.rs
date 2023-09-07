@@ -1,7 +1,7 @@
 use std::arch::x86_64::{__m128i, _mm_loadu_si128, _mm_setzero_si128, _mm_aesenc_si128, _mm_xor_si128, _mm_aesenclast_si128, _mm_storeu_si128, _mm_aesdec_si128, _mm_aesdeclast_si128, _mm_aesimc_si128};
-use std::str::from_utf8;
 
 
+// This is the AES substitution box. Source "NIST.FIPS.197-upd1.pdf"
 const SBOX: [[u8;16];16] = [/*  0     1     2     3     4     5     6     7     8     9     A     B     C     D     E     F */
                         /*0*/ [0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76],
                         /*1*/ [0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0],
@@ -21,9 +21,11 @@ const SBOX: [[u8;16];16] = [/*  0     1     2     3     4     5     6     7     
                         /*F*/ [0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42, 0x68, 0x41, 0x99, 0x2d, 0x0f, 0xb0, 0x54, 0xbb, 0x10],
                         ]; 
 
+// These are the round constants for the AES key expansion algorithm. Source: "NIST.FIPS.197-upd1.pdf"
 const RCON: [u32;10] = [0x01000000, 0x02000000, 0x04000000, 0x08000000, 0x10000000, 0x20000000, 0x40000000, 0x80000000, 0x1b000000, 0x36000000];
 
-fn array_xor(a: [u8;16], b: [u8;16]) -> [u8;16] {
+#[cfg(not(target_feature="sse"))]
+pub fn array_xor(a: [u8;16], b: [u8;16]) -> [u8;16] {
     let mut c = [0u8;16];
     let mut i = 0;
     while i < 15 {
@@ -33,11 +35,23 @@ fn array_xor(a: [u8;16], b: [u8;16]) -> [u8;16] {
     c
 }   
 
-fn array_from_slice(slice: &[u8]) -> [u8;16] {
-    if slice.len() != 16 {
-        panic!("slice: {:x?}", slice);
-    }
 
+#[cfg(any(target_feature="sse", target_feature="avx", target_feature="avx2"))]
+pub unsafe fn array_xor(a: [u8;16], b: [u8;16]) -> [u8;16] {
+    let a = _mm_loadu_si128(a.as_ptr() as *const __m128i);
+    let b = _mm_loadu_si128(b.as_ptr() as *const __m128i);
+    let c = _mm_xor_si128(a, b);
+    let mut output = [0u8;16];
+    _mm_storeu_si128(output.as_mut_ptr() as *mut __m128i, c);
+    output
+
+}
+
+
+fn array16_from_slice(slice: &[u8]) -> [u8;16] {
+    if slice.len() != 16 {
+        panic!("Slice is not 16 bytes long\nSlice: {:x?}", slice);
+    }
     let mut output = [0u8;16];
     let mut i = 0;
     while i < 16 {
@@ -45,9 +59,8 @@ fn array_from_slice(slice: &[u8]) -> [u8;16] {
         i += 1;
     }
     output
-
-
 }
+
 
 fn pkcs_pad16(a: &[u8]) -> Vec<u8> {
     let mut output = Vec::new();
@@ -56,7 +69,7 @@ fn pkcs_pad16(a: &[u8]) -> Vec<u8> {
     } else {
         output.extend_from_slice(a);
         let mut i = 0;
-        let pad: u8 = 16-(a.len()%16) as u8;
+        let pad: u8 = 16-((a.len()%16) as u8);
         while i < pad {
             output.push(pad);
             i += 1;
@@ -64,6 +77,16 @@ fn pkcs_pad16(a: &[u8]) -> Vec<u8> {
     }
     assert!(output.len()%16 == 0);
     output
+}
+
+fn pkcs_unpad(mut a: Vec<u8>) -> Vec<u8> {
+    let num: usize = a[a.len()-1] as usize;
+    
+    for _ in 0..num {
+        a.pop();
+    }
+    a
+
 }
 
 
@@ -133,16 +156,17 @@ pub fn expand_key(key: &[u8;16]) -> [u8; 176] {
 
 }
 
+
+
 // AES128 encryption
-#[cfg(target_arch="x86_64")]
 fn encrypt_one_block_128(plaintext: [u8;16], key: &[u8;16]) -> [u8;16] {
-    println!("plaintext at start: {:x?}", plaintext);
+    // println!("plaintext at start: {:x?}", plaintext);
     let exp_key = expand_key(key);
     let mut round_keys: [__m128i;11] = unsafe { [_mm_setzero_si128();11] };
     let mut i = 0;
     // putting the expanded key into an array of 128bit words
     while i < exp_key.len()-15 {
-        let temp = array_from_slice(&exp_key[i..i+16]);
+        let temp = array16_from_slice(&exp_key[i..i+16]);
         let round_key = unsafe { _mm_loadu_si128(temp.as_ptr() as *const __m128i) };
         
         round_keys[i/16] = round_key;
@@ -152,37 +176,37 @@ fn encrypt_one_block_128(plaintext: [u8;16], key: &[u8;16]) -> [u8;16] {
     // The main body of the AES128 algorithm starts here
     let plaintext = unsafe { _mm_loadu_si128(plaintext.as_ptr() as *const __m128i) };
     
-    { // This is a SIMD print statement
-        let mut value: [u8;16] = [0;16];
-        unsafe { _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, plaintext) };
-        println!("Plaintext as _m128i: {:x?}", value);
-    }
+    // { // This is a SIMD print statement
+    //     let mut value: [u8;16] = [0;16];
+    //     unsafe { _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, plaintext) };
+    //     println!("Plaintext as _m128i: {:x?}", value);
+    // }
 
     let mut ciphertext = unsafe { _mm_xor_si128(plaintext, round_keys[0]) };
-    { // This is a SIMD print statement
-        let mut value: [u8;16] = [0;16];
-        unsafe { _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, ciphertext) };
-        println!("state0: {:x?}", value);
-    }
+    // { // This is a SIMD print statement
+    //     let mut value: [u8;16] = [0;16];
+    //     unsafe { _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, ciphertext) };
+    //     println!("state0: {:x?}", value);
+    // }
     
     
     let mut i = 1;
     while i < 10 {
         ciphertext = unsafe { _mm_aesenc_si128(ciphertext, round_keys[i]) };
-        { // This is a SIMD print statement
-            let mut value: [u8;16] = [0;16];
-            unsafe { _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, ciphertext) };
-            println!("state{i}: {:x?}", value);
-        }
+        // { // This is a SIMD print statement
+        //     let mut value: [u8;16] = [0;16];
+        //     unsafe { _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, ciphertext) };
+        //     println!("state{i}: {:x?}", value);
+        // }
         
         i += 1;
     }
     ciphertext = unsafe { _mm_aesenclast_si128(ciphertext, round_keys[10]) };
-    { // This is a SIMD print statement
-        let mut value: [u8;16] = [0;16];
-        unsafe { _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, ciphertext) };
-        println!("state10: {:x?}", value);
-    }
+    // { // This is a SIMD print statement
+    //     let mut value: [u8;16] = [0;16];
+    //     unsafe { _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, ciphertext) };
+    //     println!("state10: {:x?}", value);
+    // }
    
     let mut value: [u8;16] = [0;16];
     unsafe { _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, ciphertext) };
@@ -197,8 +221,8 @@ fn decrypt_one_block_128(ciphertext: [u8;16], key: &[u8;16]) -> [u8;16] {
     let mut i = 0;
     // putting the expanded key into an array of 128bit words
     while i < exp_key.len()-15 {
-        let temp = array_from_slice(&exp_key[i..i+16]);
-        println!("Round key {i}: {:x?}", temp);
+        let temp = array16_from_slice(&exp_key[i..i+16]);
+        // println!("Round key {i}: {:x?}", temp);
         let round_key = unsafe { _mm_loadu_si128(temp.as_ptr() as *const __m128i) };
         
         round_keys[i/16] = round_key;
@@ -209,29 +233,29 @@ fn decrypt_one_block_128(ciphertext: [u8;16], key: &[u8;16]) -> [u8;16] {
     let ciphertext = unsafe { _mm_loadu_si128(ciphertext.as_ptr() as *const __m128i) };
    
     let mut plaintext = unsafe { _mm_xor_si128(ciphertext, round_keys[10]) };
-    { // This is a SIMD print statement
-        let mut value: [u8;16] = [0;16];
-        unsafe { _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, plaintext) };
-        println!("state10: {:x?}", value);
-    }
-    println!("Going into loop");
+    // { // This is a SIMD print statement
+    //     let mut value: [u8;16] = [0;16];
+    //     unsafe { _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, plaintext) };
+    //     println!("state10: {:x?}", value);
+    // }
+    // println!("Going into loop");
     
     for i in 1..10 {
         let round_key = unsafe { _mm_aesimc_si128(round_keys[10-i]) };
         plaintext = unsafe { _mm_aesdec_si128(plaintext, round_key) };
-        {// This is a SIMD print statement
-            let mut value: [u8;16] = [0;16];
-            unsafe { _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, plaintext) };
-            println!("state{}: {:x?}", 10-i, value);
-        }
+        // {// This is a SIMD print statement
+        //     let mut value: [u8;16] = [0;16];
+        //     unsafe { _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, plaintext) };
+        //     println!("state{}: {:x?}", 10-i, value);
+        // }
         
     }
     plaintext = unsafe { _mm_aesdeclast_si128(plaintext, round_keys[0]) };
-    {// This is a SIMD print statement
-        let mut value: [u8;16] = [0;16];
-        unsafe { _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, plaintext) };
-        println!("state0: {:x?}", value);
-    }
+    // {// This is a SIMD print statement
+    //     let mut value: [u8;16] = [0;16];
+    //     unsafe { _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, plaintext) };
+    //     println!("state0: {:x?}", value);
+    // }
    
     let mut value: [u8;16] = [0;16];
     unsafe { _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, plaintext) };
@@ -246,7 +270,7 @@ pub fn encrypt_128(data: &[u8], key: &[u8;16]) -> Vec<u8> {
     
     let mut i = 0;
     while i < data.len() {
-        let temp = encrypt_one_block_128(array_from_slice(&data[i..i+16]), key);
+        let temp = encrypt_one_block_128(array16_from_slice(&data[i..i+16]), key);
         output.extend_from_slice(&temp);
         i += 16;
     }
@@ -262,36 +286,39 @@ pub fn decrypt_128(data: &[u8], key: &[u8;16]) -> Vec<u8> {
     
     let mut i = 0;
     while i < data.len() {
-        let temp = decrypt_one_block_128(array_from_slice(&data[i..i+16]), key);
+        let temp = decrypt_one_block_128(array16_from_slice(&data[i..i+16]), key);
         output.extend_from_slice(&temp);
         i += 16;
     }
 
-    output
+    pkcs_unpad(output)
 }
 
 
 #[cfg(test)]
 mod tests {
+    use std::time::Instant;
+
     use crate::networking_utilities::bytes_to_str;
 
     use super::*;
 
     #[test]
     fn test_generic_encryption_decryption() {
-        let Plaintext = "0123456789ABCDEF0";
+        let Plaintext = "This is some plaintext......!";
         let Key: [u8;16] = [0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c];
         let ciphertext = encrypt_128(Plaintext.as_bytes(), &Key);
         let decrypted_ciphertext = decrypt_128(&ciphertext, &Key);
-        println!("Plaintext: {:x?}", pkcs_pad16(Plaintext.as_bytes()));
-        println!("decrypted: {:x?}", decrypted_ciphertext);
-        assert_eq!(pkcs_pad16(Plaintext.as_bytes()), decrypted_ciphertext);
+        let text = String::from_utf8(decrypted_ciphertext).unwrap();
+        println!("Plaintext: {}", Plaintext);
+        println!("Text: {}", text);
+        assert_eq!(Plaintext, text);
     }
 
     #[test]
     fn test_array_align() {
         let mut vec:Vec<u8> = Vec::new();
-        for i in 0..16 {
+        for _ in 0..16 {
             vec.push(0xFF);
             let aligned_vec = pkcs_pad16(&vec);
             println!("vec.len(): {}", vec.len());
