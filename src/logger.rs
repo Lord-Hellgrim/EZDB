@@ -146,6 +146,8 @@ mod tests {
 
     #[test]
     fn test_destructor() {
+        std::fs::create_dir("testlogs");
+        std::fs::create_dir("testlogs1");
         let mut logger = Logger::new("testlogs".to_owned());
         logger.log("Here is a log");
         if true {
@@ -157,6 +159,8 @@ mod tests {
 
     #[test]
     fn test_too_big_log() {
+        std::fs::create_dir("testlogs");
+        std::fs::create_dir("testlogs1");
         let mut logger = Logger::new("testlogs".to_owned());
         let mut s = "".to_owned();
         let mut i = 0;
@@ -169,6 +173,8 @@ mod tests {
 
     #[test]
     fn test_many_logs() {
+        std::fs::create_dir("testlogs");
+        std::fs::create_dir("testlogs1");
         let mut i = 0;
         let mut logger = Logger::new("testlogs".to_owned());
         while i <1_000_000 {
@@ -180,11 +186,15 @@ mod tests {
 
     #[test]
     fn test_timestamp() {
+        std::fs::create_dir("testlogs");
+        std::fs::create_dir("testlogs1");
         println!("{}", get_current_time());
     }
 
     #[test]
     fn test_test() {
+        std::fs::create_dir("testlogs");
+        std::fs::create_dir("testlogs1");
         println!("{}{}{}", "logs", PATH_SEP, "filename");
     }
 }

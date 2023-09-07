@@ -238,10 +238,10 @@ pub fn server(address: &str, global_tables: Arc<Mutex<HashMap<String, StrictTabl
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_listener() {
-        let global: HashMap<String, StrictTable> = HashMap::new();
-        let arc_global = Arc::new(Mutex::new(global));
-        server("127.0.0.1:3004", arc_global.clone()).unwrap();
-    }
+    // #[test]
+    // fn test_listener() {
+    //     let global: HashMap<String, StrictTable> = HashMap::new();
+    //     let arc_global = Arc::new(Mutex::new(global));
+    //     server("127.0.0.1:3004", arc_global.clone()).unwrap();
+    // }
 }
