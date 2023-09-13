@@ -46,9 +46,9 @@ pub fn download_table(table_name: &str, address: &str, username: &str, password:
 pub fn upload_table(table_name: &str, csv: &String, address: &str, username: &str, password: &str) -> Result<String, ServerError> {
 
     let mut stream = TcpStream::connect(address)?;
-
+    println!("Calling instruction_send_and_confirm()...");
     let response = instruction_send_and_confirm(username, password, Instruction::Upload(table_name.to_owned()), &mut stream)?;
-
+    println!("Returned from instruction_send_and_confirm().\n\tresponse: {}", response);
     let confirmation: String;
     match response.as_str() {
 
@@ -66,7 +66,7 @@ pub fn upload_table(table_name: &str, csv: &String, address: &str, username: &st
     if confirmation == data_len {
         return Ok("OK".to_owned());
     } else {
-        return Err(ServerError::Confirmation(vec!()));
+        return Err(ServerError::Confirmation(confirmation));
     }
 
 }
@@ -97,7 +97,7 @@ pub fn update_table(table_name: &str, csv: &String, address: &str, username: &st
         return Ok("OK".to_owned());
     } else {
         println!("Confirmation from server: {}", confirmation);
-        return Err(ServerError::Confirmation(vec!()));
+        return Err(ServerError::Confirmation(confirmation));
     }
 
 }
@@ -115,10 +115,11 @@ mod tests {
         let csv = std::fs::read_to_string("good_csv.txt").unwrap();
         let address = "127.0.0.1:3004";
         let e = upload_table("good_csv", &csv, address, "admin", "admin");
-        match e {
+        match & e {
             Ok(_) => println!("OK"),
             Err(e) => println!("{}", e),
-        }
+        };
+        assert_eq!(e.unwrap(), "OK");
     }
 
     #[test]
@@ -126,10 +127,8 @@ mod tests {
         let csv = std::fs::read_to_string("bad_csv.txt").unwrap();
         let address = "127.0.0.1:3004";
         let e = upload_table("bad_csv", &csv, address, "admin", "admin");
-        match e {
-            Ok(_) => println!("OK"),
-            Err(e) => println!("{}", e),
-        }
+        assert!(e.is_err());
+        
     }
 
     #[test]
@@ -141,6 +140,8 @@ mod tests {
         println!("Receiving\n############################");
         let table = download_table(name, address, "admin", "admin").unwrap();
         println!("{:?}", table.table);
+        let good_table = StrictTable::from_csv_string(&std::fs::read_to_string("good_csv.txt").unwrap(), "good_table").unwrap();
+        assert_eq!(table.table, good_table.table);
 
     }
 
@@ -164,13 +165,10 @@ mod tests {
         let csv = std::fs::read_to_string("large.csv").unwrap();
         let address = "127.0.0.1:3004";
         let e = upload_table("large_csv", &csv, address, "admin", "admin");
-        match e {
-            Ok(_) => println!("OK"),
-            Err(e) => println!("{}", e),
-        }
-
+        
         //delete the large_csv
         remove_file("large.csv").unwrap();
+        assert!(e.is_ok());
     }
 
 }

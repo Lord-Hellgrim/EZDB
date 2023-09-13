@@ -79,7 +79,7 @@ fn handle_download_request(mut stream: TcpStream, name: &str, global_tables: Arc
     if response == "OK" {
         return Ok(())
     } else {
-        return Err(ServerError::Confirmation(Vec::from(response)))
+        return Err(ServerError::Confirmation(response))
     }
 
 }
@@ -108,7 +108,7 @@ fn handle_upload_request(mut stream: TcpStream, name: &str, global_tables: Arc<M
 
         },
         Err(e) => match stream.write(e.to_string().as_bytes()){
-            Ok(_) => println!("Informed client of corruption"),
+            Ok(_) => println!("Informed client of unstrictness"),
             Err(e) => {return Err(ServerError::Io(e));},
         },
     };
@@ -213,8 +213,11 @@ pub fn server(address: &str, global_tables: Arc<Mutex<HashMap<String, StrictTabl
                     }
                     Instruction::Update(name) => {
                         match handle_update_request(stream, &name, thread_global.clone()) {
-                            Ok(_) => todo!(),
-                            Err(_) => todo!(),
+                            Ok(_) => {
+                                println!("Thread finished!");
+                                return Ok(());
+                            },
+                            Err(e) => {return Err(e);},
                         }
                     }
                 }
@@ -238,10 +241,10 @@ pub fn server(address: &str, global_tables: Arc<Mutex<HashMap<String, StrictTabl
 mod tests {
     use super::*;
 
-    // #[test]
-    // fn test_listener() {
-    //     let global: HashMap<String, StrictTable> = HashMap::new();
-    //     let arc_global = Arc::new(Mutex::new(global));
-    //     server("127.0.0.1:3004", arc_global.clone()).unwrap();
-    // }
+    #[test]
+    fn test_listener() {
+        let global: HashMap<String, StrictTable> = HashMap::new();
+        let arc_global = Arc::new(Mutex::new(global));
+        server("127.0.0.1:3004", arc_global.clone()).unwrap();
+    }
 }

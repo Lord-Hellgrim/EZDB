@@ -20,7 +20,7 @@ pub enum ServerError {
     Utf8(Utf8Error),
     Io(std::io::Error),
     Instruction(InstructionError),
-    Confirmation(Vec<u8>),
+    Confirmation(String),
     Authentication(AuthenticationError),
     Strict(StrictError),
 }
@@ -193,7 +193,7 @@ pub fn data_send_and_confirm(stream: &mut TcpStream, data: &str) -> Result<Strin
         
     }
     
-    let confirmation = bytes_to_str(&buffer)?;
+    let confirmation = bytes_to_str(&buffer).unwrap_or("corrupt data");
 
     Ok(confirmation.to_owned())
 
