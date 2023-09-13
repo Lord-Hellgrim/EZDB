@@ -46,9 +46,9 @@ pub fn download_table(table_name: &str, address: &str, username: &str, password:
 pub fn upload_table(table_name: &str, csv: &String, address: &str, username: &str, password: &str) -> Result<String, ServerError> {
 
     let mut stream = TcpStream::connect(address)?;
-    println!("Calling instruction_send_and_confirm()...");
+
     let response = instruction_send_and_confirm(username, password, Instruction::Upload(table_name.to_owned()), &mut stream)?;
-    println!("Returned from instruction_send_and_confirm().\n\tresponse: {}", response);
+
     let confirmation: String;
     match response.as_str() {
 
@@ -102,6 +102,27 @@ pub fn update_table(table_name: &str, csv: &String, address: &str, username: &st
 
 }
 
+
+pub fn query_table(query: Vec<&str>, table_name: &str, address: &str, username: &str, password: &str) -> Result<String, ServerError> {
+    let mut stream = TcpStream::connect(address)?;
+
+    let response = instruction_send_and_confirm(username, password, Instruction::Query(table_name.to_owned()), &mut stream)?;
+
+    let confirmation: String;
+    match response.as_str() {
+
+        // THIS IS WHERE YOU SEND THE BULK OF THE DATA
+        //########## SUCCESS BRANCH #################################
+        "OK" => (),
+        //###########################################################
+        "Username is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongUser(username.to_owned()))),
+        "Password is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongPassword(password.to_owned()))),
+        "Missing username or password or both" => return Err(ServerError::Authentication(AuthenticationError::MissingField)),
+        e => panic!("Need to handle error: {}", e),
+    };
+
+    Ok("OK".to_owned())
+}
 
 #[cfg(test)]
 mod tests {

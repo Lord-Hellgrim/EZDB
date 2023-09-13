@@ -57,6 +57,13 @@ pub fn parse_instruction(buffer: &[u8], users: &HashMap<String, User>, global_ta
                     Ok(Instruction::Update(table_name.to_owned()))
                 }
             },
+            "Querying" => {
+                if !global_tables.lock().unwrap().contains_key(table_name) {
+                    return Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())));
+                } else {
+                    Ok(Instruction::Query(table_name.to_owned()))
+                }
+            }
             _ => {return Err(ServerError::Instruction(InstructionError::Invalid(action.to_owned())));},
         }
     }
@@ -144,6 +151,18 @@ pub fn handle_update_request(mut stream: TcpStream, name: &str, global_tables: A
 }
 
 
+fn handle_query_request(mut stream: TcpStream, name: &str, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<String, ServerError> {
+    match stream.write("OK".as_bytes()) {
+        Ok(n) => println!("Wrote {n} bytes"),
+        Err(e) => {return Err(ServerError::Io(e));},
+    };
+
+
+
+    Ok("OK".to_owned())
+}
+
+
 pub fn server(address: &str, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<(), ServerError> {
     println!("Starting server...\n###########################");
     println!("Binding to address: {address}");
@@ -213,6 +232,15 @@ pub fn server(address: &str, global_tables: Arc<Mutex<HashMap<String, StrictTabl
                     }
                     Instruction::Update(name) => {
                         match handle_update_request(stream, &name, thread_global.clone()) {
+                            Ok(_) => {
+                                println!("Thread finished!");
+                                return Ok(());
+                            },
+                            Err(e) => {return Err(e);},
+                        }
+                    }
+                    Instruction::Query(name) => {
+                        match handle_query_request(stream, &name, thread_global.clone()) {
                             Ok(_) => {
                                 println!("Thread finished!");
                                 return Ok(());
