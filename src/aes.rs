@@ -24,6 +24,11 @@ const SBOX: [[u8;16];16] = [/*  0     1     2     3     4     5     6     7     
 // These are the round constants for the AES key expansion algorithm. Source: "NIST.FIPS.197-upd1.pdf"
 const RCON: [u32;10] = [0x01000000, 0x02000000, 0x04000000, 0x08000000, 0x10000000, 0x20000000, 0x40000000, 0x80000000, 0x1b000000, 0x36000000];
 
+// Representation of the reduction polynomial for the GCM step
+const POLY_HIGH: u128 = 1; // x^128
+const POLY_LOW: u128 = 0b111000001; // x^7 + x^2 + x + 1
+
+
 #[cfg(not(target_feature="sse"))]
 pub fn array_xor(a: [u8;16], b: [u8;16]) -> [u8;16] {
     let mut c = [0u8;16];
@@ -89,11 +94,70 @@ fn pkcs_unpad(mut a: Vec<u8>) -> Vec<u8> {
 
 }
 
+fn ceildiv(a: usize, b: usize) -> usize {
+    if a%b==0 {
+        a/b
+    } else {
+        a/b + 1
+    }
+}
 
-fn ROTWORD(a: u32) -> u32 {
-    let a = a.to_be_bytes();
-    let output: u32 = word_from_bytes([a[1], a[2], a[3], a[0]]);
-    output
+fn LSB(num: usize, bits: u32) -> usize {
+    num & ((2 as usize).pow(bits) - 1)
+}
+
+fn multiply_and_reduce_128(a_high: u64, a_low: u64, b_high: u64, b_low: u64) -> u128 {
+    let ll = a_low.wrapping_mul(b_low);
+    let lh = a_low.wrapping_mul(b_high);
+    let hl = a_high.wrapping_mul(b_low);
+    let hh = a_high.wrapping_mul(b_high);
+
+    let mid = lh.wrapping_add(hl);
+
+    let res_low = ll.wrapping_add(mid.wrapping_shl(64));
+    let res_high = hh.wrapping_add(mid.wrapping_shr(64))
+        .wrapping_add(if res_low < ll { 1 } else { 0 }) // carry from the low addition
+
+        .wrapping_add(a_high.wrapping_mul(b_high));
+
+    let (mut high, mut low) = (res_high as u128, res_low as u128);
+    while high > 0 {
+        let leading_zeros = high.leading_zeros();
+        // Shift our polynomial so that x^128 aligns with the highest set bit
+        let ph = POLY_HIGH.wrapping_shl(128 - leading_zeros);
+        let pl = POLY_LOW.wrapping_shl(128 - leading_zeros)
+            | POLY_HIGH.wrapping_shr(leading_zeros + 1);
+
+        high ^= ph;
+        low ^= pl;
+    }
+
+    low
+
+
+}
+
+
+
+// THIS IS AN UNFINISHED IMPLEMENTATION OF GCM FOR THE AES128 ENCRYPTION. I'LL GET BECK TO THIS LATER (flw...)
+fn GHASH(X: &[u8], hashkey: &[u8;16]) -> Vec<u8> {
+    let Y0 = [0u8;16];
+    let X = pkcs_pad16(X);
+    let mut Y = Vec::new();
+    Y.extend_from_slice(&Y0);
+    let mut i = 16;
+    while i < X.len() {
+        let Yi_i = array16_from_slice(&Y[i-16..i]);
+        let Xi = array16_from_slice(&X[i..i+16]);
+        let temp = unsafe { array_xor(Yi_i, Xi) };
+        let temp_high = u64::from_le_bytes([temp[0], temp[1], temp[2], temp[3], temp[4], temp[5], temp[6], temp[7]]);
+        let temp_low = u64::from_le_bytes([temp[8], temp[9], temp[10], temp[11], temp[12], temp[13], temp[14], temp[15]]);
+        let hashkey_high = u64::from_le_bytes([hashkey[0], hashkey[1], hashkey[2], hashkey[3], hashkey[4], hashkey[5], hashkey[6], hashkey[7]]);
+        let hashkey_low = u64::from_le_bytes([hashkey[8], hashkey[9], hashkey[10], hashkey[11], hashkey[12], hashkey[13], hashkey[14], hashkey[15]]);
+        Y.extend_from_slice(&multiply_and_reduce_128(temp_high, temp_low, hashkey_high, hashkey_low).to_le_bytes());
+        i += 16;
+    }
+    Y
 }
 
 fn word_from_bytes(bytes: [u8;4]) -> u32 {
@@ -102,6 +166,13 @@ fn word_from_bytes(bytes: [u8;4]) -> u32 {
     ((bytes[2] as u32) << 8)  |
     (bytes[3] as u32)
 }
+
+fn ROTWORD(a: u32) -> u32 {
+    let a = a.to_be_bytes();
+    let output: u32 = word_from_bytes([a[1], a[2], a[3], a[0]]);
+    output
+}
+
 
 fn SUBWORD(a: u32) -> u32 {
     let a = a.to_be_bytes();
@@ -268,6 +339,8 @@ pub fn encrypt_128(data: &[u8], key: &[u8;16]) -> Vec<u8> {
     let data = pkcs_pad16(data);
     let mut output: Vec<u8> = Vec::new();
     
+
+
     let mut i = 0;
     while i < data.len() {
         let temp = encrypt_one_block_128(array16_from_slice(&data[i..i+16]), key);
@@ -303,6 +376,7 @@ mod tests {
 
     use super::*;
 
+    
     #[test]
     fn test_generic_encryption_decryption() {
         let Plaintext = "This is some plaintext......!";
@@ -451,7 +525,7 @@ mod tests {
             0x11,0x0b,0x3e,0xfd,
             0xdb,0xf9,0x86,0x41,
             0xca,0x00,0x93,0xfd,
-
+            
             0x4e,0x54,0xf7,0x0e,
             0x5f,0x5f,0xc9,0xf3,
             0x84,0xa6,0x4f,0xb2,
@@ -478,5 +552,22 @@ mod tests {
         assert_eq!(official_expanded_key, ekey);
 
     }
+    
+    #[test]
+    fn test_ceildiv() {
+        let a = 16;
+        let b = 5;
+        let c = 15;
+        assert_eq!(3, ceildiv(c, b));
+        assert_eq!(4, ceildiv(a, b))
+    }
 
+    #[test]
+    fn test_LSB() {
+        let a = 27;
+        let b = 4;
+        let c = LSB(a, b);
+        println!("a: {:b}", a);
+        println!("c: {:b}", c);
+    }
 }
