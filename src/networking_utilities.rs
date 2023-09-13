@@ -20,7 +20,7 @@ pub enum ServerError {
     Utf8(Utf8Error),
     Io(std::io::Error),
     Instruction(InstructionError),
-    Confirmation(Vec<u8>),
+    Confirmation(String),
     Authentication(AuthenticationError),
     Strict(StrictError),
 }
@@ -68,11 +68,12 @@ impl From<StrictError> for ServerError {
     }
 }
 
-
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Instruction {
     Upload(String),
     Download(String),
     Update(String),
+    Query(String),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -155,7 +156,7 @@ pub fn instruction_send_and_confirm(username: &str, password: &str, instruction:
         Instruction::Download(table_name) => format!("Requesting|{}", table_name),
         Instruction::Upload(table_name) => format!("Sending|{}", table_name),
         Instruction::Update(table_name) => format!("Updating|{}", table_name),
-
+        Instruction::Query(table_name) => format!("Querying|{}", table_name),
     };
 
     match stream.write(format!("{username}|{password}|{instruction}").as_bytes()) {
@@ -193,7 +194,7 @@ pub fn data_send_and_confirm(stream: &mut TcpStream, data: &str) -> Result<Strin
         
     }
     
-    let confirmation = bytes_to_str(&buffer)?;
+    let confirmation = bytes_to_str(&buffer).unwrap_or("corrupt data");
 
     Ok(confirmation.to_owned())
 

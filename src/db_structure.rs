@@ -257,6 +257,10 @@ impl StrictTable {
         Ok(())
     }
 
+    pub fn query_range(&self, ) -> Vec<(String, DbEntry)> {
+        todo!()
+    }
+
 }
 
 

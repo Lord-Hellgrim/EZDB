@@ -66,7 +66,7 @@ pub fn upload_table(table_name: &str, csv: &String, address: &str, username: &st
     if confirmation == data_len {
         return Ok("OK".to_owned());
     } else {
-        return Err(ServerError::Confirmation(vec!()));
+        return Err(ServerError::Confirmation(confirmation));
     }
 
 }
@@ -97,11 +97,32 @@ pub fn update_table(table_name: &str, csv: &String, address: &str, username: &st
         return Ok("OK".to_owned());
     } else {
         println!("Confirmation from server: {}", confirmation);
-        return Err(ServerError::Confirmation(vec!()));
+        return Err(ServerError::Confirmation(confirmation));
     }
 
 }
 
+
+pub fn query_table(query: Vec<&str>, table_name: &str, address: &str, username: &str, password: &str) -> Result<String, ServerError> {
+    let mut stream = TcpStream::connect(address)?;
+
+    let response = instruction_send_and_confirm(username, password, Instruction::Query(table_name.to_owned()), &mut stream)?;
+
+    let confirmation: String;
+    match response.as_str() {
+
+        // THIS IS WHERE YOU SEND THE BULK OF THE DATA
+        //########## SUCCESS BRANCH #################################
+        "OK" => (),
+        //###########################################################
+        "Username is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongUser(username.to_owned()))),
+        "Password is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongPassword(password.to_owned()))),
+        "Missing username or password or both" => return Err(ServerError::Authentication(AuthenticationError::MissingField)),
+        e => panic!("Need to handle error: {}", e),
+    };
+
+    Ok("OK".to_owned())
+}
 
 #[cfg(test)]
 mod tests {
@@ -115,10 +136,11 @@ mod tests {
         let csv = std::fs::read_to_string("good_csv.txt").unwrap();
         let address = "127.0.0.1:3004";
         let e = upload_table("good_csv", &csv, address, "admin", "admin");
-        match e {
+        match & e {
             Ok(_) => println!("OK"),
             Err(e) => println!("{}", e),
-        }
+        };
+        assert_eq!(e.unwrap(), "OK");
     }
 
     #[test]
@@ -126,10 +148,8 @@ mod tests {
         let csv = std::fs::read_to_string("bad_csv.txt").unwrap();
         let address = "127.0.0.1:3004";
         let e = upload_table("bad_csv", &csv, address, "admin", "admin");
-        match e {
-            Ok(_) => println!("OK"),
-            Err(e) => println!("{}", e),
-        }
+        assert!(e.is_err());
+        
     }
 
     #[test]
@@ -141,6 +161,8 @@ mod tests {
         println!("Receiving\n############################");
         let table = download_table(name, address, "admin", "admin").unwrap();
         println!("{:?}", table.table);
+        let good_table = StrictTable::from_csv_string(&std::fs::read_to_string("good_csv.txt").unwrap(), "good_table").unwrap();
+        assert_eq!(table.table, good_table.table);
 
     }
 
@@ -164,13 +186,10 @@ mod tests {
         let csv = std::fs::read_to_string("large.csv").unwrap();
         let address = "127.0.0.1:3004";
         let e = upload_table("large_csv", &csv, address, "admin", "admin");
-        match e {
-            Ok(_) => println!("OK"),
-            Err(e) => println!("{}", e),
-        }
-
+        
         //delete the large_csv
         remove_file("large.csv").unwrap();
+        assert!(e.is_ok());
     }
 
 }

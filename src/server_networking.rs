@@ -57,6 +57,13 @@ pub fn parse_instruction(buffer: &[u8], users: &HashMap<String, User>, global_ta
                     Ok(Instruction::Update(table_name.to_owned()))
                 }
             },
+            "Querying" => {
+                if !global_tables.lock().unwrap().contains_key(table_name) {
+                    return Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())));
+                } else {
+                    Ok(Instruction::Query(table_name.to_owned()))
+                }
+            }
             _ => {return Err(ServerError::Instruction(InstructionError::Invalid(action.to_owned())));},
         }
     }
@@ -79,7 +86,7 @@ fn handle_download_request(mut stream: TcpStream, name: &str, global_tables: Arc
     if response == "OK" {
         return Ok(())
     } else {
-        return Err(ServerError::Confirmation(Vec::from(response)))
+        return Err(ServerError::Confirmation(response))
     }
 
 }
@@ -108,7 +115,7 @@ fn handle_upload_request(mut stream: TcpStream, name: &str, global_tables: Arc<M
 
         },
         Err(e) => match stream.write(e.to_string().as_bytes()){
-            Ok(_) => println!("Informed client of corruption"),
+            Ok(_) => println!("Informed client of unstrictness"),
             Err(e) => {return Err(ServerError::Io(e));},
         },
     };
@@ -139,6 +146,18 @@ pub fn handle_update_request(mut stream: TcpStream, name: &str, global_tables: A
             return Err(ServerError::Strict(e));
         },
     };
+
+    Ok("OK".to_owned())
+}
+
+
+fn handle_query_request(mut stream: TcpStream, name: &str, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<String, ServerError> {
+    match stream.write("OK".as_bytes()) {
+        Ok(n) => println!("Wrote {n} bytes"),
+        Err(e) => {return Err(ServerError::Io(e));},
+    };
+
+
 
     Ok("OK".to_owned())
 }
@@ -213,8 +232,20 @@ pub fn server(address: &str, global_tables: Arc<Mutex<HashMap<String, StrictTabl
                     }
                     Instruction::Update(name) => {
                         match handle_update_request(stream, &name, thread_global.clone()) {
-                            Ok(_) => todo!(),
-                            Err(_) => todo!(),
+                            Ok(_) => {
+                                println!("Thread finished!");
+                                return Ok(());
+                            },
+                            Err(e) => {return Err(e);},
+                        }
+                    }
+                    Instruction::Query(name) => {
+                        match handle_query_request(stream, &name, thread_global.clone()) {
+                            Ok(_) => {
+                                println!("Thread finished!");
+                                return Ok(());
+                            },
+                            Err(e) => {return Err(e);},
                         }
                     }
                 }
@@ -238,10 +269,10 @@ pub fn server(address: &str, global_tables: Arc<Mutex<HashMap<String, StrictTabl
 mod tests {
     use super::*;
 
-    // #[test]
-    // fn test_listener() {
-    //     let global: HashMap<String, StrictTable> = HashMap::new();
-    //     let arc_global = Arc::new(Mutex::new(global));
-    //     server("127.0.0.1:3004", arc_global.clone()).unwrap();
-    // }
+    #[test]
+    fn test_listener() {
+        let global: HashMap<String, StrictTable> = HashMap::new();
+        let arc_global = Arc::new(Mutex::new(global));
+        server("127.0.0.1:3004", arc_global.clone()).unwrap();
+    }
 }
