@@ -263,7 +263,7 @@ impl StrictTable {
     }
 
     pub fn query(&self, csv: &str) -> Result<String, StrictError> {
-        
+        todo!();   
     }
 
 }
