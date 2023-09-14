@@ -9,5 +9,7 @@ edition = "2021"
 #opt-level = 3
 
 [dependencies]
+aes-gcm = "0.10.2"
+
 
 

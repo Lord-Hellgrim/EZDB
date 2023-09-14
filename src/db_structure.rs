@@ -159,6 +159,7 @@ impl StrictTable {
         let mut output = BTreeMap::new();
         let mut rownum: usize = 0;
         for row in s.lines() {
+            // This if statement is there to skip the header
             if rownum == 0 {
                 rownum += 1;
                 continue;
@@ -348,17 +349,17 @@ mod tests {
         println!("{:?}", t.table);
         let x = t.to_csv_string();
         println!("{}", x);
-        assert_eq!(x, "vnr;heiti;magn\n'0113000;undirlegg2;100\n'0113035;undirlegg;200\n'18572054;flísalím;42");
+        assert_eq!(x, "vnr;heiti;magn\n0113000;undirlegg2;100\n0113035;undirlegg;200\n'18572054;flísalím;42");
     }
 
     #[test]
     fn test_update_StrictTable() {
         let s = std::fs::read_to_string("good_csv.txt").unwrap();
         let mut t = StrictTable::from_csv_string(&s, "test").unwrap();
-        println!("t:\n{:?}", t.table);
+        println!("{:?}", t.table);
         let update_csv = "vnr;heiti;magn\n0113030;Flotsement;50";
         t.update(update_csv);
-        println!("Updated t:\n{:?}", t.table);
+        assert_eq!(t.to_csv_string(), "vnr;heiti;magn\n0113000;undirlegg2;100\n0113035;undirlegg;200\n18572054;flísalím;42\n0113030;Flotsement;50")
 
     }
 

@@ -13,6 +13,7 @@ mod networking_utilities;
 mod logger;
 mod auth;
 mod aes;
+mod aes_temp_crypto;
 
 fn main() -> Result<(), networking_utilities::ServerError> {
 
