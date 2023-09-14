@@ -264,14 +264,47 @@ impl StrictTable {
     }
 
     pub fn query_range(&self, range: (&str, &str)) -> Result<String, StrictError> {
-        let min = range.0;
-        let max = range.1;
-        //let output: Vec<(String, DbEntry)> = self.table.range(min.to_owned()..=max.to_owned()).collect();
-        Ok("OK".to_owned())
+        let min = range.0.to_owned();
+        let max = range.1.to_owned();
+        let output = self.table.range(min..=max);
+        
+        let mut printer = String::new();
+        for (_, line) in output {
+            for item in line {
+                match item {
+                    DbEntry::Float(value) => printer.push_str(&value.to_string()),
+                    DbEntry::Int(value) => printer.push_str(&value.to_string()),
+                    DbEntry::Text(value) => printer.push_str(value),
+                }
+                printer.push(';')
+            }
+            printer.pop().unwrap();
+            printer.push('\n');
+        }
+        printer.pop();
+
+        Ok(printer)
     }
 
-    pub fn query_list(&self, csv: &str) -> Result<String, StrictError> {
-        todo!();   
+    pub fn query_list(&self, key_list: Vec<&str>) -> Result<String, StrictError> {
+        let mut printer = String::new();
+
+        for item in key_list {
+            for entry in &self.table[item] {
+                match entry {
+                    DbEntry::Float(value) => printer.push_str(&value.to_string()),
+                    DbEntry::Int(value) => printer.push_str(&value.to_string()),
+                    DbEntry::Text(value) => printer.push_str(value),
+                }
+                printer.push(';')
+            }
+            printer.pop().unwrap();
+            printer.push('\n');
+
+        }
+        printer.pop();
+
+        Ok(printer)
     }
 
 }
@@ -373,6 +406,26 @@ mod tests {
         t.update(update_csv);
         assert_eq!(t.to_csv_string(), "vnr;heiti;magn\n0113000;undirlegg2;100\n0113030;Flotsement;50\n0113035;undirlegg;200\n18572054;flísalím;42")
 
+    }
+
+    #[test]
+    fn test_query_range() {
+        let s = std::fs::read_to_string("good_csv.txt").unwrap();
+        let mut t = StrictTable::from_csv_string(&s, "test").unwrap();
+        let update_csv = "vnr;heiti;magn\n0113030;Flotsement;50";
+        t.update(update_csv);
+        let queried_table = t.query_range(("0113000", "0113035")).unwrap();
+        println!("{:?}", queried_table);
+    }
+
+    #[test]
+    fn test_query_list() {
+        let s = std::fs::read_to_string("good_csv.txt").unwrap();
+        let mut t = StrictTable::from_csv_string(&s, "test").unwrap();
+        let update_csv = "vnr;heiti;magn\n0113030;Flotsement;50";
+        t.update(update_csv);
+        let queried_table = t.query_list(vec!("0113000", "0113035")).unwrap();
+        println!("{:?}", queried_table);
     }
 
 }
