@@ -59,7 +59,7 @@ impl Actions {
     }
 }
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub enum DbEntry {
     Int(i64),
     Float(f64),
@@ -166,6 +166,11 @@ impl StrictTable {
             }
             let mut temp = Vec::with_capacity(header.len());
             for col in row.split(';') {
+                if col.len() == 0 { continue }
+                if col.chars().next().expect("safe since we checked for len = 0") == '0' {
+                    temp.push(DbEntry::Text(col.to_owned()));
+                    continue;
+                }
                 match col.parse::<i64>() {
                     Ok(value) => {
                         temp.push(DbEntry::Int(value));
@@ -258,11 +263,14 @@ impl StrictTable {
         Ok(())
     }
 
-    pub fn query_range(&self, ) -> Vec<(String, DbEntry)> {
-        todo!()
+    pub fn query_range(&self, range: (&str, &str)) -> Result<String, StrictError> {
+        let min = range.0;
+        let max = range.1;
+        //let output: Vec<(String, DbEntry)> = self.table.range(min.to_owned()..=max.to_owned()).collect();
+        Ok("OK".to_owned())
     }
 
-    pub fn query(&self, csv: &str) -> Result<String, StrictError> {
+    pub fn query_list(&self, csv: &str) -> Result<String, StrictError> {
         todo!();   
     }
 
@@ -363,7 +371,7 @@ mod tests {
         println!("{:?}", t.table);
         let update_csv = "vnr;heiti;magn\n0113030;Flotsement;50";
         t.update(update_csv);
-        assert_eq!(t.to_csv_string(), "vnr;heiti;magn\n0113000;undirlegg2;100\n0113035;undirlegg;200\n18572054;flísalím;42\n0113030;Flotsement;50")
+        assert_eq!(t.to_csv_string(), "vnr;heiti;magn\n0113000;undirlegg2;100\n0113030;Flotsement;50\n0113035;undirlegg;200\n18572054;flísalím;42")
 
     }
 
