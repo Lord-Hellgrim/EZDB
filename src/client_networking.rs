@@ -113,7 +113,14 @@ pub fn query_table(query: Vec<&str>, table_name: &str, address: &str, username: 
 
         // THIS IS WHERE YOU SEND THE BULK OF THE DATA
         //########## SUCCESS BRANCH #################################
-        "OK" => (),
+        "OK" => {
+            let mut temp = String::new();
+            for item in query {
+                temp.push_str(item);
+                temp.push('|');
+            }
+            temp.pop();
+        },
         //###########################################################
         "Username is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongUser(username.to_owned()))),
         "Password is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongPassword(password.to_owned()))),

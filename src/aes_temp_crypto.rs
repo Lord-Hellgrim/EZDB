@@ -29,6 +29,7 @@ mod tests {
         let nonce = Aes256Gcm::generate_nonce(&mut OsRng); // 96-bits; unique per message
         let ciphertext = cipher.encrypt(&nonce, b"plaintext message".as_ref()).unwrap();
         let plaintext = cipher.decrypt(&nonce, ciphertext.as_ref()).unwrap();
+    
         assert_eq!(&plaintext, b"plaintext message");
     }
 }

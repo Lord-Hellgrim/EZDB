@@ -157,6 +157,8 @@ fn handle_query_request(mut stream: TcpStream, name: &str, global_tables: Arc<Mu
         Err(e) => {return Err(ServerError::Io(e));},
     };
 
+    let (csv, total_read) = receive_data(&mut stream)?;
+    
 
 
     Ok("OK".to_owned())
