@@ -394,7 +394,7 @@ mod tests {
         println!("{:?}", t.table);
         let x = t.to_csv_string();
         println!("{}", x);
-        assert_eq!(x, "vnr;heiti;magn\n0113000;undirlegg2;100\n0113035;undirlegg;200\n'18572054;flísalím;42");
+        assert_eq!(x, "vnr;heiti;magn\n0113000;undirlegg2;100\n0113035;undirlegg;200\n18572054;flísalím;42");
     }
 
     #[test]
@@ -415,7 +415,7 @@ mod tests {
         let update_csv = "vnr;heiti;magn\n0113030;Flotsement;50";
         t.update(update_csv);
         let queried_table = t.query_range(("0113000", "0113035")).unwrap();
-        println!("{:?}", queried_table);
+        assert_eq!(queried_table, "0113000;undirlegg2;100\n0113030;Flotsement;50\n0113035;undirlegg;200");
     }
 
     #[test]
@@ -424,8 +424,9 @@ mod tests {
         let mut t = StrictTable::from_csv_string(&s, "test").unwrap();
         let update_csv = "vnr;heiti;magn\n0113030;Flotsement;50";
         t.update(update_csv);
-        let queried_table = t.query_list(vec!("0113000", "0113035")).unwrap();
-        println!("{:?}", queried_table);
+        let queried_table = t.query_list(vec!("0113000", "18572054", "0113035")).unwrap();
+
+        assert_eq!(queried_table, "0113000;undirlegg2;100\n18572054;flísalím;42\n0113035;undirlegg;200");
     }
 
 }
