@@ -201,12 +201,15 @@ pub fn server(address: &str, global_tables: Arc<Mutex<HashMap<String, StrictTabl
     loop {
         // ########### TIMING BLOCK ###############################################
         let start = rdtsc();
+        let begin = std::time::Instant::now();
         // Reading instructions
         let (mut stream, client_address) = match l.accept() {
             Ok((n,m)) => (n, m),
             Err(e) => {return Err(ServerError::Io(e));},
         };
         let stop = rdtsc();
+        let end = begin.elapsed().as_millis();
+        println!("Millis to accept: {}", end);
         time_print("Cycles to accept connection", stop-start);
         //#######################################################################
         println!("Accepted connection from: {}", client_address);
