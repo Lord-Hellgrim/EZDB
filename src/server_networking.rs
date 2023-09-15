@@ -168,12 +168,19 @@ fn handle_query_request(mut stream: TcpStream, name: &str, global_tables: Arc<Mu
 pub fn server(address: &str, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<(), ServerError> {
     println!("Starting server...\n###########################");
     println!("Binding to address: {address}");
+    // ########### TIMING BLOCK ###############################################
+    let start = rdtsc();
     let l = match TcpListener::bind(address) {
         Ok(value) => value,
         Err(e) => {return Err(ServerError::Io(e));},
     };
-
+    let stop = rdtsc();
+    time_print("Cycles to initialize TcpListener", stop-start);
+    // ########################################################################
     println!("Reading users config into memory");
+
+    // ########### TIMING BLOCK ###############################################
+    let start = rdtsc();
     let temp = std::fs::read_to_string("users.txt")?;
     let mut users = HashMap::new();
     for line in temp.lines() {
@@ -184,39 +191,68 @@ pub fn server(address: &str, global_tables: Arc<Mutex<HashMap<String, StrictTabl
         users.insert(t[0].to_owned(), User::from_str(line));
     }
     let users = Arc::new(users);
-
+    let stop = rdtsc();
+    time_print("Cycles to read Users", stop-start);
+    // ########################################################################
+    
     dbg!(&users);
     
     /* This is the main loop of the function. Here we accept incoming connections and process them */
-    // for stream in l.incoming() {
     loop {
+        // ########### TIMING BLOCK ###############################################
+        let start = rdtsc();
+        // Reading instructions
         let (mut stream, client_address) = match l.accept() {
             Ok((n,m)) => (n, m),
             Err(e) => {return Err(ServerError::Io(e));},
         };
+        let stop = rdtsc();
+        time_print("Cycles to accept connection", stop-start);
+        //#######################################################################
         println!("Accepted connection from: {}", client_address);
 
         // Spawn a new thread for each connection for some semblence of scalability
+        // ####################### TIMING BLOCK ####################################
+        let start = rdtsc();
         let thread_global = global_tables.clone();
         let thread_users = users.clone();
+        let stop = rdtsc();
+        time_print("Cycles to clone 2 arc", stop-start);
+        // ##########################################################################
+        
         std::thread::spawn(move || {
 
             let mut buffer: [u8; INSTRUCTION_BUFFER] = [0; INSTRUCTION_BUFFER];
             println!("Initialized string buffer");
+            // ####################### TIMING BLOCK ####################################
+            let start = rdtsc();
             match stream.read(&mut buffer) {
                 Ok(n) => {
                     println!("Read {n} bytes");
                 },
                 Err(e) => {return Err(ServerError::Io(e));},
             };
-
+            let stop = rdtsc();
+            time_print("Cycles to read instructions", stop-start);
+            // ##########################################################################
+            
             println!("Parsing instructions...");
+            // ####################### TIMING BLOCK ####################################
+            let start = rdtsc();
             match parse_instruction(&buffer, &thread_users, thread_global.clone()) {
                 Ok(i) => match i {
-
+                    
                     Instruction::Upload(name) => {
+                        let stop = rdtsc();
+                        time_print("Cycles to parse instructions", stop-start);
+                        // ##########################################################################
+                        // ####################### TIMING BLOCK ####################################
+                        let start = rdtsc();
                         match handle_upload_request(stream, &name, thread_global.clone()) {
                             Ok(_) => {
+                                let stop = rdtsc();
+                                time_print("Cycles to handle upload request", stop-start);
+                                // ##########################################################################
                                 println!("Thread finished!");
                                 return Ok(());
                             },
@@ -224,8 +260,13 @@ pub fn server(address: &str, global_tables: Arc<Mutex<HashMap<String, StrictTabl
                         }
                     },
                     Instruction::Download(name) => {
-                        match handle_download_request(stream, &name, thread_global.clone()) {
-                            Ok(_) => {
+                        // ####################### TIMING BLOCK ####################################
+                    let start = rdtsc();
+                    match handle_download_request(stream, &name, thread_global.clone()) {
+                        Ok(_) => {
+                                let stop = rdtsc();
+                                time_print("Cycles to clone 2 arc", stop-start);
+                                // ##########################################################################
                                 println!("Thread finished!");
                                 return Ok(());
                             },
@@ -233,8 +274,13 @@ pub fn server(address: &str, global_tables: Arc<Mutex<HashMap<String, StrictTabl
                         }
                     }
                     Instruction::Update(name) => {
+                        // ####################### TIMING BLOCK ####################################
+                        let start = rdtsc();
                         match handle_update_request(stream, &name, thread_global.clone()) {
                             Ok(_) => {
+                                let stop = rdtsc();
+                                time_print("Cycles to clone 2 arc", stop-start);
+                                // ##########################################################################
                                 println!("Thread finished!");
                                 return Ok(());
                             },
@@ -242,8 +288,13 @@ pub fn server(address: &str, global_tables: Arc<Mutex<HashMap<String, StrictTabl
                         }
                     }
                     Instruction::Query(name) => {
+                        // ####################### TIMING BLOCK ####################################
+                        let start = rdtsc();
                         match handle_query_request(stream, &name, thread_global.clone()) {
                             Ok(_) => {
+                                let stop = rdtsc();
+                                time_print("Cycles to clone 2 arc", stop-start);
+                                // ##########################################################################
                                 println!("Thread finished!");
                                 return Ok(());
                             },

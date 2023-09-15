@@ -1,3 +1,4 @@
+use std::arch::asm;
 use std::io::{Write, Read};
 use std::net::TcpStream;
 use std::str::{self, Utf8Error};
@@ -100,6 +101,38 @@ impl From<Utf8Error> for InstructionError {
     fn from(e: Utf8Error) -> Self {
         InstructionError::Utf8(e)
     }
+}
+
+#[inline(always)]
+pub fn rdtsc() -> u64 {
+    let lo: u32;
+    let hi: u32;
+    unsafe {
+        asm!("rdtsc", out("eax") lo, out("edx") hi, options(nostack, preserves_flags));
+    }
+    ((hi as u64) << 32) | (lo as u64)
+}
+
+pub fn time_print(s: &str, cycles: u64) {
+    let num = cycles.to_string()
+    .as_bytes()
+    .rchunks(3)
+    .rev()
+    .map(std::str::from_utf8)
+    .collect::<Result<Vec<&str>, _>>()
+    .unwrap()
+    .join(".");  // separator
+
+    let millis = (cycles/1_700_000).to_string()
+    .as_bytes()
+    .rchunks(3)
+    .rev()
+    .map(std::str::from_utf8)
+    .collect::<Result<Vec<&str>, _>>()
+    .unwrap()
+    .join(".");  // separator
+
+    println!("{}: {}\n\tApproximately {} milliseconds", s, num, millis);
 }
 
 

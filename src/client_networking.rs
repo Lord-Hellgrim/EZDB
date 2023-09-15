@@ -133,13 +133,18 @@ pub fn query_table(query: Vec<&str>, table_name: &str, address: &str, username: 
 
 #[cfg(test)]
 mod tests {
+    use std::arch::asm;
     #[allow(unused)]
     use std::{path::Path, fs::remove_file};
 
     use super::*;
 
+
+
+
     #[test]
     fn test_send_good_csv() {
+        let start = rdtsc();
         let csv = std::fs::read_to_string("good_csv.txt").unwrap();
         let address = "127.0.0.1:3004";
         let e = upload_table("good_csv", &csv, address, "admin", "admin");
@@ -147,8 +152,11 @@ mod tests {
             Ok(_) => println!("OK"),
             Err(e) => println!("{}", e),
         };
+        let end = rdtsc();
+        println!("Cycles: {}", end-start);
         assert_eq!(e.unwrap(), "OK");
     }
+
 
     #[test]
     fn test_send_bad_csv() {
