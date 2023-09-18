@@ -16,10 +16,8 @@ pub fn parse_instruction(buffer: &[u8], users: &HashMap<String, User>, global_ta
     let instruction_block: Vec<&str> = instruction.split('|').collect();
 
     println!("parsing 2...");
-    if instruction_block.len() < MIN_INSTRUCTION_LENGTH {
-        return Err(ServerError::Authentication(AuthenticationError::MissingField));
-    } else if instruction_block.len() > MAX_INSTRUCTION_LENGTH {
-        return Err(ServerError::Instruction(InstructionError::Invalid(instruction.to_owned())));
+    if instruction_block.len() != INSTRUCTION_LENGTH {
+        return Err(ServerError::Instruction(InstructionError::Invalid("Wrong number of query fields. Query should be usernme, password, request, table_name, query(or blank)".to_owned())));
     }
     
     println!("parsing 3...");
@@ -27,12 +25,14 @@ pub fn parse_instruction(buffer: &[u8], users: &HashMap<String, User>, global_ta
         username, 
         pass_hash, 
         action, 
-        table_name
+        table_name,
+        query,
     ) = (
         instruction_block[0], 
         hash_function(instruction_block[1]), 
         instruction_block[2], 
         instruction_block[3],
+        instruction_block[4],
     );
 
     println!("parsing 4...");
@@ -42,6 +42,13 @@ pub fn parse_instruction(buffer: &[u8], users: &HashMap<String, User>, global_ta
         return Err(ServerError::Authentication(AuthenticationError::WrongPassword(pass_hash.to_owned())));
     } else {
         match action {
+            "Querying" => {
+                if !global_tables.lock().unwrap().contains_key(table_name) {
+                    return Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())));
+                } else {
+                    Ok(Instruction::Query(table_name.to_owned(), query.to_owned()))
+                }
+            }
             "Sending" => Ok(Instruction::Upload(table_name.to_owned())),
             "Requesting" => {
                 if !global_tables.lock().unwrap().contains_key(table_name) {
@@ -57,13 +64,6 @@ pub fn parse_instruction(buffer: &[u8], users: &HashMap<String, User>, global_ta
                     Ok(Instruction::Update(table_name.to_owned()))
                 }
             },
-            "Querying" => {
-                if !global_tables.lock().unwrap().contains_key(table_name) {
-                    return Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())));
-                } else {
-                    Ok(Instruction::Query(table_name.to_owned()))
-                }
-            }
             _ => {return Err(ServerError::Instruction(InstructionError::Invalid(action.to_owned())));},
         }
     }
@@ -151,17 +151,38 @@ pub fn handle_update_request(mut stream: TcpStream, name: &str, global_tables: A
 }
 
 
-fn handle_query_request(mut stream: TcpStream, name: &str, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<String, ServerError> {
+fn handle_query_request(mut stream: TcpStream, name: &str, query: &str, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<String, ServerError> {
     match stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e));},
     };
 
-    let (csv, total_read) = receive_data(&mut stream)?;
     
+    let mutex_binding = global_tables.lock().unwrap();
+    let requested_table = mutex_binding.get(name).expect("Instruction parser should have verified table");
+    let requested_csv: String;
+    // PARSE INSTRUCTION
+    let query_type;
+    match query.find("..") {
+        Some(i) => query_type = "range",
+        None => query_type = "list"
+    };
 
+    if query_type == "range" {
+        let parsed_query: Vec<&str> = query.split("..").collect();
+        requested_csv = requested_table.query_range((parsed_query[0], parsed_query[1]))?;
+    } else {
+        let parsed_query = query.split(',').collect();
+        requested_csv = requested_table.query_list(parsed_query)?;
+    }
 
-    Ok("OK".to_owned())
+    let response = data_send_and_confirm(&mut stream, &requested_csv)?;
+
+    if response == "OK" {
+        return Ok("OK".to_owned())
+    } else {
+        return Err(ServerError::Confirmation(response))
+    }
 }
 
 
@@ -290,10 +311,10 @@ pub fn server(address: &str, global_tables: Arc<Mutex<HashMap<String, StrictTabl
                             Err(e) => {return Err(e);},
                         }
                     }
-                    Instruction::Query(name) => {
+                    Instruction::Query(table_name, query) => {
                         // ####################### TIMING BLOCK ####################################
                         let start = rdtsc();
-                        match handle_query_request(stream, &name, thread_global.clone()) {
+                        match handle_query_request(stream, &table_name, &query, thread_global.clone()) {
                             Ok(_) => {
                                 let stop = rdtsc();
                                 time_print("Cycles to clone 2 arc", stop-start);

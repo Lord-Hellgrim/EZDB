@@ -11,8 +11,7 @@ use crate::db_structure::StrictError;
 
 pub const INSTRUCTION_BUFFER: usize = 1024;
 pub const DATA_BUFFER: usize = 1_000_000;
-pub const MIN_INSTRUCTION_LENGTH: usize = 4;
-pub const MAX_INSTRUCTION_LENGTH: usize = 4;
+pub const INSTRUCTION_LENGTH: usize = 5;
 
 
 
@@ -74,7 +73,7 @@ pub enum Instruction {
     Upload(String),
     Download(String),
     Update(String),
-    Query(String),
+    Query(String /* table_name */, String /* query */),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -186,10 +185,10 @@ pub fn hash_function(a: &str) -> &str{
 pub fn instruction_send_and_confirm(username: &str, password: &str, instruction: Instruction, stream: &mut TcpStream) -> Result<String, ServerError> {
 
     let instruction = match instruction {
-        Instruction::Download(table_name) => format!("Requesting|{}", table_name),
-        Instruction::Upload(table_name) => format!("Sending|{}", table_name),
-        Instruction::Update(table_name) => format!("Updating|{}", table_name),
-        Instruction::Query(table_name) => format!("Querying|{}", table_name),
+        Instruction::Download(table_name) => format!("Requesting|{}|blank", table_name),
+        Instruction::Upload(table_name) => format!("Sending|{}|blank", table_name),
+        Instruction::Update(table_name) => format!("Updating|{}|blank", table_name),
+        Instruction::Query(table_name, query) => format!("Querying|{}|{}", table_name, query),
     };
 
     match stream.write(format!("{username}|{password}|{instruction}").as_bytes()) {
