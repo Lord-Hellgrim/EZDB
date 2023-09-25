@@ -7,7 +7,6 @@ description = "Easy little database"
 homepage = "https://github.com/lord-hellgrim/EZDB"
 repository = "https://github.com/lord-hellgrim/EZDB"
 readme = "README.md"
-include = ["users.txt"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
