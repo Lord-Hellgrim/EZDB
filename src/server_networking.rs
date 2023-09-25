@@ -202,8 +202,8 @@ pub fn server(address: &str, global_tables: Arc<Mutex<HashMap<String, StrictTabl
 
     // ########### TIMING BLOCK ###############################################
     let start = rdtsc();
-    // let temp = String::from("admin;admin;127.0.0.1;false;ALL;ALL;true");
-    let temp = std::fs::read_to_string("users.txt")?;
+    let temp = String::from("admin;admin;127.0.0.1;false;ALL;ALL;true");
+    // let temp = std::fs::read_to_string("users.txt")?;
     let mut users = HashMap::new();
     for line in temp.lines() {
         if line.as_bytes()[0] == '#' as u8 {
