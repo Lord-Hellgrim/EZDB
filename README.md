@@ -31,4 +31,4 @@ essentially a BtreeMap with some tacked on metadata and identifiers and some met
 schema. All of the rest of the code is for sending, receiving, updating, querying, securing, and (soon) encrypting StrictTable
 structs.
 
-Ok, you should totally read aes.rs, I'm kinda proud of that. Encryption passing currently. Decryption coming soon!
+THIS CRATE IS NOT MEANT FOR PRODUCTION USE! ALL DATA SENT IS CURRENTLY UNENCRYPTED! DO NOT USE!
