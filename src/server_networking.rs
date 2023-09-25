@@ -246,96 +246,104 @@ pub fn server(address: &str, global_tables: Arc<Mutex<HashMap<String, StrictTabl
         
         std::thread::spawn(move || {
 
-            let mut buffer: [u8; INSTRUCTION_BUFFER] = [0; INSTRUCTION_BUFFER];
-            println!("Initialized string buffer");
-            // ####################### TIMING BLOCK ####################################
-            let start = rdtsc();
-            match stream.read(&mut buffer) {
-                Ok(n) => {
-                    println!("Read {n} bytes");
-                },
-                Err(e) => {return Err(ServerError::Io(e));},
-            };
-            let stop = rdtsc();
-            time_print("Cycles to read instructions", stop-start);
-            // ##########################################################################
-            
-            println!("Parsing instructions...");
-            // ####################### TIMING BLOCK ####################################
-            let start = rdtsc();
-            match parse_instruction(&buffer, &thread_users, thread_global.clone()) {
-                Ok(i) => match i {
-                    
-                    Instruction::Upload(name) => {
-                        let stop = rdtsc();
-                        time_print("Cycles to parse instructions", stop-start);
-                        // ##########################################################################
-                        // ####################### TIMING BLOCK ####################################
-                        let start = rdtsc();
-                        match handle_upload_request(stream, &name, thread_global.clone()) {
-                            Ok(_) => {
-                                let stop = rdtsc();
-                                time_print("Cycles to handle upload request", stop-start);
-                                // ##########################################################################
-                                println!("Thread finished!");
-                                return Ok(());
-                            },
-                            Err(e) => {return Err(e);}
-                        }
+            // loop while connection is still open
+            'connection: loop {
+
+                let mut buffer: [u8; INSTRUCTION_BUFFER] = [0; INSTRUCTION_BUFFER];
+                println!("Initialized string buffer");
+                // ####################### TIMING BLOCK ####################################
+                let start = rdtsc();
+                match stream.read(&mut buffer) {
+                    Ok(n) => {
+                        println!("Read {n} bytes");
                     },
-                    Instruction::Download(name) => {
-                        // ####################### TIMING BLOCK ####################################
-                    let start = rdtsc();
-                    match handle_download_request(stream, &name, thread_global.clone()) {
-                        Ok(_) => {
-                                let stop = rdtsc();
-                                time_print("Cycles to clone 2 arc", stop-start);
-                                // ##########################################################################
-                                println!("Thread finished!");
-                                return Ok(());
-                            },
-                            Err(e) => {return Err(e);}
-                        }
-                    }
-                    Instruction::Update(name) => {
-                        // ####################### TIMING BLOCK ####################################
-                        let start = rdtsc();
-                        match handle_update_request(stream, &name, thread_global.clone()) {
-                            Ok(_) => {
-                                let stop = rdtsc();
-                                time_print("Cycles to clone 2 arc", stop-start);
-                                // ##########################################################################
-                                println!("Thread finished!");
-                                return Ok(());
-                            },
-                            Err(e) => {return Err(e);},
-                        }
-                    }
-                    Instruction::Query(table_name, query) => {
-                        // ####################### TIMING BLOCK ####################################
-                        let start = rdtsc();
-                        match handle_query_request(stream, &table_name, &query, thread_global.clone()) {
-                            Ok(_) => {
-                                let stop = rdtsc();
-                                time_print("Cycles to clone 2 arc", stop-start);
-                                // ##########################################################################
-                                println!("Thread finished!");
-                                return Ok(());
-                            },
-                            Err(e) => {return Err(e);},
-                        }
-                    }
-                }
+                    Err(e) => {
+                        return Err(ServerError::Io(e));
+                    },
+                };
+                let stop = rdtsc();
+                time_print("Cycles to read instructions", stop-start);
+                // ##########################################################################
                 
-                Err(e) => {
-                    stream.write(&e.to_string().as_bytes())?;
-                    println!("Thread finished on error: {e}");
-                    return Err(e);
-                },
+                
+                println!("Parsing instructions...");
+                // ####################### TIMING BLOCK ####################################
+                let start = rdtsc();
+                match parse_instruction(&buffer, &thread_users, thread_global.clone()) {
+                    Ok(i) => match i {
+                        
+                        Instruction::Upload(name) => {
+                            let stop = rdtsc();
+                            time_print("Cycles to parse instructions", stop-start);
+                            // ##########################################################################
+                            // ####################### TIMING BLOCK ####################################
+                            let start = rdtsc();
+                            match handle_upload_request(stream, &name, thread_global.clone()) {
+                                Ok(_) => {
+                                    let stop = rdtsc();
+                                    time_print("Cycles to handle upload request", stop-start);
+                                    // ##########################################################################
+                                    println!("Operation finished!");
+                                    return Ok(());
+                                },
+                                Err(e) => {return Err(e);}
+                            }
+                        },
+                        Instruction::Download(name) => {
+                            // ####################### TIMING BLOCK ####################################
+                        let start = rdtsc();
+                        match handle_download_request(stream, &name, thread_global.clone()) {
+                            Ok(_) => {
+                                    let stop = rdtsc();
+                                    time_print("Cycles to clone 2 arc", stop-start);
+                                    // ##########################################################################
+                                    println!("Operation finished!");
+                                    return Ok(());
+                                },
+                                Err(e) => {return Err(e);}
+                            }
+                        }
+                        Instruction::Update(name) => {
+                            // ####################### TIMING BLOCK ####################################
+                            let start = rdtsc();
+                            match handle_update_request(stream, &name, thread_global.clone()) {
+                                Ok(_) => {
+                                    let stop = rdtsc();
+                                    time_print("Cycles to clone 2 arc", stop-start);
+                                    // ##########################################################################
+                                    println!("Operation finished!");
+                                    return Ok(());
+                                },
+                                Err(e) => {return Err(e);},
+                            }
+                        }
+                        Instruction::Query(table_name, query) => {
+                            // ####################### TIMING BLOCK ####################################
+                            let start = rdtsc();
+                            match handle_query_request(stream, &table_name, &query, thread_global.clone()) {
+                                Ok(_) => {
+                                    let stop = rdtsc();
+                                    time_print("Cycles to clone 2 arc", stop-start);
+                                    // ##########################################################################
+                                    println!("Operation finished!");
+                                    return Ok(());
+                                },
+                                Err(e) => {return Err(e);},
+                            }
+                        }
+                    }
                     
+                    Err(e) => {
+                        stream.write(&e.to_string().as_bytes())?;
+                        println!("Thread finished on error: {e}");
+                        return Err(e);
+                    },
+                    
+                }
             }
             
         });
+        println!("Thread finished!");
         continue;
     }
 

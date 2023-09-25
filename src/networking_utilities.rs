@@ -177,7 +177,7 @@ pub fn bytes_to_usize(bytes: [u8; 8]) -> usize {
 }
 
 
-pub fn hash_function(a: &str) -> &str{
+pub fn hash_function(a: &str) -> &str {
     a
 }
 
