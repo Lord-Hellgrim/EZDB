@@ -14,11 +14,9 @@ mod logger;
 mod auth;
 mod aes;
 mod aes_temp_crypto;
+mod diffie_hellman;
 
 fn main() -> Result<(), networking_utilities::ServerError> {
-
-    let current_dir = std::env::current_dir()?;
-    println!("The current directory is {}", current_dir.display());
 
     let global: HashMap<String, db_structure::StrictTable> = HashMap::new();
     let arc_global = Arc::new(Mutex::new(global));

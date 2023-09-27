@@ -1,12 +1,19 @@
 use std::arch::asm;
 use std::io::{Write, Read};
 use std::net::TcpStream;
+use std::num::ParseIntError;
 use std::str::{self, Utf8Error};
 use std::time::Duration;
 use std::{usize, fmt};
 
+use aes_gcm::{Aes256Gcm, AeadCore};
+use aes_gcm::aead::OsRng;
+use num_bigint::BigUint;
+
+use crate::aes_temp_crypto::{encrypt_aes256, decrypt_aes256};
 use crate::auth::AuthenticationError;
 use crate::db_structure::StrictError;
+use crate::diffie_hellman::*;
 
 
 pub const INSTRUCTION_BUFFER: usize = 1024;
@@ -102,6 +109,36 @@ impl From<Utf8Error> for InstructionError {
     }
 }
 
+
+pub struct Connection {
+    pub stream: TcpStream,
+    pub aes_key: Vec<u8>,   
+}
+
+impl Connection {
+    pub fn connect(address: &str) -> Result<Connection, ServerError> {
+
+        let client_dh = DiffieHellman::new();
+
+        let mut stream = TcpStream::connect(address)?;
+        let mut key_buffer: [u8; 256] = [0u8;256];
+        stream.read(&mut key_buffer)?;
+        let server_public_key = BigUint::from_bytes_le(&key_buffer);
+        let client_public_key = client_dh.public_key().to_bytes_le();
+        stream.write(&client_public_key)?;
+        let shared_secret = client_dh.shared_secret(&server_public_key);
+        let aes_key = aes256key(&shared_secret.to_bytes_le());
+        Ok(
+            Connection {
+                stream: stream,
+                aes_key: aes_key,
+            }
+        )
+
+    }
+}
+
+
 #[inline(always)]
 pub fn rdtsc() -> u64 {
     let lo: u32;
@@ -176,13 +213,29 @@ pub fn bytes_to_usize(bytes: [u8; 8]) -> usize {
     value
 }
 
+pub fn encode_hex(bytes: &[u8]) -> String {
+    let mut s = String::new();
+    for &b in bytes {
+        s.push_str(&format!("{:02x}", b));
+    }
+    s
+}
 
-pub fn hash_function(a: &str) -> &str {
-    a
+pub fn decode_hex(s: &str) -> Result<Vec<u8>, ParseIntError> {
+    println!("s.len(): {}", s.len());
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
+        .collect()
 }
 
 
-pub fn instruction_send_and_confirm(username: &str, password: &str, instruction: Instruction, stream: &mut TcpStream) -> Result<String, ServerError> {
+pub fn hash_function(a: &str) -> Vec<u8> {
+    blake3::hash(a.as_bytes()).as_bytes().to_vec()
+}
+
+
+pub fn instruction_send_and_confirm(username: &str, password: &str, instruction: Instruction, connection: &mut Connection) -> Result<String, ServerError> {
 
     let instruction = match instruction {
         Instruction::Download(table_name) => format!("Requesting|{}|blank", table_name),
@@ -191,15 +244,24 @@ pub fn instruction_send_and_confirm(username: &str, password: &str, instruction:
         Instruction::Query(table_name, query) => format!("Querying|{}|{}", table_name, query),
     };
 
-    match stream.write(format!("{username}|{password}|{instruction}").as_bytes()) {
+    let nonce = Aes256Gcm::generate_nonce(&mut OsRng); // 96-bits; unique per message
+
+    let instruction_string = format!("{username}|{password}|{instruction}");
+    let (encrypted_instructions, nonce) = encrypt_aes256(&instruction_string, &connection.aes_key);
+
+    let mut encrypted_instructions = encode_hex(&encrypted_instructions);
+    encrypted_instructions.push('|');
+    encrypted_instructions.push_str(&encode_hex(&nonce));
+
+    match connection.stream.write(&encrypted_instructions.as_bytes()) {
         Ok(n) => println!("Wrote request as {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e));},
     };
     
     let mut buffer: [u8;INSTRUCTION_BUFFER] = [0;INSTRUCTION_BUFFER];
     println!("Waiting for response from server");
-    stream.set_read_timeout(Some(Duration::from_secs(5)))?;
-    let total_read = stream.read(&mut buffer)?;
+    connection.stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+    let total_read = connection.stream.read(&mut buffer)?;
 
     let response = bytes_to_str(&buffer)?;
 
@@ -208,17 +270,30 @@ pub fn instruction_send_and_confirm(username: &str, password: &str, instruction:
 }
 
 
-pub fn data_send_and_confirm(stream: &mut TcpStream, data: &str) -> Result<String, ServerError> {
+pub fn data_send_and_confirm(connection: &mut Connection, data: &str) -> Result<String, ServerError> {
 
-    println!("Sending data size...");
-    stream.write(&data.len().to_be_bytes())?;
+    let (encrypted_data, data_nonce) = encrypt_aes256(data, &connection.aes_key);
+    
+    let (encrypted_data_size, size_nonce) = encrypt_aes256(&encrypted_data.len().to_string(), &connection.aes_key); 
+    
+    let mut encrypted_data_size = encode_hex(&encrypted_data_size);
+    encrypted_data_size.push('|');
+    encrypted_data_size.push_str(&encode_hex(&size_nonce));
+    
+    connection.stream.write(&encrypted_data_size.as_bytes())?;
+    
+
+    let mut encrypted_data = encode_hex(&encrypted_data);
+    encrypted_data.push('|');
+    encrypted_data.push_str(&encode_hex(&data_nonce));
+    
     println!("Sending data...");
-    stream.write(data.as_bytes())?;
+    connection.stream.write(encrypted_data.as_bytes())?;
     
     // Waiting for confirmation from client
-    stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+    connection.stream.set_read_timeout(Some(Duration::from_secs(5)))?;
     let mut buffer: [u8;INSTRUCTION_BUFFER] = [0;INSTRUCTION_BUFFER];
-    match stream.read(&mut buffer) {
+    match connection.stream.read(&mut buffer) {
         Ok(_) => {
             println!("Confirmation '{}' received", bytes_to_str(&buffer)?);
         },
@@ -233,28 +308,41 @@ pub fn data_send_and_confirm(stream: &mut TcpStream, data: &str) -> Result<Strin
 }
 
 
-pub fn receive_data(stream: &mut TcpStream) -> Result<(String, usize), ServerError> {
+pub fn receive_data(connection: &mut Connection) -> Result<(String, usize), ServerError> {
 
     println!("Allocating csv buffer");
-    let mut size_buffer: [u8;8] = [0;8];
+    let mut size_buffer: [u8;INSTRUCTION_BUFFER] = [0;INSTRUCTION_BUFFER];
     let mut buffer = [0;DATA_BUFFER];
     let mut total_read: usize = 0;
-    stream.read(&mut size_buffer)?;
-    let data_len = bytes_to_usize(size_buffer);
+    connection.stream.read(&mut size_buffer)?;
+
+   
+    let data_len = bytes_to_str(&size_buffer)?;
+    println!("Encrypted data_len: {}", data_len);
+    let instruction_block: Vec<&str> = data_len.split('|').collect();
+
+    let (ciphertext, nonce) = (decode_hex(instruction_block[0]).unwrap(), decode_hex(instruction_block[1]).unwrap());
+    let plaintext = decrypt_aes256(&ciphertext, &connection.aes_key, &nonce);
+    let data_len = bytes_to_str(&plaintext)?;
+    let data_len = data_len.parse::<usize>().unwrap();
+
     println!("Expected data length: {}", data_len);
-    let mut csv = String::new();
+    let mut csv = Vec::with_capacity(data_len);
     loop {
         if total_read >= data_len {
          break
         }
-       let bytes_received = stream.read(&mut buffer)?;
-       csv.push_str(bytes_to_str(&buffer)?);
+       let bytes_received = connection.stream.read(&mut buffer)?;
+       csv.extend_from_slice(&buffer);
        buffer = [0;DATA_BUFFER];
        total_read += bytes_received;
        println!("Read {bytes_received} bytes. Total read {total_read}");
     }
 
-    Ok((csv, total_read))
+    let csv = decrypt_aes256(&csv, &connection.aes_key, &nonce);
+    let csv = bytes_to_str(&csv)?;
+
+    Ok((csv.to_owned(), total_read))
 }
 
 

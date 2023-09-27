@@ -1,25 +1,30 @@
 use std::net::TcpStream;
 use std::io::{Read, Write};
+use std::process::Command;
+use std::sync::TryLockError;
 use std::time::Duration;
 use std::str::{self};
 
+use num_bigint::BigUint;
+
 use crate::auth::AuthenticationError;
 use crate::db_structure::StrictTable;
+use crate::{diffie_hellman::*, aes};
 use crate::networking_utilities::*;
 
 
 // I'd change the declaration to: request_table(table_name: &str, server_address: &str)
 // Agree with name => table_name but this gets a csv. Should be called download_csv, though, to be consistent with server()
-pub fn download_table(mut stream: &mut TcpStream, table_name: &str, username: &str, password: &str) -> Result<String, ServerError> {
+pub fn download_table(mut connection: &mut Connection, table_name: &str, username: &str, password: &str) -> Result<String, ServerError> {
         
-    let response = instruction_send_and_confirm(username, password, Instruction::Download(table_name.to_owned()), stream)?;
+    let response = instruction_send_and_confirm(username, password, Instruction::Download(table_name.to_owned()), &mut connection)?;
 
     let csv: String;
     match response.as_str() {
 
         // THIS IS WHERE YOU SEND THE BULK OF THE DATA
         //########## SUCCESS BRANCH #################################
-        "OK" => (csv, _) = receive_data(stream)?,
+        "OK" => (csv, _) = receive_data(&mut connection)?,
         //###########################################################
         "Username is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongUser(username.to_owned()))),
         "Password is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongPassword(password.to_owned()))),
@@ -27,7 +32,7 @@ pub fn download_table(mut stream: &mut TcpStream, table_name: &str, username: &s
         e => panic!("Need to handle error: {}", e),
     };
 
-    match stream.write("OK".as_bytes()) {
+    match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote 'OK' as {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e));}
     };
@@ -39,16 +44,16 @@ pub fn download_table(mut stream: &mut TcpStream, table_name: &str, username: &s
 }
 
 
-pub fn upload_table(mut stream: &mut TcpStream, table_name: &str, csv: &String, username: &str, password: &str) -> Result<String, ServerError> {
+pub fn upload_table(mut connection: &mut Connection, table_name: &str, csv: &String, username: &str, password: &str) -> Result<String, ServerError> {
 
-    let response = instruction_send_and_confirm(username, password, Instruction::Upload(table_name.to_owned()), stream)?;
+    let response = instruction_send_and_confirm(username, password, Instruction::Upload(table_name.to_owned()), &mut connection)?;
 
     let confirmation: String;
     match response.as_str() {
 
         // THIS IS WHERE YOU SEND THE BULK OF THE DATA
         //########## SUCCESS BRANCH #################################
-        "OK" => confirmation = data_send_and_confirm(stream, &csv)?,
+        "OK" => confirmation = data_send_and_confirm(&mut connection, &csv)?,
         //###########################################################
         "Username is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongUser(username.to_owned()))),
         "Password is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongPassword(password.to_owned()))),
@@ -66,16 +71,16 @@ pub fn upload_table(mut stream: &mut TcpStream, table_name: &str, csv: &String, 
 }
 
 
-pub fn update_table(mut stream: &mut TcpStream, table_name: &str, csv: &String, username: &str, password: &str) -> Result<String, ServerError> {
+pub fn update_table(mut connection: &mut Connection, table_name: &str, csv: &String, username: &str, password: &str) -> Result<String, ServerError> {
 
-    let response = instruction_send_and_confirm(username, password, Instruction::Update(table_name.to_owned()), &mut stream)?;
+    let response = instruction_send_and_confirm(username, password, Instruction::Update(table_name.to_owned()), &mut connection)?;
 
     let confirmation: String;
     match response.as_str() {
 
         // THIS IS WHERE YOU SEND THE BULK OF THE DATA
         //########## SUCCESS BRANCH #################################
-        "OK" => confirmation = data_send_and_confirm(&mut stream, &csv)?,
+        "OK" => confirmation = data_send_and_confirm(&mut connection, &csv)?,
         //###########################################################
         "Username is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongUser(username.to_owned()))),
         "Password is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongPassword(password.to_owned()))),
@@ -95,16 +100,16 @@ pub fn update_table(mut stream: &mut TcpStream, table_name: &str, csv: &String, 
 }
 
 
-pub fn query_table(mut stream: &mut TcpStream, table_name: &str, query: &str, username: &str, password: &str) -> Result<String, ServerError> {
+pub fn query_table(mut connection: &mut Connection, table_name: &str, query: &str, username: &str, password: &str) -> Result<String, ServerError> {
     
-    let response = instruction_send_and_confirm(username, password, Instruction::Query(table_name.to_owned(), query.to_owned()), stream)?;
+    let response = instruction_send_and_confirm(username, password, Instruction::Query(table_name.to_owned(), query.to_owned()), &mut connection)?;
 
     let csv: String;
     match response.as_str() {
 
         // THIS IS WHERE YOU SEND THE BULK OF THE DATA
         //########## SUCCESS BRANCH #################################
-        "OK" => (csv, _) = receive_data(stream)?,
+        "OK" => (csv, _) = receive_data(&mut connection)?,
         //###########################################################
         "Username is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongUser(username.to_owned()))),
         "Password is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongPassword(password.to_owned()))),
@@ -112,7 +117,7 @@ pub fn query_table(mut stream: &mut TcpStream, table_name: &str, query: &str, us
         e => panic!("Need to handle error: {}", e),
     };
 
-    match stream.write("OK".as_bytes()) {
+    match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote 'OK' as {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e));}
     };
@@ -134,7 +139,7 @@ mod tests {
         let start = rdtsc();
         let csv = std::fs::read_to_string("good_csv.txt").unwrap();
         let address = "127.0.0.1:3004";
-        let mut connection = TcpStream::connect(address).unwrap();
+        let mut connection = Connection::connect(address).unwrap();
         let e = upload_table(&mut connection, "good_csv", &csv, "admin", "admin");
         match & e {
             Ok(_) => println!("OK"),
@@ -150,7 +155,7 @@ mod tests {
     fn test_send_bad_csv() {
         let csv = std::fs::read_to_string("bad_csv.txt").unwrap();
         let address = "127.0.0.1:3004";
-        let mut connection = TcpStream::connect(address).unwrap();
+        let mut connection = Connection::connect(address).unwrap();
         let e = upload_table(&mut connection, "bad_csv", &csv, "admin", "admin");
         assert!(e.is_err());
         
@@ -163,7 +168,7 @@ mod tests {
         let name = "good_csv";
         let address = "127.0.0.1:3004";
         println!("Receiving\n############################");
-        let mut connection = TcpStream::connect(address).unwrap();
+        let mut connection = Connection::connect(address).unwrap();
         let table = download_table(&mut connection, name, "admin", "admin").unwrap();
         println!("{:?}", table);
         let good_table = StrictTable::from_csv_string(&std::fs::read_to_string("good_csv.txt").unwrap(), "good_table").unwrap();
@@ -190,7 +195,7 @@ mod tests {
 
         let csv = std::fs::read_to_string("large.csv").unwrap();
         let address = "127.0.0.1:3004";
-        let mut connection = TcpStream::connect(address).unwrap();
+        let mut connection = Connection::connect(address).unwrap();
         let e = upload_table(&mut connection, "large_csv", &csv, "admin", "admin");
         
         //delete the large_csv
@@ -203,12 +208,12 @@ mod tests {
     fn test_query_list() {
         let csv = std::fs::read_to_string("good_csv.txt").unwrap();
         let address = "127.0.0.1:3004";
-        let mut connection = TcpStream::connect(address).unwrap();
+        let mut connection = Connection::connect(address).unwrap();
         let e = upload_table(&mut connection, "good_csv", &csv, "admin", "admin").unwrap();
         assert_eq!(e, "OK");
 
         let query = "0113000,0113035";
-        let mut connection = TcpStream::connect(address).unwrap();
+        let mut connection = Connection::connect(address).unwrap();
         let response = query_table(&mut connection, "good_csv", query, "admin", "admin").unwrap();
         println!("{}", response);
     }

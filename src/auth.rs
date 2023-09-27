@@ -1,10 +1,14 @@
 use std::fmt;
 
+use num_bigint::BigUint;
+
+use crate::networking_utilities::decode_hex;
+
 
 #[derive(Debug, Clone)]
 pub struct User {
     pub Username: String,
-    pub PasswordHash: String,
+    pub PasswordHash: Vec<u8>,
     pub LastAddress: String,
     pub Authenticated: bool,
     // Permissions
@@ -20,7 +24,7 @@ impl User {
     println!("{:?}", s);
 
     let Username = s[0].to_owned();
-    let PasswordHash = s[1].to_owned();
+    let PasswordHash = decode_hex(s[1]).unwrap();
     let LastAddress = s[2].to_owned();
     let Authenticated = s[3].parse::<bool>().unwrap();
     let read: Vec<&str> = s[4].split(',').collect();

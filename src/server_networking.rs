@@ -4,15 +4,27 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::str::{self};
 
+use num_bigint::BigUint;
+
+use crate::aes_temp_crypto::decrypt_aes256;
 use crate::auth::{User, AuthenticationError};
+use crate::diffie_hellman::{DiffieHellman, aes256key, shared_secret};
 use crate::networking_utilities::*;
 use crate::db_structure::StrictTable;
 
 
-pub fn parse_instruction(buffer: &[u8], users: &HashMap<String, User>, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<Instruction, ServerError> {
+pub fn parse_instruction(buffer: &[u8], users: &HashMap<String, User>, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>, aes_key: &[u8]) -> Result<Instruction, ServerError> {
 
     println!("parsing 1...");
     let instruction = bytes_to_str(&buffer)?;
+    println!("Encrypted instructions: {}", instruction);
+    let instruction_block: Vec<&str> = instruction.split('|').collect();
+
+    let (ciphertext, nonce) = (decode_hex(instruction_block[0]).unwrap(), decode_hex(instruction_block[1]).unwrap());
+    let plaintext = decrypt_aes256(&ciphertext, aes_key, &nonce);
+    println!("decrypted_instructions: {:x?}", plaintext);
+    let instruction = bytes_to_str(&plaintext)?;
+    println!("instruction: {}", instruction);
     let instruction_block: Vec<&str> = instruction.split('|').collect();
 
     println!("parsing 2...");
@@ -39,7 +51,9 @@ pub fn parse_instruction(buffer: &[u8], users: &HashMap<String, User>, global_ta
     if !users.contains_key(username) {
         return Err(ServerError::Authentication(AuthenticationError::WrongUser(username.to_owned())));
     } else if users[username].PasswordHash != pass_hash {
-        return Err(ServerError::Authentication(AuthenticationError::WrongPassword(pass_hash.to_owned())));
+        println!("users.passwordhash:\n{:x?}", users[username].PasswordHash);
+        println!("pass_hash:\n{:x?}", pass_hash);
+        return Err(ServerError::Authentication(AuthenticationError::WrongPassword(format!("{:x?}", pass_hash))));
     } else {
         match action {
             "Querying" => {
@@ -70,9 +84,9 @@ pub fn parse_instruction(buffer: &[u8], users: &HashMap<String, User>, global_ta
 }
 
 
-fn handle_download_request(mut stream: TcpStream, name: &str, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<(), ServerError> {
+fn handle_download_request(mut connection: Connection, name: &str, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<(), ServerError> {
     
-    match stream.write("OK".as_bytes()) {
+    match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e));},
     };
@@ -81,7 +95,7 @@ fn handle_download_request(mut stream: TcpStream, name: &str, global_tables: Arc
     let requested_table = mutex_binding.get(name).expect("Instruction parser should have verified table");
     let requested_csv = requested_table.to_csv_string();
 
-    let response = data_send_and_confirm(&mut stream, &requested_csv)?;
+    let response = data_send_and_confirm(&mut connection, &requested_csv)?;
 
     if response == "OK" {
         return Ok(())
@@ -92,19 +106,19 @@ fn handle_download_request(mut stream: TcpStream, name: &str, global_tables: Arc
 }
 
 
-fn handle_upload_request(mut stream: TcpStream, name: &str, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<String, ServerError> {
+fn handle_upload_request(mut connection: Connection, name: &str, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<String, ServerError> {
 
-    match stream.write("OK".as_bytes()) {
+    match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e));},
     };
 
-    let (csv, total_read) = receive_data(&mut stream)?;
+    let (csv, total_read) = receive_data(&mut connection)?;
 
     // Here we create a StrictTable from the csv and supplied name
     match StrictTable::from_csv_string(&csv, name) {
         Ok(table) => {
-            match stream.write(format!("{}", total_read).as_bytes()) {
+            match connection.stream.write(format!("{}", total_read).as_bytes()) {
                 Ok(_) => println!("Confirmed correctness with client"),
                 Err(e) => {return Err(ServerError::Io(e));},
             };
@@ -114,7 +128,7 @@ fn handle_upload_request(mut stream: TcpStream, name: &str, global_tables: Arc<M
             global_tables.lock().unwrap().insert(table.name.clone(), table);
 
         },
-        Err(e) => match stream.write(e.to_string().as_bytes()){
+        Err(e) => match connection.stream.write(e.to_string().as_bytes()){
             Ok(_) => println!("Informed client of unstrictness"),
             Err(e) => {return Err(ServerError::Io(e));},
         },
@@ -124,14 +138,14 @@ fn handle_upload_request(mut stream: TcpStream, name: &str, global_tables: Arc<M
 }
     
     
-pub fn handle_update_request(mut stream: TcpStream, name: &str, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<String, ServerError> {
+pub fn handle_update_request(mut connection: Connection, name: &str, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<String, ServerError> {
     
-    match stream.write("OK".as_bytes()) {
+    match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e));},
     };
 
-    let (csv, total_read) = receive_data(&mut stream)?;
+    let (csv, total_read) = receive_data(&mut connection)?;
 
     let mut mutex_binding = global_tables.lock().unwrap();
 
@@ -139,10 +153,10 @@ pub fn handle_update_request(mut stream: TcpStream, name: &str, global_tables: A
     
     match requested_table.update(&csv) {
         Ok(_) => {
-            stream.write(total_read.to_string().as_bytes())?;
+            connection.stream.write(total_read.to_string().as_bytes())?;
         },
         Err(e) => {
-            stream.write(e.to_string().as_bytes())?;
+            connection.stream.write(e.to_string().as_bytes())?;
             return Err(ServerError::Strict(e));
         },
     };
@@ -151,8 +165,8 @@ pub fn handle_update_request(mut stream: TcpStream, name: &str, global_tables: A
 }
 
 
-fn handle_query_request(mut stream: TcpStream, name: &str, query: &str, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<String, ServerError> {
-    match stream.write("OK".as_bytes()) {
+fn handle_query_request(mut connection: Connection, name: &str, query: &str, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<String, ServerError> {
+    match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e));},
     };
@@ -176,8 +190,8 @@ fn handle_query_request(mut stream: TcpStream, name: &str, query: &str, global_t
         requested_csv = requested_table.query_list(parsed_query)?;
     }
 
-    let response = data_send_and_confirm(&mut stream, &requested_csv)?;
-
+    let response = data_send_and_confirm(&mut connection, &requested_csv)?;
+    
     if response == "OK" {
         return Ok("OK".to_owned())
     } else {
@@ -189,20 +203,17 @@ fn handle_query_request(mut stream: TcpStream, name: &str, query: &str, global_t
 pub fn server(address: &str, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<(), ServerError> {
     println!("Starting server...\n###########################");
     println!("Binding to address: {address}");
-    // ########### TIMING BLOCK ###############################################
-    let start = rdtsc();
+    let server_dh = DiffieHellman::new();
+    let server_public_key = Arc::new(server_dh.public_key().to_bytes_le());
+    let server_private_key = Arc::new(server_dh.private_key);
+    
     let l = match TcpListener::bind(address) {
         Ok(value) => value,
         Err(e) => {return Err(ServerError::Io(e));},
     };
-    let stop = rdtsc();
-    time_print("Cycles to initialize TcpListener", stop-start);
-    // ########################################################################
     println!("Reading users config into memory");
 
-    // ########### TIMING BLOCK ###############################################
-    let start = rdtsc();
-    let temp = String::from("admin;admin;127.0.0.1;false;ALL;ALL;true");
+    let temp = String::from("admin;d289b2da9b7051f36b4e396e0af3e069e78cf119a7fdcb6437b685c4875e9f9e;127.0.0.1;false;ALL;ALL;true");
     // let temp = std::fs::read_to_string("users.txt")?;
     let mut users = HashMap::new();
     for line in temp.lines() {
@@ -213,48 +224,45 @@ pub fn server(address: &str, global_tables: Arc<Mutex<HashMap<String, StrictTabl
         users.insert(t[0].to_owned(), User::from_str(line));
     }
     let users = Arc::new(users);
-    let stop = rdtsc();
-    time_print("Cycles to read Users", stop-start);
-    // ########################################################################
     
     dbg!(&users);
     
     /* This is the main loop of the function. Here we accept incoming connections and process them */
     loop {
-        // ########### TIMING BLOCK ###############################################
-        let start = rdtsc();
-        let begin = std::time::Instant::now();
         // Reading instructions
         let (mut stream, client_address) = match l.accept() {
             Ok((n,m)) => (n, m),
             Err(e) => {return Err(ServerError::Io(e));},
         };
-        let stop = rdtsc();
-        let end = begin.elapsed().as_millis();
-        println!("Millis to accept: {}", end);
-        time_print("Cycles to accept connection", stop-start);
-        //#######################################################################
-        println!("Accepted connection from: {}", client_address);
+        println!("Accepted connection from: {}", client_address);        
 
         // Spawn a new thread for each connection for some semblence of scalability
-        // ####################### TIMING BLOCK ####################################
-        let start = rdtsc();
         let thread_global = global_tables.clone();
         let thread_users = users.clone();
-        let stop = rdtsc();
-        time_print("Cycles to clone 2 arc", stop-start);
-        // ##########################################################################
+        let thread_public_key = server_public_key.clone();
+        let thread_private_key = server_private_key.clone();
         
         std::thread::spawn(move || {
-
+            
             // loop while connection is still open
             'connection: loop {
 
+                
+                stream.write(&thread_public_key)?;
+                let mut buffer: [u8; 256] = [0; 256];
+                
+                stream.read(&mut buffer)?;
+                
+                let client_public_key = BigUint::from_bytes_le(&buffer);
+                
+                let shared_secret = shared_secret(&client_public_key, &thread_private_key);
+                let aes_key = aes256key(&shared_secret.to_bytes_le());
+                let mut connection = Connection {stream, aes_key};
+
                 let mut buffer: [u8; INSTRUCTION_BUFFER] = [0; INSTRUCTION_BUFFER];
                 println!("Initialized string buffer");
-                // ####################### TIMING BLOCK ####################################
-                let start = rdtsc();
-                match stream.read(&mut buffer) {
+                
+                match connection.stream.read(&mut buffer) {
                     Ok(n) => {
                         println!("Read {n} bytes");
                     },
@@ -262,28 +270,15 @@ pub fn server(address: &str, global_tables: Arc<Mutex<HashMap<String, StrictTabl
                         return Err(ServerError::Io(e));
                     },
                 };
-                let stop = rdtsc();
-                time_print("Cycles to read instructions", stop-start);
-                // ##########################################################################
                 
                 
                 println!("Parsing instructions...");
-                // ####################### TIMING BLOCK ####################################
-                let start = rdtsc();
-                match parse_instruction(&buffer, &thread_users, thread_global.clone()) {
+                match parse_instruction(&buffer, &thread_users, thread_global.clone(), &connection.aes_key) {
                     Ok(i) => match i {
                         
                         Instruction::Upload(name) => {
-                            let stop = rdtsc();
-                            time_print("Cycles to parse instructions", stop-start);
-                            // ##########################################################################
-                            // ####################### TIMING BLOCK ####################################
-                            let start = rdtsc();
-                            match handle_upload_request(stream, &name, thread_global.clone()) {
+                            match handle_upload_request(connection, &name, thread_global.clone()) {
                                 Ok(_) => {
-                                    let stop = rdtsc();
-                                    time_print("Cycles to handle upload request", stop-start);
-                                    // ##########################################################################
                                     println!("Operation finished!");
                                     return Ok(());
                                 },
@@ -291,13 +286,8 @@ pub fn server(address: &str, global_tables: Arc<Mutex<HashMap<String, StrictTabl
                             }
                         },
                         Instruction::Download(name) => {
-                            // ####################### TIMING BLOCK ####################################
-                        let start = rdtsc();
-                        match handle_download_request(stream, &name, thread_global.clone()) {
+                        match handle_download_request(connection, &name, thread_global.clone()) {
                             Ok(_) => {
-                                    let stop = rdtsc();
-                                    time_print("Cycles to clone 2 arc", stop-start);
-                                    // ##########################################################################
                                     println!("Operation finished!");
                                     return Ok(());
                                 },
@@ -305,13 +295,8 @@ pub fn server(address: &str, global_tables: Arc<Mutex<HashMap<String, StrictTabl
                             }
                         }
                         Instruction::Update(name) => {
-                            // ####################### TIMING BLOCK ####################################
-                            let start = rdtsc();
-                            match handle_update_request(stream, &name, thread_global.clone()) {
+                            match handle_update_request(connection, &name, thread_global.clone()) {
                                 Ok(_) => {
-                                    let stop = rdtsc();
-                                    time_print("Cycles to clone 2 arc", stop-start);
-                                    // ##########################################################################
                                     println!("Operation finished!");
                                     return Ok(());
                                 },
@@ -319,13 +304,8 @@ pub fn server(address: &str, global_tables: Arc<Mutex<HashMap<String, StrictTabl
                             }
                         }
                         Instruction::Query(table_name, query) => {
-                            // ####################### TIMING BLOCK ####################################
-                            let start = rdtsc();
-                            match handle_query_request(stream, &table_name, &query, thread_global.clone()) {
+                            match handle_query_request(connection, &table_name, &query, thread_global.clone()) {
                                 Ok(_) => {
-                                    let stop = rdtsc();
-                                    time_print("Cycles to clone 2 arc", stop-start);
-                                    // ##########################################################################
                                     println!("Operation finished!");
                                     return Ok(());
                                 },
@@ -335,7 +315,7 @@ pub fn server(address: &str, global_tables: Arc<Mutex<HashMap<String, StrictTabl
                     }
                     
                     Err(e) => {
-                        stream.write(&e.to_string().as_bytes())?;
+                        connection.stream.write(&e.to_string().as_bytes())?;
                         println!("Thread finished on error: {e}");
                         return Err(e);
                     },
