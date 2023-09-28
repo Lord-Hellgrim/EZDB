@@ -117,6 +117,7 @@ fn handle_upload_request(mut connection: Connection, name: &str, global_tables: 
     let (csv, total_read) = receive_data(&mut connection)?;
 
     // Here we create a StrictTable from the csv and supplied name
+    println!("About to check for strictness");
     match StrictTable::from_csv_string(&csv, name) {
         Ok(table) => {
             match connection.stream.write(format!("{}", total_read).as_bytes()) {

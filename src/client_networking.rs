@@ -61,9 +61,10 @@ pub fn upload_table(mut connection: &mut Connection, table_name: &str, csv: &Str
         e => panic!("Need to handle error: {}", e),
     };
 
-    let data_len = ((csv.len() + 28)*2 + 1).to_string();
+    let data_len = (csv.len() + 28).to_string();
     println!("unencrypted data_len: {}", csv.len());
     println!("expected encrypted length: {}", data_len);
+    println!("confirmation: {}", confirmation);
     if confirmation == data_len {
         return Ok("OK".to_owned());
     } else {
@@ -90,7 +91,7 @@ pub fn update_table(mut connection: &mut Connection, table_name: &str, csv: &Str
         e => panic!("Need to handle error: {}", e),
     };
 
-    let data_len = ((csv.len() + 28)*2 + 1).to_string();
+    let data_len = (csv.len() + 28).to_string();
     println!("unencrypted data_len: {}", csv.len());
     println!("expected encrypted length: {}", data_len);
     if confirmation == data_len {
