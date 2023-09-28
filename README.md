@@ -31,4 +31,4 @@ essentially a BtreeMap with some tacked on metadata and identifiers and some met
 schema. All of the rest of the code is for sending, receiving, updating, querying, securing, and (soon) encrypting StrictTable
 structs.
 
-THIS CRATE IS NOT MEANT FOR PRODUCTION USE! ALL DATA SENT IS CURRENTLY UNENCRYPTED! DO NOT USE!
+THIS CRATE IS NOT MEANT FOR PRODUCTION USE! ALL DATA SENT IS ENCRYPTED BUT HAS NOT BEEN REVIEWED! DO NOT USE!
