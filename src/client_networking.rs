@@ -61,7 +61,9 @@ pub fn upload_table(mut connection: &mut Connection, table_name: &str, csv: &Str
         e => panic!("Need to handle error: {}", e),
     };
 
-    let data_len = csv.len().to_string();
+    let data_len = ((csv.len() + 28)*2 + 1).to_string();
+    println!("unencrypted data_len: {}", csv.len());
+    println!("expected encrypted length: {}", data_len);
     if confirmation == data_len {
         return Ok("OK".to_owned());
     } else {
@@ -88,7 +90,9 @@ pub fn update_table(mut connection: &mut Connection, table_name: &str, csv: &Str
         e => panic!("Need to handle error: {}", e),
     };
 
-    let data_len = csv.len().to_string();
+    let data_len = ((csv.len() + 28)*2 + 1).to_string();
+    println!("unencrypted data_len: {}", csv.len());
+    println!("expected encrypted length: {}", data_len);
     if confirmation == data_len {
         println!("Confirmation from server: {}", confirmation);
         return Ok("OK".to_owned());
@@ -140,14 +144,7 @@ mod tests {
         let csv = std::fs::read_to_string("good_csv.txt").unwrap();
         let address = "127.0.0.1:3004";
         let mut connection = Connection::connect(address).unwrap();
-        let e = upload_table(&mut connection, "good_csv", &csv, "admin", "admin");
-        match & e {
-            Ok(_) => println!("OK"),
-            Err(e) => println!("{}", e),
-        };
-        let end = rdtsc();
-        println!("Cycles: {}", end-start);
-        assert_eq!(e.unwrap(), "OK");
+        let e = upload_table(&mut connection, "good_csv", &csv, "admin", "admin").unwrap();
     }
 
 

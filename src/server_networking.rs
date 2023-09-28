@@ -63,8 +63,8 @@ pub fn parse_instruction(buffer: &[u8], users: &HashMap<String, User>, global_ta
                     Ok(Instruction::Query(table_name.to_owned(), query.to_owned()))
                 }
             }
-            "Sending" => Ok(Instruction::Upload(table_name.to_owned())),
-            "Requesting" => {
+            "Uploading" => Ok(Instruction::Upload(table_name.to_owned())),
+            "Downloading" => {
                 if !global_tables.lock().unwrap().contains_key(table_name) {
                     return Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())));
                 } else {
@@ -94,6 +94,7 @@ fn handle_download_request(mut connection: Connection, name: &str, global_tables
     let mutex_binding = global_tables.lock().unwrap();
     let requested_table = mutex_binding.get(name).expect("Instruction parser should have verified table");
     let requested_csv = requested_table.to_csv_string();
+    println!("Requestec_csv: {}", requested_csv);
 
     let response = data_send_and_confirm(&mut connection, &requested_csv)?;
 

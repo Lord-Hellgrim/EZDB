@@ -6,7 +6,7 @@ use std::str::{self, Utf8Error};
 use std::time::Duration;
 use std::{usize, fmt};
 
-use aes_gcm::{Aes256Gcm, AeadCore};
+use aes_gcm::{Aes256Gcm, AeadCore, aead};
 use aes_gcm::aead::OsRng;
 use num_bigint::BigUint;
 
@@ -30,6 +30,7 @@ pub enum ServerError {
     Confirmation(String),
     Authentication(AuthenticationError),
     Strict(StrictError),
+    Crypto(aead::Error),
 }
 
 impl fmt::Display for ServerError {
@@ -41,6 +42,7 @@ impl fmt::Display for ServerError {
             ServerError::Confirmation(e) => write!(f, "Received corrupt confirmation {:?}", e),
             ServerError::Authentication(e) => write!(f, "{}", e),
             ServerError::Strict(e) => write!(f, "{}", e),
+            ServerError::Crypto(e) => write!(f, "There has been a crypto error. The error is: {}", e),
         }
     }
 }
@@ -72,6 +74,12 @@ impl From<AuthenticationError> for ServerError {
 impl From<StrictError> for ServerError {
     fn from(e: StrictError) -> Self {
         ServerError::Strict(e)
+    }
+}
+
+impl From<aead::Error> for ServerError {
+    fn from(e: aead::Error) -> Self {
+        ServerError::Crypto(e)
     }
 }
 
@@ -238,8 +246,8 @@ pub fn hash_function(a: &str) -> Vec<u8> {
 pub fn instruction_send_and_confirm(username: &str, password: &str, instruction: Instruction, connection: &mut Connection) -> Result<String, ServerError> {
 
     let instruction = match instruction {
-        Instruction::Download(table_name) => format!("Requesting|{}|blank", table_name),
-        Instruction::Upload(table_name) => format!("Sending|{}|blank", table_name),
+        Instruction::Download(table_name) => format!("Downloading|{}|blank", table_name),
+        Instruction::Upload(table_name) => format!("Uploading|{}|blank", table_name),
         Instruction::Update(table_name) => format!("Updating|{}|blank", table_name),
         Instruction::Query(table_name, query) => format!("Querying|{}|{}", table_name, query),
     };
@@ -273,22 +281,17 @@ pub fn instruction_send_and_confirm(username: &str, password: &str, instruction:
 pub fn data_send_and_confirm(connection: &mut Connection, data: &str) -> Result<String, ServerError> {
 
     let (encrypted_data, data_nonce) = encrypt_aes256(data, &connection.aes_key);
+    println!("encrypted_data: {:x?}", encrypted_data);
+    println!("encrypted data_nonce: {:x?}", data_nonce);
     
-    let (encrypted_data_size, size_nonce) = encrypt_aes256(&encrypted_data.len().to_string(), &connection.aes_key); 
+    let mut encrypted_data_block = Vec::with_capacity(((data.len() + 28) + 9));
+    encrypted_data_block.extend_from_slice(&data.len().to_le_bytes());
+    encrypted_data_block.push(124);
+    encrypted_data_block.extend_from_slice(&data_nonce);
     
-    let mut encrypted_data_size = encode_hex(&encrypted_data_size);
-    encrypted_data_size.push('|');
-    encrypted_data_size.push_str(&encode_hex(&size_nonce));
-    
-    connection.stream.write(&encrypted_data_size.as_bytes())?;
-    
-
-    let mut encrypted_data = encode_hex(&encrypted_data);
-    encrypted_data.push('|');
-    encrypted_data.push_str(&encode_hex(&data_nonce));
     
     println!("Sending data...");
-    connection.stream.write(encrypted_data.as_bytes())?;
+    connection.stream.write(&encrypted_data_block)?;
     
     // Waiting for confirmation from client
     connection.stream.set_read_timeout(Some(Duration::from_secs(5)))?;
@@ -310,36 +313,33 @@ pub fn data_send_and_confirm(connection: &mut Connection, data: &str) -> Result<
 
 pub fn receive_data(connection: &mut Connection) -> Result<(String, usize), ServerError> {
 
-    println!("Allocating csv buffer");
-    let mut size_buffer: [u8;INSTRUCTION_BUFFER] = [0;INSTRUCTION_BUFFER];
+    println!("Allocating size and data buffer");
+    let mut size_buffer: [u8;8] = [0;8];
     let mut buffer = [0;DATA_BUFFER];
     let mut total_read: usize = 0;
-    connection.stream.read(&mut size_buffer)?;
+    connection.stream.read_exact(&mut size_buffer)?;
 
    
-    let data_len = bytes_to_str(&size_buffer)?;
-    println!("Encrypted data_len: {}", data_len);
-    let instruction_block: Vec<&str> = data_len.split('|').collect();
-
-    let (ciphertext, nonce) = (decode_hex(instruction_block[0]).unwrap(), decode_hex(instruction_block[1]).unwrap());
-    let plaintext = decrypt_aes256(&ciphertext, &connection.aes_key, &nonce);
-    let data_len = bytes_to_str(&plaintext)?;
-    let data_len = data_len.parse::<usize>().unwrap();
+    let data_len = usize::from_le_bytes(size_buffer);
 
     println!("Expected data length: {}", data_len);
-    let mut csv = Vec::with_capacity(data_len);
+    let mut data = Vec::with_capacity(data_len);
     loop {
         if total_read >= data_len {
          break
         }
        let bytes_received = connection.stream.read(&mut buffer)?;
-       csv.extend_from_slice(&buffer);
+       data.extend_from_slice(&buffer);
        buffer = [0;DATA_BUFFER];
        total_read += bytes_received;
        println!("Read {bytes_received} bytes. Total read {total_read}");
     }
 
-    let csv = decrypt_aes256(&csv, &connection.aes_key, &nonce);
+    let data = bytes_to_str(&data)?;
+    let data_block: Vec<&str> = data.split('|').collect();
+    let (ciphertext, nonce) = (decode_hex(data_block[0]).unwrap(), decode_hex(data_block[1]).unwrap());
+
+    let csv = decrypt_aes256(&ciphertext, &connection.aes_key, &nonce);
     let csv = bytes_to_str(&csv)?;
 
     Ok((csv.to_owned(), total_read))
