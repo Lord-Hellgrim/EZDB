@@ -1,6 +1,6 @@
 use aes_gcm::{
     aead::{Aead, AeadCore, KeyInit, OsRng, generic_array::GenericArray},
-    Aes256Gcm, Nonce, Key // Or `Aes128Gcm`
+    Aes256Gcm, Key // Or `Aes128Gcm`
 };
 
 
@@ -16,6 +16,7 @@ pub fn encrypt_aes256(s: &str, key: &[u8]) -> (Vec<u8>, [u8;12]) {
 }
 
 pub fn decrypt_aes256(s: &[u8], key: &[u8], nonce: &[u8] ) -> Vec<u8> {
+    // TODO Add clause to handle the case where the nonce is not 12 bytes
     let key = Key::<Aes256Gcm>::from_slice(&key);
     
     let cipher = Aes256Gcm::new(&key);

@@ -1,7 +1,5 @@
 use std::fmt;
 
-use num_bigint::BigUint;
-
 use crate::networking_utilities::decode_hex;
 
 
@@ -60,7 +58,6 @@ impl User {
 pub enum AuthenticationError {
     WrongUser(String),
     WrongPassword(String),
-    MissingField,
 }
 
 impl fmt::Display for AuthenticationError {
@@ -68,7 +65,6 @@ impl fmt::Display for AuthenticationError {
         match self {
             AuthenticationError::WrongUser(_) => write!(f, "Username is incorrect"),
             AuthenticationError::WrongPassword(_) => write!(f, "Password is incorrect"),
-            AuthenticationError::MissingField => write!(f, "Missing username or password or both"),
         }
     }
 }

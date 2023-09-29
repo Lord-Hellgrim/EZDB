@@ -28,7 +28,6 @@ pub fn download_table(mut connection: &mut Connection, table_name: &str, usernam
         //###########################################################
         "Username is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongUser(username.to_owned()))),
         "Password is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongPassword(password.to_owned()))),
-        "Missing username or password or both" => return Err(ServerError::Authentication(AuthenticationError::MissingField)),
         e => panic!("Need to handle error: {}", e),
     };
 
@@ -57,14 +56,10 @@ pub fn upload_table(mut connection: &mut Connection, table_name: &str, csv: &Str
         //###########################################################
         "Username is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongUser(username.to_owned()))),
         "Password is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongPassword(password.to_owned()))),
-        "Missing username or password or both" => return Err(ServerError::Authentication(AuthenticationError::MissingField)),
         e => panic!("Need to handle error: {}", e),
     };
 
     let data_len = (csv.len() + 28).to_string();
-    println!("unencrypted data_len: {}", csv.len());
-    println!("expected encrypted length: {}", data_len);
-    println!("confirmation: {}", confirmation);
     if confirmation == data_len {
         return Ok("OK".to_owned());
     } else {
@@ -87,13 +82,10 @@ pub fn update_table(mut connection: &mut Connection, table_name: &str, csv: &Str
         //###########################################################
         "Username is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongUser(username.to_owned()))),
         "Password is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongPassword(password.to_owned()))),
-        "Missing username or password or both" => return Err(ServerError::Authentication(AuthenticationError::MissingField)),
         e => panic!("Need to handle error: {}", e),
     };
 
     let data_len = (csv.len() + 28).to_string();
-    println!("unencrypted data_len: {}", csv.len());
-    println!("expected encrypted length: {}", data_len);
     if confirmation == data_len {
         println!("Confirmation from server: {}", confirmation);
         return Ok("OK".to_owned());
@@ -118,7 +110,6 @@ pub fn query_table(mut connection: &mut Connection, table_name: &str, query: &st
         //###########################################################
         "Username is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongUser(username.to_owned()))),
         "Password is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongPassword(password.to_owned()))),
-        "Missing username or password or both" => return Err(ServerError::Authentication(AuthenticationError::MissingField)),
         e => panic!("Need to handle error: {}", e),
     };
 

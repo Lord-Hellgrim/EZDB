@@ -252,8 +252,6 @@ pub fn instruction_send_and_confirm(username: &str, password: &str, instruction:
         Instruction::Query(table_name, query) => format!("Querying|{}|{}", table_name, query),
     };
 
-    let nonce = Aes256Gcm::generate_nonce(&mut OsRng); // 96-bits; unique per message
-
     let instruction_string = format!("{username}|{password}|{instruction}");
     let (encrypted_instructions, nonce) = encrypt_aes256(&instruction_string, &connection.aes_key);
 
@@ -269,7 +267,7 @@ pub fn instruction_send_and_confirm(username: &str, password: &str, instruction:
     let mut buffer: [u8;INSTRUCTION_BUFFER] = [0;INSTRUCTION_BUFFER];
     println!("Waiting for response from server");
     connection.stream.set_read_timeout(Some(Duration::from_secs(5)))?;
-    let total_read = connection.stream.read(&mut buffer)?;
+    connection.stream.read(&mut buffer)?;
 
     let response = bytes_to_str(&buffer)?;
 
@@ -284,16 +282,16 @@ pub fn data_send_and_confirm(connection: &mut Connection, data: &str) -> Result<
     // println!("encrypted_data: {:x?}", encrypted_data);
     // println!("encrypted data_nonce: {:x?}", data_nonce);
     
-    let mut encrypted_data_block = Vec::with_capacity((data.len() + 28));
+    let mut encrypted_data_block = Vec::with_capacity(data.len() + 28);
     // encrypted_data_block.extend_from_slice(&(data.len()+28+9).to_le_bytes());
     encrypted_data_block.extend_from_slice(&encrypted_data);
     encrypted_data_block.extend_from_slice(&data_nonce);
     
     
     println!("Sending data...");
-    connection.stream.write_all(&(data.len() + 28).to_le_bytes());
+    connection.stream.write_all(&(data.len() + 28).to_le_bytes())?;
     connection.stream.write_all(&encrypted_data_block)?;
-    connection.stream.flush();
+    connection.stream.flush()?;
     println!("data sent");
     println!("Waiting for confirmation from client");
     connection.stream.set_read_timeout(Some(Duration::from_secs(15)))?;
@@ -303,7 +301,6 @@ pub fn data_send_and_confirm(connection: &mut Connection, data: &str) -> Result<
             println!("Confirmation '{}' received", bytes_to_str(&buffer)?);
         },
         Err(_) => println!("Did not confirm transmission with peer"),
-        
     }
     
     let confirmation = bytes_to_str(&buffer).unwrap_or("corrupt data");
@@ -339,18 +336,15 @@ pub fn receive_data(connection: &mut Connection) -> Result<(String, usize), Serv
     }
     
     println!("Successfully read {} bytes", total_read);
-    // connection.stream.write(&total_read.to_string().as_bytes()); 
-
-    // println!("data      : {:x?}", data);
     
     let (ciphertext, nonce) = (&data[0..data.len()-12], &data[data.len()-12..]);
-    // println!("ciphertext: {:x?}", ciphertext);
-    // println!("nonce     : {:x?}", nonce);
-
     println!("About to decrypt");
+    let instant = std::time::Instant::now();
 
     let csv = decrypt_aes256(&ciphertext, &connection.aes_key, &nonce);
     let csv = bytes_to_str(&csv)?;
+    let elapsed = instant.elapsed().as_millis();
+    println!("Finished decrypting in: {} milliseconds", elapsed);
 
     Ok((csv.to_owned(), total_read))
 }
