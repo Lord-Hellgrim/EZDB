@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::io::{Write, Read};
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::str::{self};
 
@@ -21,7 +21,7 @@ pub fn parse_instruction(buffer: &[u8], users: &HashMap<String, User>, global_ta
     let instruction_block: Vec<&str> = instruction.split('|').collect();
 
     let (ciphertext, nonce) = (decode_hex(instruction_block[0]).unwrap(), decode_hex(instruction_block[1]).unwrap());
-    let plaintext = decrypt_aes256(&ciphertext, aes_key, &nonce);
+    let plaintext = decrypt_aes256(&ciphertext, aes_key, &nonce)?;
     println!("decrypted_instructions: {:x?}", plaintext);
     let instruction = bytes_to_str(&plaintext)?;
     println!("instruction: {}", instruction);
@@ -223,7 +223,7 @@ pub fn server(address: &str, global_tables: Arc<Mutex<HashMap<String, StrictTabl
             continue
         }
         let t: Vec<&str> = line.split(';').collect();
-        users.insert(t[0].to_owned(), User::from_str(line));
+        users.insert(t[0].to_owned(), User::from_str(line)?);
     }
     let users = Arc::new(users);
     

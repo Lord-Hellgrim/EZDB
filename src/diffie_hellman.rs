@@ -10,6 +10,9 @@ pub const PRIME: &str = "FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD129024E0
 pub const GENERATOR: &str = "2";
 
 
+// TODO: Replace num-bigint with rug
+
+
 pub struct DiffieHellman {
     pub p: BigUint,
     pub g: BigUint,

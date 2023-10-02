@@ -91,7 +91,7 @@ impl StrictTable {
 
         {    /* Checking for unique header */
             let mut rownum = 0;
-            for item in s.lines().next().unwrap().split(';') {
+            for item in s.lines().next().unwrap().split(';') { // Safe since we know s is at least one line
                 if rownum == 0 {
                     header.push(DbEntry::Text(item.to_owned()));
                     rownum += 1;
@@ -223,7 +223,7 @@ impl StrictTable {
             }
             printer.push(';');
         }
-        printer.pop().unwrap();
+        printer.pop().unwrap(); // safe since we know there is always a ; character there to be popped
         printer.push('\n');
 
         for (_, line) in map.iter() {
@@ -235,7 +235,7 @@ impl StrictTable {
                 }
                 printer.push(';')
             }
-            printer.pop().unwrap();
+            printer.pop().unwrap();  // safe since we know there is always a ; character there to be popped
             printer.push('\n');
         }
 
@@ -278,7 +278,7 @@ impl StrictTable {
                 }
                 printer.push(';')
             }
-            printer.pop().unwrap();
+            printer.pop().unwrap();  // safe since we know there is always a ; character there to be popped
             printer.push('\n');
         }
         printer.pop();
@@ -298,7 +298,7 @@ impl StrictTable {
                 }
                 printer.push(';')
             }
-            printer.pop().unwrap();
+            printer.pop().unwrap(); // safe since we know there is always a ; character there to be popped
             printer.push('\n');
 
         }
@@ -310,7 +310,7 @@ impl StrictTable {
 }
 
 
-pub fn create_StrictTable_from_csv(s: &String, name: &str) -> Result<StrictTable, StrictError> {    
+pub fn create_StrictTable_from_csv(s: &str, name: &str) -> Result<StrictTable, StrictError> {    
     
     StrictTable::from_csv_string(s, name)
     

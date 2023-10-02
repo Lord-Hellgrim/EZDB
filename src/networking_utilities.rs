@@ -31,6 +31,7 @@ pub enum ServerError {
     Authentication(AuthenticationError),
     Strict(StrictError),
     Crypto(aead::Error),
+    ParseInt(ParseIntError),
 }
 
 impl fmt::Display for ServerError {
@@ -42,7 +43,8 @@ impl fmt::Display for ServerError {
             ServerError::Confirmation(e) => write!(f, "Received corrupt confirmation {:?}", e),
             ServerError::Authentication(e) => write!(f, "{}", e),
             ServerError::Strict(e) => write!(f, "{}", e),
-            ServerError::Crypto(e) => write!(f, "There has been a crypto error. The error is: {}", e),
+            ServerError::Crypto(e) => write!(f, "There has been a crypto error. Most likely the nonce was incorrect. The error is: {}", e),
+            ServerError::ParseInt(e) => write!(f, "There has been a problem parsing an integer, presumably while sending a data_len. The error signature is: {}", e),
         }
     }
 }
@@ -80,6 +82,12 @@ impl From<StrictError> for ServerError {
 impl From<aead::Error> for ServerError {
     fn from(e: aead::Error) -> Self {
         ServerError::Crypto(e)
+    }
+}
+
+impl From<ParseIntError> for ServerError {
+    fn from(e: ParseIntError) -> Self {
+        ServerError::ParseInt(e)
     }
 }
 
@@ -341,7 +349,7 @@ pub fn receive_data(connection: &mut Connection) -> Result<(String, usize), Serv
     println!("About to decrypt");
     let instant = std::time::Instant::now();
 
-    let csv = decrypt_aes256(&ciphertext, &connection.aes_key, &nonce);
+    let csv = decrypt_aes256(&ciphertext, &connection.aes_key, &nonce)?;
     let csv = bytes_to_str(&csv)?;
     let elapsed = instant.elapsed().as_millis();
     println!("Finished decrypting in: {} milliseconds", elapsed);

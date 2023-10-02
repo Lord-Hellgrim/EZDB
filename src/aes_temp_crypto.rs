@@ -3,6 +3,8 @@ use aes_gcm::{
     Aes256Gcm, Key // Or `Aes128Gcm`
 };
 
+use crate::networking_utilities::ServerError;
+
 
 pub fn encrypt_aes256(s: &str, key: &[u8]) -> (Vec<u8>, [u8;12]) {
 
@@ -10,23 +12,19 @@ pub fn encrypt_aes256(s: &str, key: &[u8]) -> (Vec<u8>, [u8;12]) {
 
     let cipher = Aes256Gcm::new(&key);
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng); // 96-bits; unique per message
-    let ciphertext = cipher.encrypt(&nonce, s.as_bytes()).unwrap();
+    let ciphertext = cipher.encrypt(&nonce, s.as_bytes()).unwrap(); // safe because we generate the nonce here
     (ciphertext, nonce.into())
     
 }
 
-pub fn decrypt_aes256(s: &[u8], key: &[u8], nonce: &[u8] ) -> Vec<u8> {
+pub fn decrypt_aes256(s: &[u8], key: &[u8], nonce: &[u8] ) -> Result<Vec<u8>, ServerError> {
     // TODO Add clause to handle the case where the nonce is not 12 bytes
     let key = Key::<Aes256Gcm>::from_slice(&key);
     
     let cipher = Aes256Gcm::new(&key);
     let nonce = GenericArray::clone_from_slice(nonce); // 96-bits; unique per message
-    let plaintext = cipher.decrypt(&nonce, s);
-    match plaintext {
-        Ok(_) => (),
-        Err(e) => println!("error is: {}", e),
-    };
-    plaintext.unwrap()
+    let plaintext = cipher.decrypt(&nonce, s)?;
+    Ok(plaintext)
 }
 
 mod tests {
@@ -40,7 +38,7 @@ mod tests {
         let plaintext = String::from("This is the text");
         let (ciphertext, nonce) = encrypt_aes256(&plaintext, &key);
         println!("ciphertext: {:x?}", ciphertext);
-        let decrypted_ciphertext = decrypt_aes256(&ciphertext, &key, &nonce);
+        let decrypted_ciphertext = decrypt_aes256(&ciphertext, &key, &nonce).unwrap();
         println!("Plaintext: {}", plaintext);
         assert_eq!(plaintext.as_bytes(), decrypted_ciphertext);
         println!("Decrypted: {}", String::from_utf8(decrypted_ciphertext).unwrap());
