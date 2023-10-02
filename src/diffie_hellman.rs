@@ -1,8 +1,6 @@
-extern crate num_bigint;
 use std::array;
 
-use num_bigint::BigUint;
-use num_traits::{One, Zero};
+use rug::{Integer, Complete};
 use rand::Rng;
 
 
@@ -14,50 +12,52 @@ pub const GENERATOR: &str = "2";
 
 
 pub struct DiffieHellman {
-    pub p: BigUint,
-    pub g: BigUint,
-    pub private_key: BigUint,
+    pub p: Integer,
+    pub g: Integer,
+    pub private_key: Integer,
 }
 
 impl DiffieHellman {
     pub fn new() -> Self {
-        let p = BigUint::parse_bytes(PRIME.as_bytes(), 16).unwrap();
-        let g = BigUint::parse_bytes(GENERATOR.as_bytes(), 16).unwrap();
+        let p = Integer::parse_radix(PRIME.as_bytes(), 16).unwrap().complete();
+        let g = Integer::parse_radix(GENERATOR.as_bytes(), 16).unwrap().complete();
         let private_key = Self::random_key(&p);
 
         DiffieHellman { p, g, private_key }
     }
 
-    pub fn random_key(p: &BigUint) -> BigUint {
+    pub fn random_key(p: &Integer) -> Integer {
         let mut rng = rand::thread_rng();
         loop {
-            let random = BigUint::from_bytes_le(&rng.gen::<[u8; 16]>());
-            if &random < p && random > BigUint::zero() {
+            let rng = rng.gen::<[u8; 16]>();
+            println!("rng: {:x?}", rng);
+            let random = Integer::from_digits(&rng, rug::integer::Order::Lsf);
+            if &random < p && random > Integer::from(0){
                 return random;
             }
         }
     }
 
-    pub fn public_key(&self) -> BigUint {
-        self.g.modpow(&self.private_key, &self.p)
+    pub fn public_key(&self) -> Integer {
+        self.g.clone().pow_mod(&self.private_key, &self.p).unwrap() // safe since we will always pass positive numbers
     }
 
-    pub fn shared_secret(&self, other_public: &BigUint) -> BigUint {
-        other_public.modpow(&self.private_key, &self.p)
+    pub fn shared_secret(&self, other_public: &Integer) -> Integer {
+        other_public.clone().pow_mod(&self.private_key, &self.p).unwrap() // safe since we will always pass positive numbers
     }
 
 }
 
-pub fn public_key_from_private_key(private_key: &BigUint) -> BigUint {
-    let g = BigUint::parse_bytes(GENERATOR.as_bytes(), 16).unwrap();
-    let p = BigUint::parse_bytes(PRIME.as_bytes(), 16).unwrap();
-    g.modpow(private_key, &p)
+pub fn public_key_from_private_key(private_key: &Integer) -> Integer {
+    let g = Integer::parse_radix(GENERATOR.as_bytes(), 16).unwrap().complete();
+    let p = Integer::parse_radix(PRIME.as_bytes(), 16).unwrap().complete();
+    g.pow_mod(private_key, &p).unwrap() // safe since we will always pass positive numbers
 }
 
-pub fn shared_secret(other_public: &BigUint, local_private_key: &BigUint) -> BigUint {
-    let p = BigUint::parse_bytes(PRIME.as_bytes(), 16).unwrap();
+pub fn shared_secret(other_public: &Integer, local_private_key: &Integer) -> Integer {
+    let p = Integer::parse_radix(PRIME.as_bytes(), 16).unwrap().complete();
 
-    other_public.modpow(&local_private_key, &p)
+    other_public.clone().pow_mod(&local_private_key, &p).unwrap() // safe since we will always pass positive numbers
 }
 
 pub fn aes256key(shared_secret: &[u8]) -> Vec<u8> {
@@ -70,6 +70,8 @@ pub fn aes256key(shared_secret: &[u8]) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
+
+    use rug::integer::Order;
 
     use crate::{aes, networking_utilities::hash_function};
 
@@ -97,8 +99,8 @@ mod tests {
         assert_eq!(alice_secret, bob_secret);
         println!("Shared secret: {}", alice_secret);
 
-        let alice_aes_key = aes256key(&alice_secret.to_bytes_le());
-        let bob_aes_key = aes256key(&bob_secret.to_bytes_le());
+        let alice_aes_key = aes256key(&alice_secret.to_digits::<u8>(Order::Lsf));
+        let bob_aes_key = aes256key(&bob_secret.to_digits::<u8>(Order::Lsf));
         assert_eq!(alice_aes_key, bob_aes_key);
         assert_eq!(alice_aes_key.len(), 32);
         println!("bob_aes_key: {:x?}\nalice_aes_key: {:x?}", bob_aes_key, alice_aes_key);
