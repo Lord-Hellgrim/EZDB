@@ -5,8 +5,6 @@ use std::sync::TryLockError;
 use std::time::Duration;
 use std::str::{self};
 
-use num_bigint::BigUint;
-
 use crate::auth::AuthenticationError;
 use crate::db_structure::StrictTable;
 use crate::{diffie_hellman::*, aes};

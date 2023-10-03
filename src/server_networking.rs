@@ -4,7 +4,8 @@ use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::str::{self};
 
-use num_bigint::BigUint;
+use rug::{Integer, Complete};
+use rug::integer::Order;
 
 use crate::aes_temp_crypto::decrypt_aes256;
 use crate::auth::{User, AuthenticationError};
@@ -118,10 +119,16 @@ fn handle_upload_request(mut connection: Connection, name: &str, global_tables: 
 
     // Here we create a StrictTable from the csv and supplied name
     println!("About to check for strictness");
+    let instant = std::time::Instant::now();
     match StrictTable::from_csv_string(&csv, name) {
         Ok(table) => {
             match connection.stream.write(format!("{}", total_read).as_bytes()) {
-                Ok(_) => println!("Confirmed correctness with client"),
+                Ok(_) => {
+                    println!("Time to check strictness: {}", instant.elapsed().as_millis());
+                    println!("Confirmed correctness with client");
+                }
+                    ,
+
                 Err(e) => {return Err(ServerError::Io(e));},
             };
 
@@ -206,7 +213,7 @@ pub fn server(address: &str, global_tables: Arc<Mutex<HashMap<String, StrictTabl
     println!("Starting server...\n###########################");
     println!("Binding to address: {address}");
     let server_dh = DiffieHellman::new();
-    let server_public_key = Arc::new(server_dh.public_key().to_bytes_le());
+    let server_public_key = Arc::new(server_dh.public_key().to_digits::<u8>(Order::Lsf));
     let server_private_key = Arc::new(server_dh.private_key);
     
     let l = match TcpListener::bind(address) {
@@ -255,10 +262,10 @@ pub fn server(address: &str, global_tables: Arc<Mutex<HashMap<String, StrictTabl
                 
                 stream.read(&mut buffer)?;
                 
-                let client_public_key = BigUint::from_bytes_le(&buffer);
+                let client_public_key = Integer::from_digits(&buffer, Order::Lsf);
                 
                 let shared_secret = shared_secret(&client_public_key, &thread_private_key);
-                let aes_key = aes256key(&shared_secret.to_bytes_le());
+                let aes_key = aes256key(&shared_secret.to_digits::<u8>(Order::Lsf));
                 let mut connection = Connection {stream, aes_key};
 
                 let mut buffer: [u8; INSTRUCTION_BUFFER] = [0; INSTRUCTION_BUFFER];

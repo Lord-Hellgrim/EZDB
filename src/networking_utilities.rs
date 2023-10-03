@@ -8,7 +8,8 @@ use std::{usize, fmt};
 
 use aes_gcm::{Aes256Gcm, AeadCore, aead};
 use aes_gcm::aead::OsRng;
-use num_bigint::BigUint;
+use rug::{Integer, Complete};
+use rug::integer::Order;
 
 use crate::aes_temp_crypto::{encrypt_aes256, decrypt_aes256};
 use crate::auth::AuthenticationError;
@@ -139,11 +140,11 @@ impl Connection {
         let mut stream = TcpStream::connect(address)?;
         let mut key_buffer: [u8; 256] = [0u8;256];
         stream.read(&mut key_buffer)?;
-        let server_public_key = BigUint::from_bytes_le(&key_buffer);
-        let client_public_key = client_dh.public_key().to_bytes_le();
+        let server_public_key = Integer::from_digits(&key_buffer, Order::Lsf);
+        let client_public_key = client_dh.public_key().to_digits::<u8>(Order::Lsf);
         stream.write(&client_public_key)?;
         let shared_secret = client_dh.shared_secret(&server_public_key);
-        let aes_key = aes256key(&shared_secret.to_bytes_le());
+        let aes_key = aes256key(&shared_secret.to_digits::<u8>(Order::Lsf));
         Ok(
             Connection {
                 stream: stream,
