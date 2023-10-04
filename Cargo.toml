@@ -1,3 +1,5 @@
+cargo-features = ["profile-rustflags"]
+
 [package]
 name = "EZDB"
 version = "0.0.7"
@@ -10,8 +12,12 @@ readme = "README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+
 #[profile.test] 
 #opt-level = 3
+
+[profile.release]
+rustflags = ["-C", "target-cpu=native", "-C", "target-feature=+avx2"]
 
 [dependencies]
 aes-gcm = "0.10.2"

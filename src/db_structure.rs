@@ -64,6 +64,7 @@ pub enum DbEntry {
     Int(i64),
     Float(f64),
     Text(String),
+    Empty,
 }
 
 #[derive(PartialEq, Clone, Debug)]
@@ -89,6 +90,7 @@ impl StrictTable {
         
         let mut header = Vec::new();
 
+        let instant = std::time::Instant::now();
         {    /* Checking for unique header */
             let mut rownum = 0;
             for item in s.lines().next().unwrap().split(';') { // Safe since we know s is at least one line
@@ -140,21 +142,24 @@ impl StrictTable {
                 index2 += 1;
             }
         }
+        println!("Time to check header for strictness: {}", instant.elapsed().as_millis());
 
-
+        let instant = std::time::Instant::now();
         { // Checking that all rows have same number of items as header
             let mut linenum = 0;
             for line in s.lines() {
-                if line.split(';').count() < header.len() {
+                if count_char(line.as_bytes(), 59) < header.len()-1 {
                     return Err(StrictError::FewerItemsThanHeader(linenum));
-                } else if line.split(';').count() > header.len() {
+                } else if count_char(line.as_bytes(), 59) > header.len()-1 {
                     return Err(StrictError::MoreItemsThanHeader(linenum));
                 } else {
                     linenum += 1;
                 }
             }
         } // Finished checking
+        println!("Time to check length of rows: {}", instant.elapsed().as_millis());
 
+        let instant = std::time::Instant::now();
 
         let mut output = BTreeMap::new();
         let mut rownum: usize = 0;
@@ -166,7 +171,9 @@ impl StrictTable {
             }
             let mut temp = Vec::with_capacity(header.len());
             for col in row.split(';') {
-                if col.len() == 0 { continue }
+                if col.len() == 0 { 
+                    temp.push(DbEntry::Empty);
+                }
                 if col.chars().next().expect("safe since we checked for len = 0") == '0' {
                     temp.push(DbEntry::Text(col.to_owned()));
                     continue;
@@ -197,6 +204,7 @@ impl StrictTable {
                 _ => panic!("This is not supposed to happen"),
             };
         }
+        println!("Time to populate the table: {}", instant.elapsed().as_millis());
 
 
         let r = StrictTable {
@@ -220,6 +228,7 @@ impl StrictTable {
                 DbEntry::Float(value) => printer.push_str(&value.to_string()),
                 DbEntry::Int(value) => printer.push_str(&value.to_string()),
                 DbEntry::Text(value) => printer.push_str(value),
+                DbEntry::Empty => (),
             }
             printer.push(';');
         }
@@ -232,6 +241,7 @@ impl StrictTable {
                     DbEntry::Float(value) => printer.push_str(&value.to_string()),
                     DbEntry::Int(value) => printer.push_str(&value.to_string()),
                     DbEntry::Text(value) => printer.push_str(value),
+                    DbEntry::Empty => (),
                 }
                 printer.push(';')
             }
@@ -275,6 +285,7 @@ impl StrictTable {
                     DbEntry::Float(value) => printer.push_str(&value.to_string()),
                     DbEntry::Int(value) => printer.push_str(&value.to_string()),
                     DbEntry::Text(value) => printer.push_str(value),
+                    DbEntry::Empty => (),
                 }
                 printer.push(';')
             }
@@ -295,6 +306,7 @@ impl StrictTable {
                     DbEntry::Float(value) => printer.push_str(&value.to_string()),
                     DbEntry::Int(value) => printer.push_str(&value.to_string()),
                     DbEntry::Text(value) => printer.push_str(value),
+                    DbEntry::Empty => (),
                 }
                 printer.push(';')
             }
@@ -314,6 +326,82 @@ pub fn create_StrictTable_from_csv(s: &str, name: &str) -> Result<StrictTable, S
     
     StrictTable::from_csv_string(s, name)
     
+}
+
+// #[cfg(any(target_feature="sse", target_feature="avx", target_feature="avx2"))]
+// pub fn fast_split<'a>(s: &'a str, c: u8) -> Vec<&'a str> {
+//     use std::arch::x86_64::{_mm_loadu_si128, __m128i, _mm_set1_epi8, _mm_cmpeq_epi8, _mm_movemask_epi8,};
+
+//     let target = unsafe { _mm_set1_epi8(c as i8) };
+    
+//     let mut i = 0;
+//     let mut indexes = Vec::new();
+
+//     if s.len() > 16 {
+//         while i < s.len()/16 {
+//             let block = unsafe {_mm_loadu_si128(s[i..i+16].as_ptr() as *const __m128i) };
+//             let cmp = unsafe { _mm_cmpeq_epi8(block, target) };
+//             let result = unsafe { _mm_movemask_epi8(cmp) };
+//             i += 16;
+//         }
+//     }
+
+//     while i < s.len() {
+//         if s[i] == c {
+//             count += 1;
+//         }
+        
+//         i += 1;
+//     }
+
+//     indexes
+// }
+
+
+#[cfg(any(target_feature="sse", target_feature="avx", target_feature="avx2"))]
+pub fn count_char(s: &[u8], c: u8) -> usize {
+    use std::arch::x86_64::{_mm_loadu_si128, __m128i, _mm_set1_epi8, _mm_cmpeq_epi8, _mm_movemask_epi8,};
+
+    let target = unsafe { _mm_set1_epi8(c as i8) };
+    
+    let mut i = 0;
+    let mut count = 0;
+
+    if s.len() > 16 {
+        while i < s.len()/16 {
+            let block = unsafe {_mm_loadu_si128(s[i..i+16].as_ptr() as *const __m128i) };
+            let cmp = unsafe { _mm_cmpeq_epi8(block, target) };
+            let result = unsafe { _mm_movemask_epi8(cmp) };
+            count += result.count_ones();
+            i += 16;
+        }
+    }
+
+    while i < s.len() {
+        if s[i] == c {
+            count += 1;
+        }
+        
+        i += 1;
+    }
+
+    count as usize
+}
+
+#[cfg(not(target_feature="sse"))]
+pub fn count_char(s: &[u8], c: u8) -> usize {
+    
+
+    let mut i = 0;
+    let mut count = 0;
+    while i < s.len() {
+        if s[i] == c {
+            count += 1;
+        }
+        
+        i += 1;
+    }
+    count
 }
 
 #[cfg(test)]
