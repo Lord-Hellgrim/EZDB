@@ -189,6 +189,102 @@ pub fn time_print(s: &str, cycles: u64) {
 }
 
 
+#[cfg(any(target_feature="sse", target_feature="avx", target_feature="avx2"))]
+pub fn fast_split<'a>(s: &'a str, c: u8) -> Vec<&'a str> {
+    use std::arch::x86_64::{_mm_loadu_si128, __m128i, _mm_set1_epi8, _mm_cmpeq_epi8, _mm_movemask_epi8,};
+
+    let s = s.as_bytes();
+
+    const MULTIPLY_DEBRUIJN_BIT_POSITION: [u8; 32] = [
+    0, 1, 28, 2, 29, 14, 24, 3, 30, 22, 20, 15, 25, 17, 4, 8,
+    31, 27, 13, 23, 21, 19, 16, 7, 26, 12, 18, 6, 11, 5, 10, 9
+    ];
+
+    let target = unsafe { _mm_set1_epi8(c as i8) };
+    
+    let mut i = 0;
+    let mut slices = Vec::new();
+    let mut start = 0;
+    let mut end = 0;
+
+    if s.len() > 16 {
+        while i < s.len()/16 {
+            let block = unsafe {_mm_loadu_si128(s[i..i+16].as_ptr() as *const __m128i) };
+            let cmp = unsafe { _mm_cmpeq_epi8(block, target) };
+            let mut result = unsafe { _mm_movemask_epi8(cmp) };
+            while result != 0 {
+                end += MULTIPLY_DEBRUIJN_BIT_POSITION[(((result & result.wrapping_neg()) as u32).wrapping_mul(0x077CB531) >> 27) as usize] as usize;
+                slices.push(str::from_utf8(&s[start..end]).expect("Should return utf8 since it's a slice of a utf8 str"));
+                start = end;
+                result &= result - 1;
+            }
+            i += 16;
+        }
+    }
+
+    while i < s.len() {
+        if s[i] == c {
+            end = i;
+            slices.push(str::from_utf8(&s[start..end]).expect("Should return utf8 since it's a slice of a utf8 str"));
+            start = end;
+        }
+        
+        i += 1;
+    }
+
+    slices.push(str::from_utf8(&s[end..]).expect("Should return utf8 since it's a slice of a utf8 str"));
+
+    slices
+}
+
+
+#[cfg(any(target_feature="sse", target_feature="avx", target_feature="avx2"))]
+pub fn count_char(s: &[u8], c: u8) -> usize {
+    use std::arch::x86_64::{_mm_loadu_si128, __m128i, _mm_set1_epi8, _mm_cmpeq_epi8, _mm_movemask_epi8,};
+
+    let target = unsafe { _mm_set1_epi8(c as i8) };
+    
+    let mut i = 0;
+    let mut count = 0;
+
+    if s.len() > 16 {
+        while i < s.len()/16 {
+            let block = unsafe {_mm_loadu_si128(s[i..i+16].as_ptr() as *const __m128i) };
+            let cmp = unsafe { _mm_cmpeq_epi8(block, target) };
+            let result = unsafe { _mm_movemask_epi8(cmp) };
+            count += result.count_ones();
+            i += 16;
+        }
+    }
+
+    while i < s.len() {
+        if s[i] == c {
+            count += 1;
+        }
+        
+        i += 1;
+    }
+
+    count as usize
+}
+
+#[cfg(not(target_feature="sse"))]
+pub fn count_char(s: &[u8], c: u8) -> usize {
+    
+
+    let mut i = 0;
+    let mut count = 0;
+    while i < s.len() {
+        if s[i] == c {
+            count += 1;
+        }
+        
+        i += 1;
+    }
+    count
+}
+
+
 //Removes the trailing 0 bytes from a str created from a byte buffer
 pub fn bytes_to_str(bytes: &[u8]) -> Result<&str, Utf8Error> {
     let mut index: usize = 0;
@@ -364,6 +460,45 @@ pub fn receive_data(connection: &mut Connection) -> Result<(String, usize), Serv
 mod tests {
     use super::*;
 
+    #[test]
+    fn test_count_char() {
+        let mut i = 0;
+        let mut printer = String::from("vnr;heiti;magn\n");
+        loop {
+            if i > 1_000_000 {
+                break;
+            }
+            printer.push_str(&format!("i{};product name;569\n", i));
+            i+= 1;
+        }
+
+        let split = count_char(&printer.as_bytes(), "\n".as_bytes()[0]);
+        println!("char_count: {}", split);
+    }
+
+
+    #[test]
+    fn test_fast_split() {
+        let mut i = 0;
+        let mut printer = String::from("vnr;heiti;magn\n");
+        loop {
+            if i > 1_000_000 {
+                break;
+            }
+            printer.push_str(&format!("i{};product name;569\n", i));
+            i+= 1;
+        }
+
+        let split = fast_split(&printer, "\n".as_bytes()[0]);
+        let mut i = 0;
+        while i < 1000000 {
+            println!("{}", split[i]);
+            i += 1000;
+        }
+        println!("fast_split: split.len(): {}", split.len());
+        println!("split.len(): {}", printer.split('\n').collect::<Vec<&str>>().len());
+
+    }
 
     #[test]
     fn test_bytes_to_str() {

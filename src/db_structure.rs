@@ -1,6 +1,7 @@
-use std::{fmt, collections::BTreeMap};
+use std::{fmt, collections::{BTreeMap, HashMap}};
 
 use crate::logger::get_current_time;
+use crate::networking_utilities::*;
 
 #[derive(Debug, PartialEq)]
 pub enum StrictError {
@@ -31,7 +32,7 @@ pub struct Metadata {
     pub last_access: u64,
     pub times_accessed: u64,
     pub created_by: String,
-    pub accessed_by: BTreeMap<String, Actions>,
+    pub accessed_by: HashMap<String, Actions>,
 }
 
 impl Metadata {
@@ -40,7 +41,7 @@ impl Metadata {
             last_access: get_current_time(),
             times_accessed: 0,
             created_by: String::from(client),
-            accessed_by: BTreeMap::from([(String::from(client), Actions::new())]),
+            accessed_by: HashMap::from([(String::from(client), Actions::new())]),
         }
     }
 }
@@ -90,7 +91,6 @@ impl StrictTable {
         
         let mut header = Vec::new();
 
-        let instant = std::time::Instant::now();
         {    /* Checking for unique header */
             let mut rownum = 0;
             for item in s.lines().next().unwrap().split(';') { // Safe since we know s is at least one line
@@ -142,9 +142,7 @@ impl StrictTable {
                 index2 += 1;
             }
         }
-        println!("Time to check header for strictness: {}", instant.elapsed().as_millis());
 
-        let instant = std::time::Instant::now();
         { // Checking that all rows have same number of items as header
             let mut linenum = 0;
             for line in s.lines() {
@@ -157,9 +155,7 @@ impl StrictTable {
                 }
             }
         } // Finished checking
-        println!("Time to check length of rows: {}", instant.elapsed().as_millis());
 
-        let instant = std::time::Instant::now();
 
         let mut output = BTreeMap::new();
         let mut rownum: usize = 0;
@@ -204,7 +200,6 @@ impl StrictTable {
                 _ => panic!("This is not supposed to happen"),
             };
         }
-        println!("Time to populate the table: {}", instant.elapsed().as_millis());
 
 
         let r = StrictTable {
@@ -328,81 +323,7 @@ pub fn create_StrictTable_from_csv(s: &str, name: &str) -> Result<StrictTable, S
     
 }
 
-// #[cfg(any(target_feature="sse", target_feature="avx", target_feature="avx2"))]
-// pub fn fast_split<'a>(s: &'a str, c: u8) -> Vec<&'a str> {
-//     use std::arch::x86_64::{_mm_loadu_si128, __m128i, _mm_set1_epi8, _mm_cmpeq_epi8, _mm_movemask_epi8,};
 
-//     let target = unsafe { _mm_set1_epi8(c as i8) };
-    
-//     let mut i = 0;
-//     let mut indexes = Vec::new();
-
-//     if s.len() > 16 {
-//         while i < s.len()/16 {
-//             let block = unsafe {_mm_loadu_si128(s[i..i+16].as_ptr() as *const __m128i) };
-//             let cmp = unsafe { _mm_cmpeq_epi8(block, target) };
-//             let result = unsafe { _mm_movemask_epi8(cmp) };
-//             i += 16;
-//         }
-//     }
-
-//     while i < s.len() {
-//         if s[i] == c {
-//             count += 1;
-//         }
-        
-//         i += 1;
-//     }
-
-//     indexes
-// }
-
-
-#[cfg(any(target_feature="sse", target_feature="avx", target_feature="avx2"))]
-pub fn count_char(s: &[u8], c: u8) -> usize {
-    use std::arch::x86_64::{_mm_loadu_si128, __m128i, _mm_set1_epi8, _mm_cmpeq_epi8, _mm_movemask_epi8,};
-
-    let target = unsafe { _mm_set1_epi8(c as i8) };
-    
-    let mut i = 0;
-    let mut count = 0;
-
-    if s.len() > 16 {
-        while i < s.len()/16 {
-            let block = unsafe {_mm_loadu_si128(s[i..i+16].as_ptr() as *const __m128i) };
-            let cmp = unsafe { _mm_cmpeq_epi8(block, target) };
-            let result = unsafe { _mm_movemask_epi8(cmp) };
-            count += result.count_ones();
-            i += 16;
-        }
-    }
-
-    while i < s.len() {
-        if s[i] == c {
-            count += 1;
-        }
-        
-        i += 1;
-    }
-
-    count as usize
-}
-
-#[cfg(not(target_feature="sse"))]
-pub fn count_char(s: &[u8], c: u8) -> usize {
-    
-
-    let mut i = 0;
-    let mut count = 0;
-    while i < s.len() {
-        if s[i] == c {
-            count += 1;
-        }
-        
-        i += 1;
-    }
-    count
-}
 
 #[cfg(test)]
 mod tests {
