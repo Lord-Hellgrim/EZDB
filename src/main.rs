@@ -1,4 +1,4 @@
-//#![allow(unused)]
+#![allow(unused)]
 #![allow(non_snake_case)]
 #![feature(core_intrinsics, stdsimd)]
 
@@ -6,15 +6,15 @@
 use std::{collections::HashMap, sync::{Arc, Mutex}};
 
 
-mod db_structure;
-mod server_networking;
-mod client_networking;
-mod networking_utilities;
-mod logger;
-mod auth;
-mod aes;
-mod aes_temp_crypto;
-mod diffie_hellman;
+use EZDB::db_structure;
+use EZDB::server_networking;
+use EZDB::client_networking;
+use EZDB::networking_utilities;
+use EZDB::logger;
+use EZDB::auth;
+use EZDB::aes;
+use EZDB::aes_temp_crypto;
+use EZDB::diffie_hellman;
 
 fn main() -> Result<(), networking_utilities::ServerError> {
 

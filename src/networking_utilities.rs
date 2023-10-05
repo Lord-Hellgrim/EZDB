@@ -213,10 +213,9 @@ pub fn fast_split<'a>(s: &'a str, c: u8) -> Vec<&'a str> {
             let cmp = unsafe { _mm_cmpeq_epi8(block, target) };
             let mut result = unsafe { _mm_movemask_epi8(cmp) };
             while result != 0 {
-                // efficient way to find the index of the least significant set bit
                 end += MULTIPLY_DEBRUIJN_BIT_POSITION[(((result & result.wrapping_neg()) as u32).wrapping_mul(0x077CB531) >> 27) as usize] as usize;
                 slices.push(str::from_utf8(&s[start..end]).expect("Should return utf8 since it's a slice of a utf8 str"));
-                start = end+1;
+                start = end;
                 result &= result - 1;
             }
             i += 16;
@@ -227,13 +226,13 @@ pub fn fast_split<'a>(s: &'a str, c: u8) -> Vec<&'a str> {
         if s[i] == c {
             end = i;
             slices.push(str::from_utf8(&s[start..end]).expect("Should return utf8 since it's a slice of a utf8 str"));
-            start = end+1;
+            start = end;
         }
         
         i += 1;
     }
 
-    slices.push(str::from_utf8(&s[end+1..]).expect("Should return utf8 since it's a slice of a utf8 str"));
+    slices.push(str::from_utf8(&s[end..]).expect("Should return utf8 since it's a slice of a utf8 str"));
 
     slices
 }
@@ -461,6 +460,45 @@ pub fn receive_data(connection: &mut Connection) -> Result<(String, usize), Serv
 mod tests {
     use super::*;
 
+    #[test]
+    fn test_count_char() {
+        let mut i = 0;
+        let mut printer = String::from("vnr;heiti;magn\n");
+        loop {
+            if i > 1_000_000 {
+                break;
+            }
+            printer.push_str(&format!("i{};product name;569\n", i));
+            i+= 1;
+        }
+
+        let split = count_char(&printer.as_bytes(), "\n".as_bytes()[0]);
+        println!("char_count: {}", split);
+    }
+
+
+    #[test]
+    fn test_fast_split() {
+        let mut i = 0;
+        let mut printer = String::from("vnr;heiti;magn\n");
+        loop {
+            if i > 1_000_000 {
+                break;
+            }
+            printer.push_str(&format!("i{};product name;569\n", i));
+            i+= 1;
+        }
+
+        let split = fast_split(&printer, "\n".as_bytes()[0]);
+        let mut i = 0;
+        while i < 1000000 {
+            println!("{}", split[i]);
+            i += 1000;
+        }
+        println!("fast_split: split.len(): {}", split.len());
+        println!("split.len(): {}", printer.split('\n').collect::<Vec<&str>>().len());
+
+    }
 
     #[test]
     fn test_bytes_to_str() {
