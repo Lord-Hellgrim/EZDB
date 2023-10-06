@@ -1,4 +1,4 @@
-use std::{fmt, collections::{BTreeMap, HashMap}};
+use std::{fmt, collections::{BTreeMap, HashMap}, path::Display, io::{ErrorKind, Write}};
 
 use crate::logger::get_current_time;
 use crate::networking_utilities::*;
@@ -11,6 +11,7 @@ pub enum StrictError {
     FloatPrimaryKey,
     Empty,
     Update(String),
+    Io(std::io::ErrorKind),
 }
 
 impl fmt::Display for StrictError {
@@ -22,7 +23,14 @@ impl fmt::Display for StrictError {
             StrictError::FloatPrimaryKey => write!(f, "Primary key can't be a floating point number. Must be an integer or string."),
             StrictError::Empty => write!(f, "Don't pass an empty string."),
             StrictError::Update(s) => write!(f, "Failed to update because:\n{s}"),
+            StrictError::Io(e) => write!(f, "Failed to write to disk because: \n--> {e}"),
         }
+    }
+}
+
+impl From<std::io::ErrorKind> for StrictError {
+    fn from(e: std::io::ErrorKind) -> Self{
+        StrictError::Io(e)
     }
 }
 
@@ -32,7 +40,23 @@ pub struct Metadata {
     pub last_access: u64,
     pub times_accessed: u64,
     pub created_by: String,
-    pub accessed_by: HashMap<String, Actions>,
+    pub accessed_by: BTreeMap<String, Actions>,
+}
+
+impl fmt::Display for Metadata {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut printer = String::new();
+
+        printer.push_str(&format!("last_access:{}\n", self.last_access));
+        printer.push_str(&format!("times_accessed:{}\n", self.times_accessed));
+        printer.push_str(&format!("created_by:{}\n", self.created_by));
+        printer.push_str(&format!("accessed_by:", ));
+        for (client, action) in &self.accessed_by {
+            printer.push_str(&format!("{}/{}", client, action.to_string()));
+        }
+        printer.push('\n');
+        write!(f, "{}", printer)
+    }
 }
 
 impl Metadata {
@@ -41,7 +65,7 @@ impl Metadata {
             last_access: get_current_time(),
             times_accessed: 0,
             created_by: String::from(client),
-            accessed_by: HashMap::from([(String::from(client), Actions::new())]),
+            accessed_by: BTreeMap::from([(String::from(client), Actions::new())]),
         }
     }
 }
@@ -52,6 +76,21 @@ pub struct Actions {
     pub downloaded: u64,
     pub updated: u64,
     pub queried: u64,
+}
+
+impl fmt::Display for Actions {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        
+        let mut printer = String::new();
+        printer.push_str(&format!("uploaded-{},downloaded-{},updated-{},queried-{}",
+            self.uploaded,
+            self.downloaded,
+            self.updated,
+            self.queried,
+        ));
+
+        write!(f, "{}", printer)
+    }
 }
 
 impl Actions {
@@ -316,11 +355,64 @@ impl StrictTable {
         Ok(printer)
     }
 
+
+    pub fn save_to_disk_raw(&self) -> Result<(), StrictError> {
+        let file_name = &self.name;
+
+        let metadata = &self.metadata.to_string();
+
+        let table = &self.to_csv_string();
+
+        let mut table_file = match std::fs::File::create(&format!("raw_tables/{}-metadata", file_name)) {
+            Ok(f) => f,
+            Err(e) => return Err(StrictError::Io(e.kind())),
+        };
+
+        let mut meta_file = match std::fs::File::create(&format!("raw_tables/{}", file_name)) {
+            Ok(f) => f,
+            Err(e) => return Err(StrictError::Io(e.kind())),
+        };
+
+        table_file.write_all(table.as_bytes());
+        meta_file.write_all(metadata.as_bytes());
+
+        // pub struct Metadata {
+        //     pub last_access: u64,
+        //     pub times_accessed: u64,
+        //     pub created_by: String,
+        //     pub accessed_by: HashMap<String, Actions>,
+        // }
+        
+        // pub struct Actions {
+        //     pub uploaded: bool,
+        //     pub downloaded: u64,
+        //     pub updated: u64,
+        //     pub queried: u64,
+        // }
+        
+        // pub enum DbEntry {
+        //     Int(i64),
+        //     Float(f64),
+        //     Text(String),
+        //     Empty,
+        // }
+        
+        // pub struct StrictTable {
+        //     pub metadata: Metadata,
+        //     pub name: String,
+        //     pub header: Vec<DbEntry>,
+        //     pub table: BTreeMap<String, Vec<DbEntry>>,
+        // }
+
+
+        Ok(())
+    }
+
 }
 
 
 pub fn create_StrictTable_from_csv(s: &str, name: &str) -> Result<StrictTable, StrictError> {    
-    
+
     StrictTable::from_csv_string(s, name)
     
 }
@@ -438,6 +530,15 @@ mod tests {
         let queried_table = t.query_list(vec!("0113000", "18572054", "0113035")).unwrap();
 
         assert_eq!(queried_table, "0113000;undirlegg2;100\n18572054;flísalím;42\n0113035;undirlegg;200");
+    }
+
+    #[test]
+    fn test_save_raw_table() {
+        let csv = std::fs::read_to_string("good_csv.txt").unwrap();
+        let t = StrictTable::from_csv_string(&csv, "test").unwrap();
+        println!("{:?}", t.header);
+        println!("{:?}", t.table);
+        t.save_to_disk_raw().unwrap();
     }
 
 }
