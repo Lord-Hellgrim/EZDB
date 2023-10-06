@@ -160,15 +160,14 @@ impl StrictTable {
         let mut output = BTreeMap::new();
         let mut rownum: usize = 0;
         for row in fast_split(s, "\n".as_bytes()[0]) {
-            println!("row: {}", row);
             // This if statement is there to skip the header
             if rownum == 0 {
                 rownum += 1;
                 continue;
             }
             let mut temp = Vec::with_capacity(header.len());
-            for col in fast_split(row, ";".as_bytes()[0]) {
-                println!("col: {}", col);
+            for col in row.split(";") {
+                if col.len() == 0 { continue }
                 if col.len() == 0 { 
                     temp.push(DbEntry::Empty);
                 }
@@ -196,6 +195,7 @@ impl StrictTable {
                 
                 rownum += 1;
             }
+            if temp.len() == 0 { continue }
             match &temp[0] {
                 DbEntry::Text(value) => output.insert(value.to_owned(), temp),
                 DbEntry::Int(value) => output.insert(value.to_string(), temp),
