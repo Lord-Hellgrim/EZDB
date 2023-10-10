@@ -72,6 +72,7 @@ pub fn parse_instruction(buffer: &[u8], users: &HashMap<String, User>, global_ta
                 if !global_tables.lock().unwrap().contains_key(table_name) {
                     let raw_table_exists = std::path::Path::new(&format!("{}/raw_tables/{}", CONFIG_FOLDER, table_name)).exists();
                     if raw_table_exists {
+                        println!("Loading table from disk");
                         let mut temp = global_tables.lock().unwrap();
                         let disk_table = std::fs::read_to_string(&format!("{}/raw_tables/{}", CONFIG_FOLDER, table_name))?;
                         temp.insert(table_name.to_owned(), StrictTable::from_csv_string(&disk_table, table_name)?);
