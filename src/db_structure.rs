@@ -1,4 +1,4 @@
-use std::{fmt, collections::{BTreeMap, HashMap}, path::Display, io::{ErrorKind, Write}};
+use std::{fmt, collections::{BTreeMap, HashMap}, path::{Display, self, Path}, io::{ErrorKind, Write}};
 
 use crate::logger::get_current_time;
 use crate::networking_utilities::*;
@@ -94,9 +94,22 @@ impl fmt::Display for Actions {
 }
 
 impl Actions {
-    fn new() -> Actions {
+    pub fn new() -> Actions {
         Actions { uploaded: true, downloaded: 0, updated: 0, queried: 0 }
     }
+
+    pub fn first_download() -> Actions {
+        Actions { uploaded: false, downloaded: 1, updated: 0, queried: 0 }
+    }
+
+    pub fn first_update() -> Actions {
+        Actions { uploaded: false, downloaded: 0, updated: 1, queried: 0 }
+    }
+
+    pub fn first_query() -> Actions {
+        Actions { uploaded: false, downloaded: 0, updated: 0, queried: 1 }
+    }
+
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
@@ -356,19 +369,20 @@ impl StrictTable {
     }
 
 
-    pub fn save_to_disk_raw(&self) -> Result<(), StrictError> {
+    pub fn save_to_disk_raw(&self, path: &str) -> Result<(), StrictError> {
         let file_name = &self.name;
 
         let metadata = &self.metadata.to_string();
 
         let table = &self.to_csv_string();
 
-        let mut table_file = match std::fs::File::create(&format!("raw_tables/{}-metadata", file_name)) {
+
+        let mut table_file = match std::fs::File::create(&format!("{}raw_tables/{}",path, file_name)) {
             Ok(f) => f,
             Err(e) => return Err(StrictError::Io(e.kind())),
         };
 
-        let mut meta_file = match std::fs::File::create(&format!("raw_tables/{}", file_name)) {
+        let mut meta_file = match std::fs::File::create(&format!("{}raw_tables/{}-metadata",path, file_name)) {
             Ok(f) => f,
             Err(e) => return Err(StrictError::Io(e.kind())),
         };
@@ -538,7 +552,7 @@ mod tests {
         let t = StrictTable::from_csv_string(&csv, "test").unwrap();
         println!("{:?}", t.header);
         println!("{:?}", t.table);
-        t.save_to_disk_raw().unwrap();
+        t.save_to_disk_raw("EZconfig/").unwrap();
     }
 
 }

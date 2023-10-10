@@ -1,8 +1,8 @@
 use std::arch::asm;
 use std::io::{Write, Read};
-use std::net::TcpStream;
+use std::net::{TcpStream, IpAddr};
 use std::num::ParseIntError;
-use std::str::{self, Utf8Error};
+use std::str::{self, Utf8Error, FromStr};
 use std::time::Duration;
 use std::{usize, fmt};
 
@@ -115,7 +115,7 @@ impl fmt::Display for InstructionError {
             InstructionError::Invalid(instruction) => write!(f, "The instruction:\n\n\t{instruction}\n\nis invalid. See documentation for valid buffer\n\n"),
             InstructionError::TooLong => write!(f, "Your instruction is too long. Maximum instruction length is: {INSTRUCTION_BUFFER}\n\n"),
             InstructionError::Utf8(e) => write!(f, "Invalid utf-8: {e}"),
-            InstructionError::InvalidTable(s) => write!(f, "Table: {} does not exist.", s),
+            InstructionError::InvalidTable(s) => write!(f, "No such table as: {}", s),
         }
     }
 }
@@ -129,6 +129,7 @@ impl From<Utf8Error> for InstructionError {
 
 pub struct Connection {
     pub stream: TcpStream,
+    pub peer: String,
     pub aes_key: Vec<u8>,   
 }
 
@@ -148,6 +149,7 @@ impl Connection {
         Ok(
             Connection {
                 stream: stream,
+                peer: String::from(address),
                 aes_key: aes_key,
             }
         )

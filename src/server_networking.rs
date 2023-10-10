@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::io::{Write, Read};
-use std::net::TcpListener;
+use std::net::{TcpListener, IpAddr};
 use std::sync::{Arc, Mutex};
 use std::str::{self};
 
@@ -10,8 +10,11 @@ use rug::integer::Order;
 use crate::aes_temp_crypto::decrypt_aes256;
 use crate::auth::{User, AuthenticationError};
 use crate::diffie_hellman::{DiffieHellman, aes256key, shared_secret};
+use crate::logger::{get_current_time, LogTimeStamp};
 use crate::networking_utilities::*;
-use crate::db_structure::StrictTable;
+use crate::db_structure::{StrictTable, Actions, StrictError};
+
+pub const CONFIG_FOLDER: &str = "EZconfig/";
 
 
 pub fn parse_instruction(buffer: &[u8], users: &HashMap<String, User>, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>, aes_key: &[u8]) -> Result<Instruction, ServerError> {
@@ -67,7 +70,15 @@ pub fn parse_instruction(buffer: &[u8], users: &HashMap<String, User>, global_ta
             "Uploading" => Ok(Instruction::Upload(table_name.to_owned())),
             "Downloading" => {
                 if !global_tables.lock().unwrap().contains_key(table_name) {
-                    return Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())));
+                    let raw_table_exists = std::path::Path::new(&format!("{}/raw_tables/{}", CONFIG_FOLDER, table_name)).exists();
+                    if raw_table_exists {
+                        let mut temp = global_tables.lock().unwrap();
+                        let disk_table = std::fs::read_to_string(&format!("{}/raw_tables/{}", CONFIG_FOLDER, table_name))?;
+                        temp.insert(table_name.to_owned(), StrictTable::from_csv_string(&disk_table, table_name)?);
+                        Ok(Instruction::Download(table_name.to_owned()))
+                    } else {
+                        return Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())));
+                    }
                 } else {
                     Ok(Instruction::Download(table_name.to_owned()))
                 }
@@ -92,14 +103,24 @@ fn handle_download_request(mut connection: Connection, name: &str, global_tables
         Err(e) => {return Err(ServerError::Io(e));},
     };
 
-    let mutex_binding = global_tables.lock().unwrap();
-    let requested_table = mutex_binding.get(name).expect("Instruction parser should have verified table");
+    let mut mutex_binding = global_tables.lock().unwrap();
+    let mut requested_table = mutex_binding.get_mut(name).expect("Instruction parser should have verified table");
     let requested_csv = requested_table.to_csv_string();
-    println!("Requestec_csv: {}", requested_csv);
+    println!("Requested_csv: {}", requested_csv);
 
     let response = data_send_and_confirm(&mut connection, &requested_csv)?;
 
     if response == "OK" {
+        requested_table.metadata.last_access = get_current_time();
+
+        requested_table.metadata.accessed_by
+        .entry(connection.peer.to_string())
+        .and_modify(|curr| curr.downloaded += 1)
+        .or_insert(Actions::first_download());
+
+        requested_table.metadata.times_accessed += 1;
+        println!("metadata: {}", requested_table.metadata.to_string());
+
         return Ok(())
     } else {
         return Err(ServerError::Confirmation(response))
@@ -121,7 +142,7 @@ fn handle_upload_request(mut connection: Connection, name: &str, global_tables: 
     println!("About to check for strictness");
     let instant = std::time::Instant::now();
     match StrictTable::from_csv_string(&csv, name) {
-        Ok(table) => {
+        Ok(mut table) => {
             match connection.stream.write(format!("{}", total_read).as_bytes()) {
                 Ok(_) => {
                     println!("Time to check strictness: {}", instant.elapsed().as_millis());
@@ -134,6 +155,12 @@ fn handle_upload_request(mut connection: Connection, name: &str, global_tables: 
 
             println!("Appending to global");
             println!("{:?}", &table.header);
+            table.metadata.last_access = get_current_time();
+            table.metadata.created_by = connection.peer.to_string();
+            table.metadata.accessed_by.insert(connection.peer.to_string(), Actions::new());
+        
+            table.metadata.times_accessed += 1;
+            
             global_tables.lock().unwrap().insert(table.name.clone(), table);
 
         },
@@ -142,6 +169,7 @@ fn handle_upload_request(mut connection: Connection, name: &str, global_tables: 
             Err(e) => {return Err(ServerError::Io(e));},
         },
     };
+    
 
     Ok("OK".to_owned())
 }
@@ -220,22 +248,72 @@ pub fn server(address: &str, global_tables: Arc<Mutex<HashMap<String, StrictTabl
         Ok(value) => value,
         Err(e) => {return Err(ServerError::Io(e));},
     };
-    println!("Reading users config into memory");
 
-    let temp = String::from("admin;d289b2da9b7051f36b4e396e0af3e069e78cf119a7fdcb6437b685c4875e9f9e;127.0.0.1;false;ALL;ALL;true");
-    // let temp = std::fs::read_to_string("users.txt")?;
-    let mut users = HashMap::new();
-    for line in temp.lines() {
-        if line.as_bytes()[0] == '#' as u8 {
-            continue
+    // #################################### STARTUP SEQUENCE #############################################
+    
+    println!("Reading users config into memory");
+    
+    let mut users: HashMap<String, User> = HashMap::new();
+    
+    if std::path::Path::new("EZconfig").is_dir() {
+        println!("config exists");
+        let temp = std::fs::read_to_string(&format!("{CONFIG_FOLDER}.users"))?;
+        for line in temp.lines() {
+            if line.as_bytes()[0] == '#' as u8 {
+                continue
+            }
+            let t: Vec<&str> = line.split(';').collect();
+            users.insert(t[0].to_owned(), User::from_str(line)?);
         }
-        let t: Vec<&str> = line.split(';').collect();
-        users.insert(t[0].to_owned(), User::from_str(line)?);
-    }
-    let users = Arc::new(users);
+    } else {
+        println!("config does not exist");
+        let temp = String::from("admin;d289b2da9b7051f36b4e396e0af3e069e78cf119a7fdcb6437b685c4875e9f9e;127.0.0.1;false;ALL;ALL;true");
+        println!("We are not supposed to get here");
+        std::fs::create_dir("EZconfig").unwrap();
+        std::fs::create_dir("EZconfig/raw_tables").unwrap();
+        let mut user_file = match std::fs::File::create(format!("{CONFIG_FOLDER}.users")) {
+            Ok(f) => f,
+            Err(e) => return Err(ServerError::Strict(StrictError::Io(e.kind()))),
+        };
+        user_file.write_all(&temp.as_bytes());
+        for line in temp.lines() {
+            if line.as_bytes()[0] == '#' as u8 {
+                continue
+            }
+            let t: Vec<&str> = line.split(';').collect();
+            users.insert(t[0].to_owned(), User::from_str(line)?);
+        }
+    } 
     
-    dbg!(&users);
-    
+    let mut users = Arc::new(users);
+
+    // #################################### END STARTUP SEQUENCE ###############################################
+
+
+    // #################################### DATA SAVING AND LOADING LOOP ###################################################
+
+    let data_saving_global_data = global_tables.clone();
+    let data_saving_users = users.clone();
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(10));
+            println!("Background thread running good!...");
+            {
+                let data = data_saving_global_data.lock().unwrap();
+                for (name, table) in data.iter() {
+                    match table.save_to_disk_raw(CONFIG_FOLDER) {
+                        Ok(_) => (),
+                        Err(e) => println!("Unable to save because: {}", e),
+                    };
+                }
+            }
+        }
+
+    });
+
+    // #################################### END DATA SAVING AND LOADING LOOP ###############################################
+
+
     /* This is the main loop of the function. Here we accept incoming connections and process them */
     loop {
         // Reading instructions
@@ -266,7 +344,10 @@ pub fn server(address: &str, global_tables: Arc<Mutex<HashMap<String, StrictTabl
                 
                 let shared_secret = shared_secret(&client_public_key, &thread_private_key);
                 let aes_key = aes256key(&shared_secret.to_digits::<u8>(Order::Lsf));
-                let mut connection = Connection {stream, aes_key};
+                let mut connection = Connection {
+                    stream: stream, 
+                    peer: client_address.to_string(), 
+                    aes_key: aes_key};
 
                 let mut buffer: [u8; INSTRUCTION_BUFFER] = [0; INSTRUCTION_BUFFER];
                 println!("Initialized string buffer");
