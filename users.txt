@@ -1,2 +1,0 @@
-#user;PasswordHash;LastAddress;Authenticated;Read;Update;Create
-admin;admin;127.0.0.1;false;ALL;ALL;true
