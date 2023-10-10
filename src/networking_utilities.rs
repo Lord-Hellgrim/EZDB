@@ -350,6 +350,8 @@ pub fn hash_function(a: &str) -> Vec<u8> {
 }
 
 
+
+
 pub fn instruction_send_and_confirm(username: &str, password: &str, instruction: Instruction, connection: &mut Connection) -> Result<String, ServerError> {
 
     let instruction = match instruction {
@@ -383,19 +385,34 @@ pub fn instruction_send_and_confirm(username: &str, password: &str, instruction:
 }
 
 
+pub fn parse_response(response: &str, username: &str, password: &str, table_name: &str) -> Result<(), ServerError> {
+    if response == "OK" {
+        return Ok(())
+    } else if response == "Username is incorrect" {
+        return Err(ServerError::Authentication(AuthenticationError::WrongUser(username.to_owned())));
+    } else if response == "Password is incorrect" {
+        return Err(ServerError::Authentication(AuthenticationError::WrongPassword(password.to_owned())));
+    } else if response.starts_with("No such table as:") {
+        return Err(ServerError::Instruction(InstructionError::InvalidTable(format!("No such table as {}", table_name))));
+    } else {
+        panic!("Need to handle error: {}", response);
+    }
+
+}
+
+
 pub fn data_send_and_confirm(connection: &mut Connection, data: &str) -> Result<String, ServerError> {
 
     let (encrypted_data, data_nonce) = encrypt_aes256(data, &connection.aes_key);
-    // println!("encrypted_data: {:x?}", encrypted_data);
-    // println!("encrypted data_nonce: {:x?}", data_nonce);
     
     let mut encrypted_data_block = Vec::with_capacity(data.len() + 28);
-    // encrypted_data_block.extend_from_slice(&(data.len()+28+9).to_le_bytes());
     encrypted_data_block.extend_from_slice(&encrypted_data);
     encrypted_data_block.extend_from_slice(&data_nonce);
     
     
     println!("Sending data...");
+    // The reason for the +28 in the length checker is that it accounts for the length of the nonce (IV) and the authentication tag
+    // in the aes-gcm encryption. The nonce is 12 bytes and the auth tag is 16 bytes
     connection.stream.write_all(&(data.len() + 28).to_le_bytes())?;
     connection.stream.write_all(&encrypted_data_block)?;
     connection.stream.flush()?;

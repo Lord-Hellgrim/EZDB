@@ -132,24 +132,24 @@ pub enum DbVec {
     Texts(Vec<String>),
 }
 
-#[derive(PartialEq, Clone, Debug)]
-pub struct ColumnTable {
-    metadata: Metadata,
-    header: Vec<DbTypes>,
-    table: Vec<DbVec>,
-}
+// #[derive(PartialEq, Clone, Debug)]
+// pub struct ColumnTable {
+//     metadata: Metadata,
+//     header: Vec<DbTypes>,
+//     table: Vec<DbVec>,
+// }
 
-impl ColumnTable {
-    pub fn from_csv_string(s: &str, name: &str) -> Result<ColumnTable, StrictError> {
+// impl ColumnTable {
+//     pub fn from_csv_string(s: &str, name: &str) -> Result<ColumnTable, StrictError> {
 
-        if s.len() < 1 {
-            return Err(StrictError::Empty)
-        }
+//         if s.len() < 1 {
+//             return Err(StrictError::Empty)
+//         }
 
-        let header = Vec::new();
+//         let header = Vec::new();
 
-    }
-}
+//     }
+// }
 
 
 #[derive(PartialEq, Clone, Debug)]

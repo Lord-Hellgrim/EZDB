@@ -11,25 +11,17 @@ use crate::{diffie_hellman::*, aes};
 use crate::networking_utilities::*;
 
 
-// I'd change the declaration to: request_table(table_name: &str, server_address: &str)
-// Agree with name => table_name but this gets a csv. Should be called download_csv, though, to be consistent with server()
 pub fn download_table(mut connection: &mut Connection, table_name: &str, username: &str, password: &str) -> Result<String, ServerError> {
         
     let response = instruction_send_and_confirm(username, password, Instruction::Download(table_name.to_owned()), &mut connection)?;
 
     let csv: String;
-
-    if response.as_str() == "OK" {
-        (csv, _) = receive_data(&mut connection)?;
-    } else if response.as_str() == "Username is incorrect" {
-        return Err(ServerError::Authentication(AuthenticationError::WrongUser(username.to_owned())));
-    } else if response.as_str() == "Password is incorrect" {
-        return Err(ServerError::Authentication(AuthenticationError::WrongPassword(password.to_owned())));
-    } else if response.as_str().starts_with("No such table as:") {
-        return Err(ServerError::Instruction(InstructionError::InvalidTable(format!("No such table as {}", table_name))));
-    } else {
-        panic!("Need to handle error: {}", response.as_str());
+    
+    match parse_response(&response, username, password, table_name) {
+        Ok(f) => (csv, _) = receive_data(&mut connection)?,
+        Err(e) => return Err(e),
     }
+
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote 'OK' as {n} bytes"),
@@ -37,7 +29,6 @@ pub fn download_table(mut connection: &mut Connection, table_name: &str, usernam
     };
 
     Ok(csv)
-    
 
 
 }
@@ -49,18 +40,13 @@ pub fn upload_table(mut connection: &mut Connection, table_name: &str, csv: &Str
 
     let confirmation: String;
 
-    if response.as_str() == "OK" {
-        confirmation = data_send_and_confirm(&mut connection, &csv)?;
-    } else if response.as_str() == "Username is incorrect" {
-        return Err(ServerError::Authentication(AuthenticationError::WrongUser(username.to_owned())));
-    } else if response.as_str() == "Password is incorrect" {
-        return Err(ServerError::Authentication(AuthenticationError::WrongPassword(password.to_owned())));
-    } else if response.as_str().starts_with("No such table as:") {
-        return Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Table {} does not exist", table_name))));
-    } else {
-        panic!("Need to handle error: {}", response.as_str());
+    match parse_response(&response, username, password, table_name) {
+        Ok(_) => confirmation = data_send_and_confirm(&mut connection, &csv)?,
+        Err(e) => return Err(e),
     }
 
+    // The reason for the +28 in the length checker is that it accounts for the length of the nonce (IV) and the authentication tag
+    // in the aes-gcm encryption. The nonce is 12 bytes and the auth tag is 16 bytes
     let data_len = (csv.len() + 28).to_string();
     if confirmation == data_len {
         return Ok("OK".to_owned());
@@ -76,17 +62,14 @@ pub fn update_table(mut connection: &mut Connection, table_name: &str, csv: &Str
     let response = instruction_send_and_confirm(username, password, Instruction::Update(table_name.to_owned()), &mut connection)?;
 
     let confirmation: String;
-    match response.as_str() {
 
-        // THIS IS WHERE YOU SEND THE BULK OF THE DATA
-        //########## SUCCESS BRANCH #################################
-        "OK" => confirmation = data_send_and_confirm(&mut connection, &csv)?,
-        //###########################################################
-        "Username is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongUser(username.to_owned()))),
-        "Password is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongPassword(password.to_owned()))),
-        e => panic!("Need to handle error: {}", e),
-    };
+    match parse_response(&response, username, password, table_name) {
+        Ok(_) => confirmation = data_send_and_confirm(&mut connection, &csv)?,
+        Err(e) => return Err(e),
+    }
 
+    // The reason for the +28 in the length checker is that it accounts for the length of the nonce (IV) and the authentication tag
+    // in the aes-gcm encryption. The nonce is 12 bytes and the auth tag is 16 bytes
     let data_len = (csv.len() + 28).to_string();
     if confirmation == data_len {
         println!("Confirmation from server: {}", confirmation);
