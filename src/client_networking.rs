@@ -155,7 +155,7 @@ mod tests {
     #[test]
     fn test_receive_csv() {
         println!("Sending...\n##########################");
-        // test_send_good_csv();
+        test_send_good_csv();
         let name = "good_csv";
         let address = "127.0.0.1:3004";
         println!("Receiving\n############################");
