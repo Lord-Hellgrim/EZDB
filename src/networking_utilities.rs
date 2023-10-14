@@ -272,7 +272,6 @@ pub fn count_char(s: &[u8], c: u8) -> usize {
 
 #[cfg(not(target_feature="sse"))]
 pub fn count_char(s: &[u8], c: u8) -> usize {
-    
 
     let mut i = 0;
     let mut count = 0;
