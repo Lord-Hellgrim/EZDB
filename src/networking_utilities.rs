@@ -21,7 +21,7 @@ use crate::diffie_hellman::*;
 pub const INSTRUCTION_BUFFER: usize = 1024;
 pub const DATA_BUFFER: usize = 1_000_000;
 pub const INSTRUCTION_LENGTH: usize = 5;
-pub const MAX_DATA_LEN: usize = u32::MAX;
+pub const MAX_DATA_LEN: usize = u32::MAX as usize;
 
 
 
