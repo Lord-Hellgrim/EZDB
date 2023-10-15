@@ -1,4 +1,5 @@
 use std::arch::asm;
+use std::char::MAX;
 use std::io::{Write, Read};
 use std::net::{TcpStream, IpAddr};
 use std::num::ParseIntError;
@@ -20,6 +21,7 @@ use crate::diffie_hellman::*;
 pub const INSTRUCTION_BUFFER: usize = 1024;
 pub const DATA_BUFFER: usize = 1_000_000;
 pub const INSTRUCTION_LENGTH: usize = 5;
+pub const MAX_DATA_LEN: usize = u32::MAX;
 
 
 
@@ -33,6 +35,7 @@ pub enum ServerError {
     Strict(StrictError),
     Crypto(aead::Error),
     ParseInt(ParseIntError),
+    OversizedData,
 }
 
 impl fmt::Display for ServerError {
@@ -46,6 +49,7 @@ impl fmt::Display for ServerError {
             ServerError::Strict(e) => write!(f, "{}", e),
             ServerError::Crypto(e) => write!(f, "There has been a crypto error. Most likely the nonce was incorrect. The error is: {}", e),
             ServerError::ParseInt(e) => write!(f, "There has been a problem parsing an integer, presumably while sending a data_len. The error signature is: {}", e),
+            ServerError::OversizedData => write!(f, "Sent data is too long. Maximum data size is {MAX_DATA_LEN}"),
         }
     }
 }
@@ -385,6 +389,7 @@ pub fn instruction_send_and_confirm(username: &str, password: &str, instruction:
 
 
 pub fn parse_response(response: &str, username: &str, password: &str, table_name: &str) -> Result<(), ServerError> {
+
     if response == "OK" {
         return Ok(())
     } else if response == "Username is incorrect" {
@@ -441,6 +446,9 @@ pub fn receive_data(connection: &mut Connection) -> Result<(String, usize), Serv
     connection.stream.read_exact(&mut size_buffer)?;
 
     let data_len = usize::from_le_bytes(size_buffer);
+    if data_len > MAX_DATA_LEN {
+        return Err(ServerError::OversizedData)
+    }
     
     println!("Expected data length: {}", data_len);
     
