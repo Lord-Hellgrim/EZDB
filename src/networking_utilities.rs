@@ -13,7 +13,7 @@ use rug::{Integer, Complete};
 use rug::integer::Order;
 
 use crate::aes_temp_crypto::{encrypt_aes256, decrypt_aes256};
-use crate::auth::AuthenticationError;
+use crate::auth::{AuthenticationError, User};
 use crate::db_structure::StrictError;
 use crate::diffie_hellman::*;
 
@@ -133,12 +133,16 @@ impl From<Utf8Error> for InstructionError {
 
 pub struct Connection {
     pub stream: TcpStream,
-    pub peer: String,
+    pub peer: User,
     pub aes_key: Vec<u8>,   
 }
 
 impl Connection {
-    pub fn connect(address: &str) -> Result<Connection, ServerError> {
+    pub fn connect(address: &str, username: &str, password: &str) -> Result<Connection, ServerError> {
+
+        if username.len() > 512 | password.len() > 512 {
+            return Err(ServerError::Authentication(AuthenticationError::TooLong))
+        }
 
         let client_dh = DiffieHellman::new();
 
@@ -149,11 +153,39 @@ impl Connection {
         let client_public_key = client_dh.public_key().to_digits::<u8>(Order::Lsf);
         stream.write(&client_public_key)?;
         let shared_secret = client_dh.shared_secret(&server_public_key);
-        let aes_key = aes256key(&shared_secret.to_digits::<u8>(Order::Lsf));
+        let aes_key = blake3_hash(&shared_secret.to_digits::<u8>(Order::Lsf));
+
+        let mut auth_buffer = [0u8; 1024];
+        auth_buffer[0..username.len()].copy_from_slice(username.as_bytes());
+        auth_buffer[512..password.len()].copy_from_slice(password.as_bytes());
+        println!("auth_buffer: {:x?}", auth_buffer);
+        
+        let (encrypted_data, data_nonce) = encrypt_aes256(&auth_buffer, &aes_key);
+    
+        let mut encrypted_data_block = Vec::with_capacity(data.len() + 28);
+        encrypted_data_block.extend_from_slice(&encrypted_data);
+        encrypted_data_block.extend_from_slice(&data_nonce);
+        
+        
+        println!("Sending data...");
+        // The reason for the +28 in the length checker is that it accounts for the length of the nonce (IV) and the authentication tag
+        // in the aes-gcm encryption. The nonce is 12 bytes and the auth tag is 16 bytes
+        connection.stream.write_all(&(data.len() + 28).to_le_bytes())?;
+        connection.stream.write_all(&encrypted_data_block)?;
+        connection.stream.flush()?;
+        
+        stream.write(&auth_buffer);
+
+        let user = User {
+            Username: username.to_owned(),
+            Password: password.as_bytes(),
+            LastAddress: stream.local_addr().expect("Really should have an IP address by now or else rustc is broken"),
+            Authenticated: true,
+        };
         Ok(
             Connection {
                 stream: stream,
-                peer: String::from(address),
+                peer: user,
                 aes_key: aes_key,
             }
         )

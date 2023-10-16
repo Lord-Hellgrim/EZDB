@@ -120,7 +120,9 @@ mod tests {
         let start = rdtsc();
         let csv = std::fs::read_to_string("good_csv.txt").unwrap();
         let address = "127.0.0.1:3004";
-        let mut connection = Connection::connect(address).unwrap();
+        let username = "admin";
+        let password = "admin";
+        let mut connection = Connection::connect(address, username, password).unwrap();
         let e = upload_table(&mut connection, "good_csv", &csv, "admin", "admin").unwrap();
     }
 
@@ -129,8 +131,9 @@ mod tests {
     fn test_send_bad_csv() {
         let csv = std::fs::read_to_string("bad_csv.txt").unwrap();
         let address = "127.0.0.1:3004";
-        let mut connection = Connection::connect(address).unwrap();
-        let e = upload_table(&mut connection, "bad_csv", &csv, "admin", "admin");
+        let username = "admin";
+        let password = "admin";
+        let mut connection = Connection::connect(address, username, password).unwrap();        let e = upload_table(&mut connection, "bad_csv", &csv, "admin", "admin");
         assert!(e.is_err());
         
     }
@@ -142,8 +145,9 @@ mod tests {
         let name = "good_csv";
         let address = "127.0.0.1:3004";
         println!("Receiving\n############################");
-        let mut connection = Connection::connect(address).unwrap();
-        let table = download_table(&mut connection, name, "admin", "admin").unwrap();
+        let username = "admin";
+        let password = "admin";
+        let mut connection = Connection::connect(address, username, password).unwrap();        let table = download_table(&mut connection, name, "admin", "admin").unwrap();
         println!("{:?}", table);
         let good_table = StrictTable::from_csv_string(&std::fs::read_to_string("good_csv.txt").unwrap(), "good_table").unwrap();
         assert_eq!(table, good_table.to_csv_string());
@@ -169,8 +173,9 @@ mod tests {
 
         let csv = std::fs::read_to_string("large.csv").unwrap();
         let address = "127.0.0.1:3004";
-        let mut connection = Connection::connect(address).unwrap();
-        let e = upload_table(&mut connection, "large_csv", &csv, "admin", "admin");
+        let username = "admin";
+        let password = "admin";
+        let mut connection = Connection::connect(address, username, password).unwrap();        let e = upload_table(&mut connection, "large_csv", &csv, "admin", "admin");
         
         //delete the large_csv
         remove_file("large.csv").unwrap();
@@ -182,13 +187,15 @@ mod tests {
     fn test_query_list() {
         let csv = std::fs::read_to_string("good_csv.txt").unwrap();
         let address = "127.0.0.1:3004";
-        let mut connection = Connection::connect(address).unwrap();
-        let e = upload_table(&mut connection, "good_csv", &csv, "admin", "admin").unwrap();
+        let username = "admin";
+        let password = "admin";
+        let mut connection = Connection::connect(address, username, password).unwrap();        let e = upload_table(&mut connection, "good_csv", &csv, "admin", "admin").unwrap();
         assert_eq!(e, "OK");
 
         let query = "0113000,0113035";
-        let mut connection = Connection::connect(address).unwrap();
-        let response = query_table(&mut connection, "good_csv", query, "admin", "admin").unwrap();
+        let username = "admin";
+        let password = "admin";
+        let mut connection = Connection::connect(address, username, password).unwrap();        let response = query_table(&mut connection, "good_csv", query, "admin", "admin").unwrap();
         println!("{}", response);
     }
 

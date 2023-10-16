@@ -60,9 +60,9 @@ pub fn shared_secret(other_public: &Integer, local_private_key: &Integer) -> Int
     other_public.clone().pow_mod(&local_private_key, &p).unwrap() // safe since we will always pass positive numbers
 }
 
-pub fn aes256key(shared_secret: &[u8]) -> Vec<u8> {
+pub fn blake3_hash(s: &[u8]) -> Vec<u8> {
 
-    blake3::hash(&shared_secret).as_bytes().to_vec()
+    blake3::hash(s).as_bytes().to_vec()
 
 }
 
@@ -80,7 +80,7 @@ mod tests {
     #[test]
     fn test_hash_password() {
         let s = "admin";
-        println!("{:x?}", aes256key(s.as_bytes()));
+        println!("{:x?}", blake3_hash(s.as_bytes()));
         println!("{:x?}", hash_function(s));
     }
 
@@ -99,8 +99,8 @@ mod tests {
         assert_eq!(alice_secret, bob_secret);
         println!("Shared secret: {}", alice_secret);
 
-        let alice_aes_key = aes256key(&alice_secret.to_digits::<u8>(Order::Lsf));
-        let bob_aes_key = aes256key(&bob_secret.to_digits::<u8>(Order::Lsf));
+        let alice_aes_key = blake3_hash(&alice_secret.to_digits::<u8>(Order::Lsf));
+        let bob_aes_key = blake3_hash(&bob_secret.to_digits::<u8>(Order::Lsf));
         assert_eq!(alice_aes_key, bob_aes_key);
         assert_eq!(alice_aes_key.len(), 32);
         println!("bob_aes_key: {:x?}\nalice_aes_key: {:x?}", bob_aes_key, alice_aes_key);

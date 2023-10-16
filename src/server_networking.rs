@@ -9,7 +9,7 @@ use rug::integer::Order;
 
 use crate::aes_temp_crypto::decrypt_aes256;
 use crate::auth::{User, AuthenticationError};
-use crate::diffie_hellman::{DiffieHellman, aes256key, shared_secret};
+use crate::diffie_hellman::{DiffieHellman, blake3_hash, shared_secret};
 use crate::logger::{get_current_time, LogTimeStamp};
 use crate::networking_utilities::*;
 use crate::db_structure::{StrictTable, Actions, StrictError};
@@ -54,8 +54,8 @@ pub fn parse_instruction(buffer: &[u8], users: &HashMap<String, User>, global_ta
     println!("parsing 4...");
     if !users.contains_key(username) {
         return Err(ServerError::Authentication(AuthenticationError::WrongUser(username.to_owned())));
-    } else if users[username].PasswordHash != pass_hash {
-        println!("users.passwordhash:\n{:x?}", users[username].PasswordHash);
+    } else if users[username].Password != pass_hash {
+        println!("users.password:\n{:x?}", users[username].Password);
         println!("pass_hash:\n{:x?}", pass_hash);
         return Err(ServerError::Authentication(AuthenticationError::WrongPassword(format!("{:x?}", pass_hash))));
     } else {
@@ -115,7 +115,7 @@ fn handle_download_request(mut connection: Connection, name: &str, global_tables
         requested_table.metadata.last_access = get_current_time();
 
         requested_table.metadata.accessed_by
-        .entry(connection.peer.to_string())
+        .entry(connection.peer.Username)
         .and_modify(|curr| curr.downloaded += 1)
         .or_insert(Actions::first_download());
 
@@ -157,8 +157,8 @@ fn handle_upload_request(mut connection: Connection, name: &str, global_tables: 
             println!("Appending to global");
             println!("{:?}", &table.header);
             table.metadata.last_access = get_current_time();
-            table.metadata.created_by = connection.peer.to_string();
-            table.metadata.accessed_by.insert(connection.peer.to_string(), Actions::new());
+            table.metadata.created_by = connection.peer.Username;
+            table.metadata.accessed_by.insert(connection.peer.Username, Actions::new());
         
             table.metadata.times_accessed += 1;
             
@@ -268,7 +268,7 @@ pub fn server(address: &str, global_tables: Arc<Mutex<HashMap<String, StrictTabl
         }
     } else {
         println!("config does not exist");
-        let temp = String::from("admin;d289b2da9b7051f36b4e396e0af3e069e78cf119a7fdcb6437b685c4875e9f9e;127.0.0.1;false;ALL;ALL;true");
+        let temp = String::from("admin;d289b2da9b7051f36b4e396e0af3e069e78cf119a7fdcb6437b685c4875e9f9e;127.0.0.1;false");
         println!("We are not supposed to get here");
         std::fs::create_dir("EZconfig").unwrap();
         std::fs::create_dir("EZconfig/raw_tables").unwrap();
@@ -339,15 +339,32 @@ pub fn server(address: &str, global_tables: Arc<Mutex<HashMap<String, StrictTabl
                 stream.write(&thread_public_key)?;
                 let mut buffer: [u8; 256] = [0; 256];
                 
-                stream.read(&mut buffer)?;
+                stream.read_exact(&mut buffer)?;
                 
                 let client_public_key = Integer::from_digits(&buffer, Order::Lsf);
                 
                 let shared_secret = shared_secret(&client_public_key, &thread_private_key);
-                let aes_key = aes256key(&shared_secret.to_digits::<u8>(Order::Lsf));
+                let aes_key = blake3_hash(&shared_secret.to_digits::<u8>(Order::Lsf));
+
+                let mut auth_buffer = [0u8; 1048];
+
+                stream.read_exact(&mut auth_buffer)?;
+
+                let (ciphertext, nonce) = (&auth_buffer[0..auth_buffer.len()-12], &auth_buffer[auth_buffer.len()-12..auth_buffer.len()]);
+                let auth_string = decrypt_aes256(ciphertext, &aes_key, nonce)?;
+                let (username, password) = (bytes_to_str(&auth_string[0..512])?, blake3_hash(bytes_to_str(&auth_string[512..])?));
+
+                println!("username: {}\npassword: {:x?}", username, password);
+
+                if !users.contains_key(username) {
+                    return Err(ServerError::Authentication(AuthenticationError::WrongUser(username.to_owned())))
+                } else if users[username].Password != password {
+                    return Err(ServerError::Authentication(AuthenticationError::WrongPassword(password)))
+                }
+
                 let mut connection = Connection {
                     stream: stream, 
-                    peer: client_address.to_string(), 
+                    peer: User{Username: username.to_owned(), Password: password, LastAddress: stream.peer_addr(), Authenticated: true}, 
                     aes_key: aes_key};
 
                 let mut buffer: [u8; INSTRUCTION_BUFFER] = [0; INSTRUCTION_BUFFER];
