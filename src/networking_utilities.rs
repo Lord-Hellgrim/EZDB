@@ -20,7 +20,7 @@ use crate::diffie_hellman::*;
 
 pub const INSTRUCTION_BUFFER: usize = 1024;
 pub const DATA_BUFFER: usize = 1_000_000;
-pub const INSTRUCTION_LENGTH: usize = 5;
+pub const INSTRUCTION_LENGTH: usize = 3;
 pub const MAX_DATA_LEN: usize = u32::MAX as usize;
 
 
@@ -387,9 +387,6 @@ pub fn hash_function(a: &str) -> Vec<u8> {
 
 pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut Connection) -> Result<String, ServerError> {
 
-    let username = &connection.peer.Username;
-    let password = bytes_to_str(&connection.peer.Password)?;
-
     let instruction = match instruction {
         Instruction::Download(table_name) => format!("Downloading|{}|blank", table_name),
         Instruction::Upload(table_name) => format!("Uploading|{}|blank", table_name),
@@ -397,7 +394,7 @@ pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut C
         Instruction::Query(table_name, query) => format!("Querying|{}|{}", table_name, query),
     };
 
-    let instruction_string = format!("{username}|{password}|{instruction}");
+    let instruction_string = format!("{instruction}");
     let (encrypted_instructions, nonce) = encrypt_aes256(&instruction_string.as_bytes(), &connection.aes_key);
 
     let mut encrypted_instructions = encode_hex(&encrypted_instructions);

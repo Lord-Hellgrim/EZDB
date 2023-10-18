@@ -38,61 +38,49 @@ pub fn parse_instruction(buffer: &[u8], users: &HashMap<String, User>, global_ta
     
     println!("parsing 3...");
     let (
-        username, 
-        pass_hash, 
         action, 
         table_name,
         query,
     ) = (
         instruction_block[0], 
-        instruction_block[1], 
-        instruction_block[2], 
-        instruction_block[3],
-        instruction_block[4],
+        instruction_block[1],
+        instruction_block[2],
     );
 
     println!("parsing 4...");
-    if !users.contains_key(username) {
-        return Err(ServerError::Authentication(AuthenticationError::WrongUser(username.to_owned())));
-    } else if users[username].Password != pass_hash {
-        println!("users.password:\n{:x?}", users[username].Password);
-        println!("pass_hash:\n{:x?}", pass_hash);
-        return Err(ServerError::Authentication(AuthenticationError::WrongPassword(pass_hash)));
-    } else {
-        match action {
-            "Querying" => {
-                if !global_tables.lock().unwrap().contains_key(table_name) {
-                    return Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())));
-                } else {
-                    Ok(Instruction::Query(table_name.to_owned(), query.to_owned()))
-                }
+    match action {
+        "Querying" => {
+            if !global_tables.lock().unwrap().contains_key(table_name) {
+                return Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())));
+            } else {
+                Ok(Instruction::Query(table_name.to_owned(), query.to_owned()))
             }
-            "Uploading" => Ok(Instruction::Upload(table_name.to_owned())),
-            "Downloading" => {
-                if !global_tables.lock().unwrap().contains_key(table_name) {
-                    let raw_table_exists = std::path::Path::new(&format!("{}/raw_tables/{}", CONFIG_FOLDER, table_name)).exists();
-                    if raw_table_exists {
-                        println!("Loading table from disk");
-                        let mut temp = global_tables.lock().unwrap();
-                        let disk_table = std::fs::read_to_string(&format!("{}/raw_tables/{}", CONFIG_FOLDER, table_name))?;
-                        temp.insert(table_name.to_owned(), StrictTable::from_csv_string(&disk_table, table_name)?);
-                        Ok(Instruction::Download(table_name.to_owned()))
-                    } else {
-                        return Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())));
-                    }
-                } else {
-                    Ok(Instruction::Download(table_name.to_owned()))
-                }
-            },
-            "Updating" => {
-                if !global_tables.lock().unwrap().contains_key(table_name) {
-                    return Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())));
-                } else {
-                    Ok(Instruction::Update(table_name.to_owned()))
-                }
-            },
-            _ => {return Err(ServerError::Instruction(InstructionError::Invalid(action.to_owned())));},
         }
+        "Uploading" => Ok(Instruction::Upload(table_name.to_owned())),
+        "Downloading" => {
+            if !global_tables.lock().unwrap().contains_key(table_name) {
+                let raw_table_exists = std::path::Path::new(&format!("{}/raw_tables/{}", CONFIG_FOLDER, table_name)).exists();
+                if raw_table_exists {
+                    println!("Loading table from disk");
+                    let mut temp = global_tables.lock().unwrap();
+                    let disk_table = std::fs::read_to_string(&format!("{}/raw_tables/{}", CONFIG_FOLDER, table_name))?;
+                    temp.insert(table_name.to_owned(), StrictTable::from_csv_string(&disk_table, table_name)?);
+                    Ok(Instruction::Download(table_name.to_owned()))
+                } else {
+                    return Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())));
+                }
+            } else {
+                Ok(Instruction::Download(table_name.to_owned()))
+            }
+        },
+        "Updating" => {
+            if !global_tables.lock().unwrap().contains_key(table_name) {
+                return Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())));
+            } else {
+                Ok(Instruction::Update(table_name.to_owned()))
+            }
+        },
+        _ => {return Err(ServerError::Instruction(InstructionError::Invalid(action.to_owned())));},
     }
 }
 
