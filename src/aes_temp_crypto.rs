@@ -6,13 +6,13 @@ use aes_gcm::{
 use crate::networking_utilities::ServerError;
 
 
-pub fn encrypt_aes256(s: &str, key: &[u8]) -> (Vec<u8>, [u8;12]) {
+pub fn encrypt_aes256(s: &[u8], key: &[u8]) -> (Vec<u8>, [u8;12]) {
 
     let key = Key::<Aes256Gcm>::from_slice(&key);
 
     let cipher = Aes256Gcm::new(&key);
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng); // 96-bits; unique per message
-    let ciphertext = cipher.encrypt(&nonce, s.as_bytes()).unwrap(); // safe because we generate the nonce here
+    let ciphertext = cipher.encrypt(&nonce, s).unwrap(); // safe because we generate the nonce here
     (ciphertext, nonce.into())
     
 }
@@ -36,7 +36,7 @@ mod tests {
         let key: [u8;32] = [42;32];
 
         let plaintext = String::from("This is the text");
-        let (ciphertext, nonce) = encrypt_aes256(&plaintext, &key);
+        let (ciphertext, nonce) = encrypt_aes256(&plaintext.as_bytes(), &key);
         println!("ciphertext: {:x?}", ciphertext);
         let decrypted_ciphertext = decrypt_aes256(&ciphertext, &key, &nonce).unwrap();
         println!("Plaintext: {}", plaintext);

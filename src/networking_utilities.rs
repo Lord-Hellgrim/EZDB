@@ -1,4 +1,5 @@
 use std::arch::asm;
+use std::char::MAX;
 use std::io::{Write, Read};
 use std::net::{TcpStream, IpAddr};
 use std::num::ParseIntError;
@@ -12,7 +13,7 @@ use rug::{Integer, Complete};
 use rug::integer::Order;
 
 use crate::aes_temp_crypto::{encrypt_aes256, decrypt_aes256};
-use crate::auth::AuthenticationError;
+use crate::auth::{AuthenticationError, User};
 use crate::db_structure::StrictError;
 use crate::diffie_hellman::*;
 
@@ -20,6 +21,7 @@ use crate::diffie_hellman::*;
 pub const INSTRUCTION_BUFFER: usize = 1024;
 pub const DATA_BUFFER: usize = 1_000_000;
 pub const INSTRUCTION_LENGTH: usize = 5;
+pub const MAX_DATA_LEN: usize = u32::MAX as usize;
 
 
 
@@ -33,6 +35,7 @@ pub enum ServerError {
     Strict(StrictError),
     Crypto(aead::Error),
     ParseInt(ParseIntError),
+    OversizedData,
 }
 
 impl fmt::Display for ServerError {
@@ -46,6 +49,7 @@ impl fmt::Display for ServerError {
             ServerError::Strict(e) => write!(f, "{}", e),
             ServerError::Crypto(e) => write!(f, "There has been a crypto error. Most likely the nonce was incorrect. The error is: {}", e),
             ServerError::ParseInt(e) => write!(f, "There has been a problem parsing an integer, presumably while sending a data_len. The error signature is: {}", e),
+            ServerError::OversizedData => write!(f, "Sent data is too long. Maximum data size is {MAX_DATA_LEN}"),
         }
     }
 }
@@ -129,12 +133,16 @@ impl From<Utf8Error> for InstructionError {
 
 pub struct Connection {
     pub stream: TcpStream,
-    pub peer: String,
+    pub peer: User,
     pub aes_key: Vec<u8>,   
 }
 
 impl Connection {
-    pub fn connect(address: &str) -> Result<Connection, ServerError> {
+    pub fn connect(address: &str, username: &str, password: &str) -> Result<Connection, ServerError> {
+
+        if username.len() > 512 || password.len() > 512 {
+            return Err(ServerError::Authentication(AuthenticationError::TooLong))
+        }
 
         let client_dh = DiffieHellman::new();
 
@@ -145,11 +153,37 @@ impl Connection {
         let client_public_key = client_dh.public_key().to_digits::<u8>(Order::Lsf);
         stream.write(&client_public_key)?;
         let shared_secret = client_dh.shared_secret(&server_public_key);
-        let aes_key = aes256key(&shared_secret.to_digits::<u8>(Order::Lsf));
+        let aes_key = blake3_hash(&shared_secret.to_digits::<u8>(Order::Lsf));
+
+        let mut auth_buffer = [0u8; 1024];
+        auth_buffer[0..username.len()].copy_from_slice(username.as_bytes());
+        auth_buffer[512..512+password.len()].copy_from_slice(password.as_bytes());
+        println!("auth_buffer: {:x?}", auth_buffer);
+        
+        let (encrypted_data, data_nonce) = encrypt_aes256(&auth_buffer, &aes_key);
+    
+        let mut encrypted_data_block = Vec::with_capacity(encrypted_data.len() + 28);
+        encrypted_data_block.extend_from_slice(&encrypted_data);
+        encrypted_data_block.extend_from_slice(&data_nonce);
+        println!("Encrypted auth string: {:x?}", encrypted_data_block);
+        println!("Encrypted auth string.len(): {}", encrypted_data_block.len());
+        
+        println!("Sending data...");
+        // The reason for the +28 in the length checker is that it accounts for the length of the nonce (IV) and the authentication tag
+        // in the aes-gcm encryption. The nonce is 12 bytes and the auth tag is 16 bytes
+        stream.write_all(&encrypted_data_block)?;
+        stream.flush()?;
+
+        let user = User {
+            Username: username.to_owned(),
+            Password: password.as_bytes().to_owned(),
+            LastAddress: stream.local_addr().expect("Really should have an IP address by now or else rustc is broken").to_string(),
+            Authenticated: true,
+        };
         Ok(
             Connection {
                 stream: stream,
-                peer: String::from(address),
+                peer: user,
                 aes_key: aes_key,
             }
         )
@@ -272,7 +306,6 @@ pub fn count_char(s: &[u8], c: u8) -> usize {
 
 #[cfg(not(target_feature="sse"))]
 pub fn count_char(s: &[u8], c: u8) -> usize {
-    
 
     let mut i = 0;
     let mut count = 0;
@@ -350,7 +383,12 @@ pub fn hash_function(a: &str) -> Vec<u8> {
 }
 
 
-pub fn instruction_send_and_confirm(username: &str, password: &str, instruction: Instruction, connection: &mut Connection) -> Result<String, ServerError> {
+
+
+pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut Connection) -> Result<String, ServerError> {
+
+    let username = &connection.peer.Username;
+    let password = bytes_to_str(&connection.peer.Password)?;
 
     let instruction = match instruction {
         Instruction::Download(table_name) => format!("Downloading|{}|blank", table_name),
@@ -360,7 +398,7 @@ pub fn instruction_send_and_confirm(username: &str, password: &str, instruction:
     };
 
     let instruction_string = format!("{username}|{password}|{instruction}");
-    let (encrypted_instructions, nonce) = encrypt_aes256(&instruction_string, &connection.aes_key);
+    let (encrypted_instructions, nonce) = encrypt_aes256(&instruction_string.as_bytes(), &connection.aes_key);
 
     let mut encrypted_instructions = encode_hex(&encrypted_instructions);
     encrypted_instructions.push('|');
@@ -383,19 +421,35 @@ pub fn instruction_send_and_confirm(username: &str, password: &str, instruction:
 }
 
 
+pub fn parse_response(response: &str, username: &str, password: &[u8], table_name: &str) -> Result<(), ServerError> {
+
+    if response == "OK" {
+        return Ok(())
+    } else if response == "Username is incorrect" {
+        return Err(ServerError::Authentication(AuthenticationError::WrongUser(username.to_owned())));
+    } else if response == "Password is incorrect" {
+        return Err(ServerError::Authentication(AuthenticationError::WrongPassword(password.to_owned())));
+    } else if response.starts_with("No such table as:") {
+        return Err(ServerError::Instruction(InstructionError::InvalidTable(format!("No such table as {}", table_name))));
+    } else {
+        panic!("Need to handle error: {}", response);
+    }
+
+}
+
+
 pub fn data_send_and_confirm(connection: &mut Connection, data: &str) -> Result<String, ServerError> {
 
-    let (encrypted_data, data_nonce) = encrypt_aes256(data, &connection.aes_key);
-    // println!("encrypted_data: {:x?}", encrypted_data);
-    // println!("encrypted data_nonce: {:x?}", data_nonce);
+    let (encrypted_data, data_nonce) = encrypt_aes256(data.as_bytes(), &connection.aes_key);
     
     let mut encrypted_data_block = Vec::with_capacity(data.len() + 28);
-    // encrypted_data_block.extend_from_slice(&(data.len()+28+9).to_le_bytes());
     encrypted_data_block.extend_from_slice(&encrypted_data);
     encrypted_data_block.extend_from_slice(&data_nonce);
     
     
     println!("Sending data...");
+    // The reason for the +28 in the length checker is that it accounts for the length of the nonce (IV) and the authentication tag
+    // in the aes-gcm encryption. The nonce is 12 bytes and the auth tag is 16 bytes
     connection.stream.write_all(&(data.len() + 28).to_le_bytes())?;
     connection.stream.write_all(&encrypted_data_block)?;
     connection.stream.flush()?;
@@ -425,6 +479,9 @@ pub fn receive_data(connection: &mut Connection) -> Result<(String, usize), Serv
     connection.stream.read_exact(&mut size_buffer)?;
 
     let data_len = usize::from_le_bytes(size_buffer);
+    if data_len > MAX_DATA_LEN {
+        return Err(ServerError::OversizedData)
+    }
     
     println!("Expected data length: {}", data_len);
     

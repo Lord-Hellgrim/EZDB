@@ -120,11 +120,37 @@ pub enum DbEntry {
     Empty,
 }
 
-#[derive(PartialEq, Clone, Debug)]
-pub struct CasualTable<T> {
-    metadata: Metadata,
-    table: Vec<Vec<T>>,
+pub enum DbTypes {
+    Int,
+    Float,
+    Text,
 }
+
+pub enum DbVec {
+    Ints(Vec<i64>),
+    Floats(Vec<f64>),
+    Texts(Vec<String>),
+}
+
+// #[derive(PartialEq, Clone, Debug)]
+// pub struct ColumnTable {
+//     metadata: Metadata,
+//     header: Vec<DbTypes>,
+//     table: Vec<DbVec>,
+// }
+
+// impl ColumnTable {
+//     pub fn from_csv_string(s: &str, name: &str) -> Result<ColumnTable, StrictError> {
+
+//         if s.len() < 1 {
+//             return Err(StrictError::Empty)
+//         }
+
+//         let header = Vec::new();
+
+//     }
+// }
+
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct StrictTable {

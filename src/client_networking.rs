@@ -11,25 +11,17 @@ use crate::{diffie_hellman::*, aes};
 use crate::networking_utilities::*;
 
 
-// I'd change the declaration to: request_table(table_name: &str, server_address: &str)
-// Agree with name => table_name but this gets a csv. Should be called download_csv, though, to be consistent with server()
-pub fn download_table(mut connection: &mut Connection, table_name: &str, username: &str, password: &str) -> Result<String, ServerError> {
+pub fn download_table(mut connection: &mut Connection, table_name: &str) -> Result<String, ServerError> {
         
-    let response = instruction_send_and_confirm(username, password, Instruction::Download(table_name.to_owned()), &mut connection)?;
+    let response = instruction_send_and_confirm(Instruction::Download(table_name.to_owned()), &mut connection)?;
 
     let csv: String;
-
-    if response.as_str() == "OK" {
-        (csv, _) = receive_data(&mut connection)?;
-    } else if response.as_str() == "Username is incorrect" {
-        return Err(ServerError::Authentication(AuthenticationError::WrongUser(username.to_owned())));
-    } else if response.as_str() == "Password is incorrect" {
-        return Err(ServerError::Authentication(AuthenticationError::WrongPassword(password.to_owned())));
-    } else if response.as_str().starts_with("No such table as:") {
-        return Err(ServerError::Instruction(InstructionError::InvalidTable(format!("No such table as {}", table_name))));
-    } else {
-        panic!("Need to handle error: {}", response.as_str());
+    
+    match parse_response(&response, &connection.peer.Username, &connection.peer.Password, table_name) {
+        Ok(f) => (csv, _) = receive_data(&mut connection)?,
+        Err(e) => return Err(e),
     }
+
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote 'OK' as {n} bytes"),
@@ -37,30 +29,24 @@ pub fn download_table(mut connection: &mut Connection, table_name: &str, usernam
     };
 
     Ok(csv)
-    
 
 
 }
 
 
-pub fn upload_table(mut connection: &mut Connection, table_name: &str, csv: &String, username: &str, password: &str) -> Result<String, ServerError> {
+pub fn upload_table(mut connection: &mut Connection, table_name: &str, csv: &String) -> Result<String, ServerError> {
 
-    let response = instruction_send_and_confirm(username, password, Instruction::Upload(table_name.to_owned()), &mut connection)?;
+    let response = instruction_send_and_confirm(Instruction::Upload(table_name.to_owned()), &mut connection)?;
 
     let confirmation: String;
 
-    if response.as_str() == "OK" {
-        confirmation = data_send_and_confirm(&mut connection, &csv)?;
-    } else if response.as_str() == "Username is incorrect" {
-        return Err(ServerError::Authentication(AuthenticationError::WrongUser(username.to_owned())));
-    } else if response.as_str() == "Password is incorrect" {
-        return Err(ServerError::Authentication(AuthenticationError::WrongPassword(password.to_owned())));
-    } else if response.as_str().starts_with("No such table as:") {
-        return Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Table {} does not exist", table_name))));
-    } else {
-        panic!("Need to handle error: {}", response.as_str());
+    match parse_response(&response, &connection.peer.Username, &connection.peer.Password, table_name) {
+        Ok(_) => confirmation = data_send_and_confirm(&mut connection, &csv)?,
+        Err(e) => return Err(e),
     }
 
+    // The reason for the +28 in the length checker is that it accounts for the length of the nonce (IV) and the authentication tag
+    // in the aes-gcm encryption. The nonce is 12 bytes and the auth tag is 16 bytes
     let data_len = (csv.len() + 28).to_string();
     if confirmation == data_len {
         return Ok("OK".to_owned());
@@ -71,22 +57,19 @@ pub fn upload_table(mut connection: &mut Connection, table_name: &str, csv: &Str
 }
 
 
-pub fn update_table(mut connection: &mut Connection, table_name: &str, csv: &String, username: &str, password: &str) -> Result<String, ServerError> {
+pub fn update_table(mut connection: &mut Connection, table_name: &str, csv: &String) -> Result<String, ServerError> {
 
-    let response = instruction_send_and_confirm(username, password, Instruction::Update(table_name.to_owned()), &mut connection)?;
+    let response = instruction_send_and_confirm(Instruction::Update(table_name.to_owned()), &mut connection)?;
 
     let confirmation: String;
-    match response.as_str() {
 
-        // THIS IS WHERE YOU SEND THE BULK OF THE DATA
-        //########## SUCCESS BRANCH #################################
-        "OK" => confirmation = data_send_and_confirm(&mut connection, &csv)?,
-        //###########################################################
-        "Username is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongUser(username.to_owned()))),
-        "Password is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongPassword(password.to_owned()))),
-        e => panic!("Need to handle error: {}", e),
-    };
+    match parse_response(&response, &connection.peer.Username, &connection.peer.Password, table_name) {
+        Ok(_) => confirmation = data_send_and_confirm(&mut connection, &csv)?,
+        Err(e) => return Err(e),
+    }
 
+    // The reason for the +28 in the length checker is that it accounts for the length of the nonce (IV) and the authentication tag
+    // in the aes-gcm encryption. The nonce is 12 bytes and the auth tag is 16 bytes
     let data_len = (csv.len() + 28).to_string();
     if confirmation == data_len {
         println!("Confirmation from server: {}", confirmation);
@@ -99,9 +82,9 @@ pub fn update_table(mut connection: &mut Connection, table_name: &str, csv: &Str
 }
 
 
-pub fn query_table(mut connection: &mut Connection, table_name: &str, query: &str, username: &str, password: &str) -> Result<String, ServerError> {
+pub fn query_table(mut connection: &mut Connection, table_name: &str, query: &str) -> Result<String, ServerError> {
     
-    let response = instruction_send_and_confirm(username, password, Instruction::Query(table_name.to_owned(), query.to_owned()), &mut connection)?;
+    let response = instruction_send_and_confirm(Instruction::Query(table_name.to_owned(), query.to_owned()), &mut connection)?;
 
     let csv: String;
     match response.as_str() {
@@ -110,8 +93,8 @@ pub fn query_table(mut connection: &mut Connection, table_name: &str, query: &st
         //########## SUCCESS BRANCH #################################
         "OK" => (csv, _) = receive_data(&mut connection)?,
         //###########################################################
-        "Username is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongUser(username.to_owned()))),
-        "Password is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongPassword(password.to_owned()))),
+        "Username is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongUser(connection.peer.Username.to_owned()))),
+        "Password is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongPassword(connection.peer.Password.to_owned()))),
         e => panic!("Need to handle error: {}", e),
     };
 
@@ -137,8 +120,10 @@ mod tests {
         let start = rdtsc();
         let csv = std::fs::read_to_string("good_csv.txt").unwrap();
         let address = "127.0.0.1:3004";
-        let mut connection = Connection::connect(address).unwrap();
-        let e = upload_table(&mut connection, "good_csv", &csv, "admin", "admin").unwrap();
+        let username = "admin";
+        let password = "admin";
+        let mut connection = Connection::connect(address, username, password).unwrap();
+        let e = upload_table(&mut connection, "good_csv", &csv).unwrap();
     }
 
 
@@ -146,8 +131,9 @@ mod tests {
     fn test_send_bad_csv() {
         let csv = std::fs::read_to_string("bad_csv.txt").unwrap();
         let address = "127.0.0.1:3004";
-        let mut connection = Connection::connect(address).unwrap();
-        let e = upload_table(&mut connection, "bad_csv", &csv, "admin", "admin");
+        let username = "admin";
+        let password = "admin";
+        let mut connection = Connection::connect(address, username, password).unwrap();        let e = upload_table(&mut connection, "bad_csv", &csv);
         assert!(e.is_err());
         
     }
@@ -159,8 +145,9 @@ mod tests {
         let name = "good_csv";
         let address = "127.0.0.1:3004";
         println!("Receiving\n############################");
-        let mut connection = Connection::connect(address).unwrap();
-        let table = download_table(&mut connection, name, "admin", "admin").unwrap();
+        let username = "admin";
+        let password = "admin";
+        let mut connection = Connection::connect(address, username, password).unwrap();        let table = download_table(&mut connection, name).unwrap();
         println!("{:?}", table);
         let good_table = StrictTable::from_csv_string(&std::fs::read_to_string("good_csv.txt").unwrap(), "good_table").unwrap();
         assert_eq!(table, good_table.to_csv_string());
@@ -186,8 +173,9 @@ mod tests {
 
         let csv = std::fs::read_to_string("large.csv").unwrap();
         let address = "127.0.0.1:3004";
-        let mut connection = Connection::connect(address).unwrap();
-        let e = upload_table(&mut connection, "large_csv", &csv, "admin", "admin");
+        let username = "admin";
+        let password = "admin";
+        let mut connection = Connection::connect(address, username, password).unwrap();        let e = upload_table(&mut connection, "large_csv", &csv);
         
         //delete the large_csv
         remove_file("large.csv").unwrap();
@@ -199,13 +187,15 @@ mod tests {
     fn test_query_list() {
         let csv = std::fs::read_to_string("good_csv.txt").unwrap();
         let address = "127.0.0.1:3004";
-        let mut connection = Connection::connect(address).unwrap();
-        let e = upload_table(&mut connection, "good_csv", &csv, "admin", "admin").unwrap();
+        let username = "admin";
+        let password = "admin";
+        let mut connection = Connection::connect(address, username, password).unwrap();        let e = upload_table(&mut connection, "good_csv", &csv).unwrap();
         assert_eq!(e, "OK");
 
         let query = "0113000,0113035";
-        let mut connection = Connection::connect(address).unwrap();
-        let response = query_table(&mut connection, "good_csv", query, "admin", "admin").unwrap();
+        let username = "admin";
+        let password = "admin";
+        let mut connection = Connection::connect(address, username, password).unwrap();        let response = query_table(&mut connection, "good_csv", query).unwrap();
         println!("{}", response);
     }
 
