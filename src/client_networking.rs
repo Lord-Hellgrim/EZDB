@@ -11,13 +11,13 @@ use crate::{diffie_hellman::*, aes};
 use crate::networking_utilities::*;
 
 
-pub fn download_table(mut connection: &mut Connection, table_name: &str, username: &str, password: &str) -> Result<String, ServerError> {
+pub fn download_table(mut connection: &mut Connection, table_name: &str) -> Result<String, ServerError> {
         
-    let response = instruction_send_and_confirm(username, password, Instruction::Download(table_name.to_owned()), &mut connection)?;
+    let response = instruction_send_and_confirm(Instruction::Download(table_name.to_owned()), &mut connection)?;
 
     let csv: String;
     
-    match parse_response(&response, username, password, table_name) {
+    match parse_response(&response, &connection.peer.Username, &connection.peer.Password, table_name) {
         Ok(f) => (csv, _) = receive_data(&mut connection)?,
         Err(e) => return Err(e),
     }
@@ -34,13 +34,13 @@ pub fn download_table(mut connection: &mut Connection, table_name: &str, usernam
 }
 
 
-pub fn upload_table(mut connection: &mut Connection, table_name: &str, csv: &String, username: &str, password: &str) -> Result<String, ServerError> {
+pub fn upload_table(mut connection: &mut Connection, table_name: &str, csv: &String) -> Result<String, ServerError> {
 
-    let response = instruction_send_and_confirm(username, password, Instruction::Upload(table_name.to_owned()), &mut connection)?;
+    let response = instruction_send_and_confirm(Instruction::Upload(table_name.to_owned()), &mut connection)?;
 
     let confirmation: String;
 
-    match parse_response(&response, username, password, table_name) {
+    match parse_response(&response, &connection.peer.Username, &connection.peer.Password, table_name) {
         Ok(_) => confirmation = data_send_and_confirm(&mut connection, &csv)?,
         Err(e) => return Err(e),
     }
@@ -57,13 +57,13 @@ pub fn upload_table(mut connection: &mut Connection, table_name: &str, csv: &Str
 }
 
 
-pub fn update_table(mut connection: &mut Connection, table_name: &str, csv: &String, username: &str, password: &str) -> Result<String, ServerError> {
+pub fn update_table(mut connection: &mut Connection, table_name: &str, csv: &String) -> Result<String, ServerError> {
 
-    let response = instruction_send_and_confirm(username, password, Instruction::Update(table_name.to_owned()), &mut connection)?;
+    let response = instruction_send_and_confirm(Instruction::Update(table_name.to_owned()), &mut connection)?;
 
     let confirmation: String;
 
-    match parse_response(&response, username, password, table_name) {
+    match parse_response(&response, &connection.peer.Username, &connection.peer.Password, table_name) {
         Ok(_) => confirmation = data_send_and_confirm(&mut connection, &csv)?,
         Err(e) => return Err(e),
     }
@@ -82,9 +82,9 @@ pub fn update_table(mut connection: &mut Connection, table_name: &str, csv: &Str
 }
 
 
-pub fn query_table(mut connection: &mut Connection, table_name: &str, query: &str, username: &str, password: &str) -> Result<String, ServerError> {
+pub fn query_table(mut connection: &mut Connection, table_name: &str, query: &str) -> Result<String, ServerError> {
     
-    let response = instruction_send_and_confirm(username, password, Instruction::Query(table_name.to_owned(), query.to_owned()), &mut connection)?;
+    let response = instruction_send_and_confirm(Instruction::Query(table_name.to_owned(), query.to_owned()), &mut connection)?;
 
     let csv: String;
     match response.as_str() {
@@ -93,8 +93,8 @@ pub fn query_table(mut connection: &mut Connection, table_name: &str, query: &st
         //########## SUCCESS BRANCH #################################
         "OK" => (csv, _) = receive_data(&mut connection)?,
         //###########################################################
-        "Username is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongUser(username.to_owned()))),
-        "Password is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongPassword(password.to_owned()))),
+        "Username is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongUser(connection.peer.Username.to_owned()))),
+        "Password is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongPassword(connection.peer.Password.to_owned()))),
         e => panic!("Need to handle error: {}", e),
     };
 
@@ -123,7 +123,7 @@ mod tests {
         let username = "admin";
         let password = "admin";
         let mut connection = Connection::connect(address, username, password).unwrap();
-        let e = upload_table(&mut connection, "good_csv", &csv, "admin", "admin").unwrap();
+        let e = upload_table(&mut connection, "good_csv", &csv).unwrap();
     }
 
 
@@ -133,7 +133,7 @@ mod tests {
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";
-        let mut connection = Connection::connect(address, username, password).unwrap();        let e = upload_table(&mut connection, "bad_csv", &csv, "admin", "admin");
+        let mut connection = Connection::connect(address, username, password).unwrap();        let e = upload_table(&mut connection, "bad_csv", &csv);
         assert!(e.is_err());
         
     }
@@ -147,7 +147,7 @@ mod tests {
         println!("Receiving\n############################");
         let username = "admin";
         let password = "admin";
-        let mut connection = Connection::connect(address, username, password).unwrap();        let table = download_table(&mut connection, name, "admin", "admin").unwrap();
+        let mut connection = Connection::connect(address, username, password).unwrap();        let table = download_table(&mut connection, name).unwrap();
         println!("{:?}", table);
         let good_table = StrictTable::from_csv_string(&std::fs::read_to_string("good_csv.txt").unwrap(), "good_table").unwrap();
         assert_eq!(table, good_table.to_csv_string());
@@ -175,7 +175,7 @@ mod tests {
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";
-        let mut connection = Connection::connect(address, username, password).unwrap();        let e = upload_table(&mut connection, "large_csv", &csv, "admin", "admin");
+        let mut connection = Connection::connect(address, username, password).unwrap();        let e = upload_table(&mut connection, "large_csv", &csv);
         
         //delete the large_csv
         remove_file("large.csv").unwrap();
@@ -189,13 +189,13 @@ mod tests {
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";
-        let mut connection = Connection::connect(address, username, password).unwrap();        let e = upload_table(&mut connection, "good_csv", &csv, "admin", "admin").unwrap();
+        let mut connection = Connection::connect(address, username, password).unwrap();        let e = upload_table(&mut connection, "good_csv", &csv).unwrap();
         assert_eq!(e, "OK");
 
         let query = "0113000,0113035";
         let username = "admin";
         let password = "admin";
-        let mut connection = Connection::connect(address, username, password).unwrap();        let response = query_table(&mut connection, "good_csv", query, "admin", "admin").unwrap();
+        let mut connection = Connection::connect(address, username, password).unwrap();        let response = query_table(&mut connection, "good_csv", query).unwrap();
         println!("{}", response);
     }
 

@@ -140,7 +140,7 @@ pub struct Connection {
 impl Connection {
     pub fn connect(address: &str, username: &str, password: &str) -> Result<Connection, ServerError> {
 
-        if username.len() > 512 | password.len() > 512 {
+        if username.len() > 512 || password.len() > 512 {
             return Err(ServerError::Authentication(AuthenticationError::TooLong))
         }
 
@@ -157,29 +157,27 @@ impl Connection {
 
         let mut auth_buffer = [0u8; 1024];
         auth_buffer[0..username.len()].copy_from_slice(username.as_bytes());
-        auth_buffer[512..password.len()].copy_from_slice(password.as_bytes());
+        auth_buffer[512..512+password.len()].copy_from_slice(password.as_bytes());
         println!("auth_buffer: {:x?}", auth_buffer);
         
         let (encrypted_data, data_nonce) = encrypt_aes256(&auth_buffer, &aes_key);
     
-        let mut encrypted_data_block = Vec::with_capacity(data.len() + 28);
+        let mut encrypted_data_block = Vec::with_capacity(encrypted_data.len() + 28);
         encrypted_data_block.extend_from_slice(&encrypted_data);
         encrypted_data_block.extend_from_slice(&data_nonce);
-        
+        println!("Encrypted auth string: {:x?}", encrypted_data_block);
+        println!("Encrypted auth string.len(): {}", encrypted_data_block.len());
         
         println!("Sending data...");
         // The reason for the +28 in the length checker is that it accounts for the length of the nonce (IV) and the authentication tag
         // in the aes-gcm encryption. The nonce is 12 bytes and the auth tag is 16 bytes
-        connection.stream.write_all(&(data.len() + 28).to_le_bytes())?;
-        connection.stream.write_all(&encrypted_data_block)?;
-        connection.stream.flush()?;
-        
-        stream.write(&auth_buffer);
+        stream.write_all(&encrypted_data_block)?;
+        stream.flush()?;
 
         let user = User {
             Username: username.to_owned(),
-            Password: password.as_bytes(),
-            LastAddress: stream.local_addr().expect("Really should have an IP address by now or else rustc is broken"),
+            Password: password.as_bytes().to_owned(),
+            LastAddress: stream.local_addr().expect("Really should have an IP address by now or else rustc is broken").to_string(),
             Authenticated: true,
         };
         Ok(
@@ -387,7 +385,10 @@ pub fn hash_function(a: &str) -> Vec<u8> {
 
 
 
-pub fn instruction_send_and_confirm(username: &str, password: &str, instruction: Instruction, connection: &mut Connection) -> Result<String, ServerError> {
+pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut Connection) -> Result<String, ServerError> {
+
+    let username = &connection.peer.Username;
+    let password = bytes_to_str(&connection.peer.Password)?;
 
     let instruction = match instruction {
         Instruction::Download(table_name) => format!("Downloading|{}|blank", table_name),
@@ -397,7 +398,7 @@ pub fn instruction_send_and_confirm(username: &str, password: &str, instruction:
     };
 
     let instruction_string = format!("{username}|{password}|{instruction}");
-    let (encrypted_instructions, nonce) = encrypt_aes256(&instruction_string, &connection.aes_key);
+    let (encrypted_instructions, nonce) = encrypt_aes256(&instruction_string.as_bytes(), &connection.aes_key);
 
     let mut encrypted_instructions = encode_hex(&encrypted_instructions);
     encrypted_instructions.push('|');
@@ -420,7 +421,7 @@ pub fn instruction_send_and_confirm(username: &str, password: &str, instruction:
 }
 
 
-pub fn parse_response(response: &str, username: &str, password: &str, table_name: &str) -> Result<(), ServerError> {
+pub fn parse_response(response: &str, username: &str, password: &[u8], table_name: &str) -> Result<(), ServerError> {
 
     if response == "OK" {
         return Ok(())
@@ -439,7 +440,7 @@ pub fn parse_response(response: &str, username: &str, password: &str, table_name
 
 pub fn data_send_and_confirm(connection: &mut Connection, data: &str) -> Result<String, ServerError> {
 
-    let (encrypted_data, data_nonce) = encrypt_aes256(data, &connection.aes_key);
+    let (encrypted_data, data_nonce) = encrypt_aes256(data.as_bytes(), &connection.aes_key);
     
     let mut encrypted_data_block = Vec::with_capacity(data.len() + 28);
     encrypted_data_block.extend_from_slice(&encrypted_data);

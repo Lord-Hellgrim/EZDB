@@ -37,7 +37,7 @@ impl User {
 #[derive(Debug, Clone)]
 pub enum AuthenticationError {
     WrongUser(String),
-    WrongPassword(String),
+    WrongPassword(Vec<u8>),
     TooLong
 }
 
