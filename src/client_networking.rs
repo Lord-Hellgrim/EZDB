@@ -126,6 +126,19 @@ mod tests {
         let e = upload_table(&mut connection, "good_csv", &csv).unwrap();
     }
 
+    #[test]
+    fn test_send_good_csv_twice() {
+        let start = rdtsc();
+        let csv = std::fs::read_to_string("good_csv.txt").unwrap();
+        let address = "127.0.0.1:3004";
+        let username = "admin";
+        let password = "admin";
+        let mut connection = Connection::connect(address, username, password).unwrap();
+        let e = upload_table(&mut connection, "good_csv", &csv).unwrap();
+        std::thread::sleep(Duration::from_secs(2));
+        let d = upload_table(&mut connection, "good_csv", &csv).unwrap();
+    }
+
 
     #[test]
     fn test_send_bad_csv() {

@@ -497,6 +497,7 @@ pub fn receive_data(connection: &mut Connection) -> Result<(String, usize), Serv
     }
     
     println!("Successfully read {} bytes", total_read);
+    println!("Data: {:x?}", data);
     
     let (ciphertext, nonce) = (&data[0..data.len()-12], &data[data.len()-12..]);
     println!("About to decrypt");

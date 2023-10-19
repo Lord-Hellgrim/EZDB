@@ -136,9 +136,7 @@ fn handle_upload_request(mut connection: Connection, name: &str, global_tables: 
                 Ok(_) => {
                     println!("Time to check strictness: {}", instant.elapsed().as_millis());
                     println!("Confirmed correctness with client");
-                }
-                    ,
-
+                },
                 Err(e) => {return Err(ServerError::Io(e));},
             };
 
