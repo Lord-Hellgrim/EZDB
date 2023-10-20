@@ -40,6 +40,7 @@ pub fn upload_table(mut connection: &mut Connection, table_name: &str, csv: &Str
 
     let confirmation: String;
 
+    println!("upload_table - parsing response");
     match parse_response(&response, &connection.peer.Username, &connection.peer.Password, table_name) {
         Ok(_) => confirmation = data_send_and_confirm(&mut connection, &csv)?,
         Err(e) => return Err(e),
@@ -135,6 +136,7 @@ mod tests {
         let password = "admin";
         let mut connection = Connection::connect(address, username, password).unwrap();
         let e = upload_table(&mut connection, "good_csv", &csv).unwrap();
+        println!("About to check second table");
         std::thread::sleep(Duration::from_secs(2));
         let d = upload_table(&mut connection, "good_csv", &csv).unwrap();
     }

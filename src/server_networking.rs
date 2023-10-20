@@ -17,14 +17,13 @@ use crate::db_structure::{StrictTable, Actions, StrictError};
 pub const CONFIG_FOLDER: &str = "EZconfig/";
 
 
-pub fn parse_instruction(buffer: &[u8], users: &HashMap<String, User>, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>, aes_key: &[u8]) -> Result<Instruction, ServerError> {
+pub fn parse_instruction(instructions: &[u8], users: &HashMap<String, User>, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>, aes_key: &[u8]) -> Result<Instruction, ServerError> {
 
     println!("parsing 1...");
-    let instruction = bytes_to_str(&buffer)?;
-    println!("Encrypted instructions: {}", instruction);
-    let instruction_block: Vec<&str> = instruction.split('|').collect();
-
-    let (ciphertext, nonce) = (decode_hex(instruction_block[0]).unwrap(), decode_hex(instruction_block[1]).unwrap());
+    let ciphertext = &instructions[0..instructions.len()-12];
+    let nonce = &instructions[instructions.len()-12..];
+    println!("received encrypted instructions: {:x?}", ciphertext);
+    println!("received nonce: {:x?}", nonce);
     let plaintext = decrypt_aes256(&ciphertext, aes_key, &nonce)?;
     println!("decrypted_instructions: {:x?}", plaintext);
     let instruction = bytes_to_str(&plaintext)?;
@@ -118,10 +117,10 @@ fn handle_download_request(mut connection: Connection, name: &str, global_tables
 }
 
 
-fn handle_upload_request(mut connection: Connection, name: &str, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<String, ServerError> {
+fn handle_upload_request(mut connection: &mut Connection, name: &str, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<String, ServerError> {
 
     match connection.stream.write("OK".as_bytes()) {
-        Ok(n) => println!("Wrote {n} bytes"),
+        Ok(n) => println!("Wrote OK as {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e));},
     };
 
@@ -316,90 +315,86 @@ pub fn server(address: &str, global_tables: Arc<Mutex<HashMap<String, StrictTabl
         let thread_users = users.clone();
         let thread_public_key = server_public_key.clone();
         let thread_private_key = server_private_key.clone();
+
+
         
         std::thread::spawn(move || {
             
+
+            stream.write(&thread_public_key)?;
+            println!("About to get crypto");
+            let mut buffer: [u8; 256] = [0; 256];
+            
+            stream.read_exact(&mut buffer)?;
+            
+            let client_public_key = Integer::from_digits(&buffer, Order::Lsf);
+            
+            let shared_secret = shared_secret(&client_public_key, &thread_private_key);
+            let aes_key = blake3_hash(&shared_secret.to_digits::<u8>(Order::Lsf));
+
+            let mut auth_buffer = [0u8; 1052];
+            println!("About to read auth string");
+            stream.read_exact(&mut auth_buffer)?;
+            println!("encrypted auth_buffer: {:x?}", auth_buffer);
+            println!("Encrypted auth_buffer.len(): {}", auth_buffer.len());
+
+            let (ciphertext, nonce) = (&auth_buffer[0..auth_buffer.len()-12], &auth_buffer[auth_buffer.len()-12..auth_buffer.len()]);
+            println!("About to decrypt auth string");
+            let auth_string = decrypt_aes256(ciphertext, &aes_key, nonce).unwrap();
+            println!("About to parse auth_string");
+            let (username, password) = (bytes_to_str(&auth_string[0..512])?, &auth_string[512..]);
+
+            println!("username: {}\npassword: {:x?}", username, password);
+            let password = blake3_hash(&password);
+            println!("password_hash: {:x?}", password);
+            println!("About to verify username and password");
+            if !thread_users.contains_key(username) {
+                return Err(ServerError::Authentication(AuthenticationError::WrongUser(username.to_owned())));
+            } else if thread_users[username].Password != password {
+                return Err(ServerError::Authentication(AuthenticationError::WrongPassword(password)));
+            }
+            let peer_addr = stream.peer_addr()?.clone().to_string();
+            let mut connection = Connection {
+                stream: stream, 
+                peer: User{Username: username.to_owned(), Password: password, LastAddress: peer_addr, Authenticated: true}, 
+                aes_key: aes_key};
             // loop while connection is still open
             'connection: loop {
-
-                println!("About to get crypto");
-                stream.write(&thread_public_key)?;
-                let mut buffer: [u8; 256] = [0; 256];
-                
-                stream.read_exact(&mut buffer)?;
-                
-                let client_public_key = Integer::from_digits(&buffer, Order::Lsf);
-                
-                let shared_secret = shared_secret(&client_public_key, &thread_private_key);
-                let aes_key = blake3_hash(&shared_secret.to_digits::<u8>(Order::Lsf));
-
-                let mut auth_buffer = [0u8; 1052];
-                println!("About to read auth string");
-                stream.read_exact(&mut auth_buffer)?;
-                println!("encrypted auth_buffer: {:x?}", auth_buffer);
-                println!("Encrypted auth_buffer.len(): {}", auth_buffer.len());
-
-                let (ciphertext, nonce) = (&auth_buffer[0..auth_buffer.len()-12], &auth_buffer[auth_buffer.len()-12..auth_buffer.len()]);
-                println!("About to decrypt auth string");
-                let auth_string = decrypt_aes256(ciphertext, &aes_key, nonce).unwrap();
-                println!("About to parse auth_string");
-                let (username, password) = (bytes_to_str(&auth_string[0..512])?, &auth_string[512..]);
-
-                println!("username: {}\npassword: {:x?}", username, password);
-                let password = blake3_hash(&password);
-                println!("password_hash: {:x?}", password);
-                println!("About to verify username and password");
-                if !thread_users.contains_key(username) {
-                    return Err(ServerError::Authentication(AuthenticationError::WrongUser(username.to_owned())))
-                } else if thread_users[username].Password != password {
-                    return Err(ServerError::Authentication(AuthenticationError::WrongPassword(password)))
-                }
-                let peer_addr = stream.peer_addr()?.clone().to_string();
-                let mut connection = Connection {
-                    stream: stream, 
-                    peer: User{Username: username.to_owned(), Password: password, LastAddress: peer_addr, Authenticated: true}, 
-                    aes_key: aes_key};
+                println!("CLIENT LOOP");
 
                 let mut buffer: [u8; INSTRUCTION_BUFFER] = [0; INSTRUCTION_BUFFER];
                 println!("Initialized string buffer");
                 
-                match connection.stream.read(&mut buffer) {
-                    Ok(n) => {
-                        println!("Read {n} bytes");
-                    },
-                    Err(e) => {
-                        return Err(ServerError::Io(e));
-                    },
-                };
-                
+                let instruction_size = connection.stream.read(&mut buffer)?;
+                let instructions = &buffer[0..instruction_size];
                 
                 println!("Parsing instructions...");
-                match parse_instruction(&buffer, &thread_users, thread_global.clone(), &connection.aes_key) {
+                match parse_instruction(instructions, &thread_users, thread_global.clone(), &connection.aes_key) {
                     Ok(i) => match i {
                         
-                        Instruction::Upload(name) => {
-                            match handle_upload_request(connection, &name, thread_global.clone()) {
+                        Instruction::Download(name) => {
+                            match handle_download_request(connection, &name, thread_global.clone()) {
                                 Ok(_) => {
                                     println!("Operation finished!");
-                                    return Ok(());
-                                },
-                                Err(e) => {return Err(e);}
-                            }
-                        },
-                        Instruction::Download(name) => {
-                        match handle_download_request(connection, &name, thread_global.clone()) {
-                            Ok(_) => {
-                                    println!("Operation finished!");
-                                    return Ok(());
+                                    continue;
                                 },
                                 Err(e) => {return Err(e);}
                             }
                         }
+                        Instruction::Upload(name) => {
+                            match handle_upload_request(&mut connection, &name, thread_global.clone()) {
+                                Ok(_) => {
+                                    println!("Operation finished!");
+                                    continue;
+                                },
+                                Err(e) => {return Err(e);}
+                            }
+                        },
                         Instruction::Update(name) => {
                             match handle_update_request(connection, &name, thread_global.clone()) {
                                 Ok(_) => {
                                     println!("Operation finished!");
-                                    return Ok(());
+                                    continue;
                                 },
                                 Err(e) => {return Err(e);},
                             }
@@ -408,12 +403,12 @@ pub fn server(address: &str, global_tables: Arc<Mutex<HashMap<String, StrictTabl
                             match handle_query_request(connection, &table_name, &query, thread_global.clone()) {
                                 Ok(_) => {
                                     println!("Operation finished!");
-                                    return Ok(());
+                                    continue;
                                 },
                                 Err(e) => {return Err(e);},
                             }
                         }
-                    }
+                    },
                     
                     Err(e) => {
                         connection.stream.write(&e.to_string().as_bytes())?;
@@ -421,7 +416,7 @@ pub fn server(address: &str, global_tables: Arc<Mutex<HashMap<String, StrictTabl
                         return Err(e);
                     },
                     
-                }
+                };
             }
             
         });

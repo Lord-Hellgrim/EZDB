@@ -397,11 +397,15 @@ pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut C
     let instruction_string = format!("{instruction}");
     let (encrypted_instructions, nonce) = encrypt_aes256(&instruction_string.as_bytes(), &connection.aes_key);
 
-    let mut encrypted_instructions = encode_hex(&encrypted_instructions);
-    encrypted_instructions.push('|');
-    encrypted_instructions.push_str(&encode_hex(&nonce));
+    println!("encrypted instructions: {:x?}", encrypted_instructions);
+    println!("nonce: {:x?}", nonce);
 
-    match connection.stream.write(&encrypted_instructions.as_bytes()) {
+    let mut encrypted_data_block = Vec::with_capacity(encrypted_instructions.len() + 28);
+    encrypted_data_block.extend_from_slice(&encrypted_instructions);
+    encrypted_data_block.extend_from_slice(&nonce);
+
+    println!("encrypted instructions.len(): {}", encrypted_instructions.len());
+    match connection.stream.write(&encrypted_data_block) {
         Ok(n) => println!("Wrote request as {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e));},
     };
@@ -411,7 +415,9 @@ pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut C
     connection.stream.set_read_timeout(Some(Duration::from_secs(5)))?;
     connection.stream.read(&mut buffer)?;
 
+    println!("About to parse resonse from server");
     let response = bytes_to_str(&buffer)?;
+    println!("response: {}", response);
 
     Ok(response.to_owned())
     
@@ -497,7 +503,7 @@ pub fn receive_data(connection: &mut Connection) -> Result<(String, usize), Serv
     }
     
     println!("Successfully read {} bytes", total_read);
-    println!("Data: {:x?}", data);
+    // println!("Data: {:x?}", data);
     
     let (ciphertext, nonce) = (&data[0..data.len()-12], &data[data.len()-12..]);
     println!("About to decrypt");
