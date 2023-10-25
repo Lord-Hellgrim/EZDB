@@ -11,7 +11,10 @@ use crate::{diffie_hellman::*, aes};
 use crate::networking_utilities::*;
 
 
-pub fn download_table(mut connection: &mut Connection, table_name: &str) -> Result<String, ServerError> {
+pub fn download_table(address: &str, username: &str, password: &str, table_name: &str) -> Result<String, ServerError> {
+
+    let mut connection = Connection::connect(address, username, password)?;
+
         
     let response = instruction_send_and_confirm(Instruction::Download(table_name.to_owned()), &mut connection)?;
 
@@ -34,7 +37,9 @@ pub fn download_table(mut connection: &mut Connection, table_name: &str) -> Resu
 }
 
 
-pub fn upload_table(mut connection: &mut Connection, table_name: &str, csv: &String) -> Result<String, ServerError> {
+pub fn upload_table(address: &str, username: &str, password: &str, table_name: &str, csv: &String) -> Result<String, ServerError> {
+
+    let mut connection = Connection::connect(address, username, password)?;
 
     let response = instruction_send_and_confirm(Instruction::Upload(table_name.to_owned()), &mut connection)?;
 
@@ -58,7 +63,9 @@ pub fn upload_table(mut connection: &mut Connection, table_name: &str, csv: &Str
 }
 
 
-pub fn update_table(mut connection: &mut Connection, table_name: &str, csv: &String) -> Result<String, ServerError> {
+pub fn update_table(address: &str, username: &str, password: &str, table_name: &str, csv: &str) -> Result<String, ServerError> {
+
+    let mut connection = Connection::connect(address, username, password)?;
 
     let response = instruction_send_and_confirm(Instruction::Update(table_name.to_owned()), &mut connection)?;
 
@@ -83,8 +90,10 @@ pub fn update_table(mut connection: &mut Connection, table_name: &str, csv: &Str
 }
 
 
-pub fn query_table(mut connection: &mut Connection, table_name: &str, query: &str) -> Result<String, ServerError> {
+pub fn query_table(address: &str, username: &str, password: &str, table_name: &str, query: &str) -> Result<String, ServerError> {
     
+    let mut connection = Connection::connect(address, username, password)?;
+
     let response = instruction_send_and_confirm(Instruction::Query(table_name.to_owned(), query.to_owned()), &mut connection)?;
 
     let csv: String;
@@ -118,27 +127,38 @@ mod tests {
 
     #[test]
     fn test_send_good_csv() {
-        let start = rdtsc();
         let csv = std::fs::read_to_string("good_csv.txt").unwrap();
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";
-        let mut connection = Connection::connect(address, username, password).unwrap();
-        let e = upload_table(&mut connection, "good_csv", &csv).unwrap();
+        let e = upload_table(address, username, password, "good_csv", &csv).unwrap();
     }
 
     #[test]
     fn test_send_good_csv_twice() {
-        let start = rdtsc();
         let csv = std::fs::read_to_string("good_csv.txt").unwrap();
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";
-        let mut connection = Connection::connect(address, username, password).unwrap();
-        let e = upload_table(&mut connection, "good_csv", &csv).unwrap();
+        let e = upload_table(address, username, password, "good_csv", &csv).unwrap();
         println!("About to check second table");
         std::thread::sleep(Duration::from_secs(2));
-        let d = upload_table(&mut connection, "good_csv", &csv).unwrap();
+        let d = upload_table(address, username, password, "good_csv", &csv).unwrap();
+    }
+
+    #[test]
+    fn test_concurrent_connections() {
+        let csv = std::fs::read_to_string("good_csv.txt").unwrap();
+        let address = "127.0.0.1:3004";
+        let username = "admin";
+        let password = "admin";
+        let a = upload_table(address, username, password, "good_csv", &csv).unwrap();
+        println!("About to check second table");
+        std::thread::sleep(Duration::from_secs(2));
+        for i in 0..100 {
+            download_table(address, username, password, "good_csv");
+        }
+        
     }
 
 
@@ -148,7 +168,8 @@ mod tests {
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";
-        let mut connection = Connection::connect(address, username, password).unwrap();        let e = upload_table(&mut connection, "bad_csv", &csv);
+        let mut connection = Connection::connect(address, username, password).unwrap();        
+        let e = upload_table(address, username, password, "bad_csv", &csv);
         assert!(e.is_err());
         
     }
@@ -162,7 +183,8 @@ mod tests {
         println!("Receiving\n############################");
         let username = "admin";
         let password = "admin";
-        let mut connection = Connection::connect(address, username, password).unwrap();        let table = download_table(&mut connection, name).unwrap();
+        let mut connection = Connection::connect(address, username, password).unwrap();        
+        let table = download_table(address, username, password, name).unwrap();
         println!("{:?}", table);
         let good_table = StrictTable::from_csv_string(&std::fs::read_to_string("good_csv.txt").unwrap(), "good_table").unwrap();
         assert_eq!(table, good_table.to_csv_string());
@@ -190,7 +212,8 @@ mod tests {
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";
-        let mut connection = Connection::connect(address, username, password).unwrap();        let e = upload_table(&mut connection, "large_csv", &csv);
+        let mut connection = Connection::connect(address, username, password).unwrap();        
+        let e = upload_table(address, username, password, "large_csv", &csv);
         
         //delete the large_csv
         remove_file("large.csv").unwrap();
@@ -204,13 +227,15 @@ mod tests {
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";
-        let mut connection = Connection::connect(address, username, password).unwrap();        let e = upload_table(&mut connection, "good_csv", &csv).unwrap();
+        let mut connection = Connection::connect(address, username, password).unwrap();        
+        let e = upload_table(address, username, password, "good_csv", &csv).unwrap();
         assert_eq!(e, "OK");
 
         let query = "0113000,0113035";
         let username = "admin";
         let password = "admin";
-        let mut connection = Connection::connect(address, username, password).unwrap();        let response = query_table(&mut connection, "good_csv", query).unwrap();
+        let mut connection = Connection::connect(address, username, password).unwrap();        
+        let response = query_table(address, username, password, "good_csv", query).unwrap();
         println!("{}", response);
     }
 

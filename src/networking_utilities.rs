@@ -385,6 +385,11 @@ pub fn hash_function(a: &str) -> Vec<u8> {
 
 
 
+
+
+
+
+
 pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut Connection) -> Result<String, ServerError> {
 
     let instruction = match instruction {
@@ -458,7 +463,6 @@ pub fn data_send_and_confirm(connection: &mut Connection, data: &str) -> Result<
     connection.stream.flush()?;
     println!("data sent");
     println!("Waiting for confirmation from client");
-    connection.stream.set_read_timeout(Some(Duration::from_secs(15)))?;
     let mut buffer: [u8;INSTRUCTION_BUFFER] = [0;INSTRUCTION_BUFFER];
     match connection.stream.read(&mut buffer) {
         Ok(_) => {
