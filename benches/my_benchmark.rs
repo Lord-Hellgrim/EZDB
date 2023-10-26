@@ -3,6 +3,8 @@ use std::io::Write;
 use criterion::{criterion_group, criterion_main, Criterion};
 use EZDB::db_structure::*;
 use EZDB::networking_utilities::*;
+use EZDB::compression::*;
+use EZDB::compression_opt::*;
 
 fn my_benchmark(c: &mut Criterion) {
 
@@ -31,13 +33,20 @@ fn my_benchmark(c: &mut Criterion) {
     
     let good_csv = std::fs::read_to_string("good_csv.txt").unwrap();
     c.bench_function("fast_split small", |b| b.iter( || fast_split(&good_csv, "\n".as_bytes()[0])));
+
+    // lzw
+    let compressed_big_csv = lzw_compress_opt(&big_csv);
+    c.bench_function("lzw", |b| b.iter( || lzw_compress(&big_csv)));
+    c.bench_function("lzw_compress_opt", |b| b.iter( || lzw_compress_opt(&big_csv)));
+    c.bench_function("lzw_decompress_opt", |b| b.iter( || lzw_decompress_opt(compressed_big_csv.clone())));
+    
     
     // StrictTable::from_csv_string
-    let mut group = c.benchmark_group("smaller sample");
-    group.sample_size(10);
-    group.bench_function("StrictTable::from_csv_string, big", |b| b.iter(|| StrictTable::from_csv_string(&big_csv, "good_csv")));
-    group.sample_size(100);
-    group.bench_function("StrictTable::from_csv_string, small", |b| b.iter(|| StrictTable::from_csv_string(&good_csv, "good_csv")));
+    // let mut group = c.benchmark_group("smaller sample");
+    // group.sample_size(10);
+    // group.bench_function("StrictTable::from_csv_string, big", |b| b.iter(|| StrictTable::from_csv_string(&big_csv, "good_csv")));
+    // group.sample_size(100);
+    // group.bench_function("StrictTable::from_csv_string, small", |b| b.iter(|| StrictTable::from_csv_string(&good_csv, "good_csv")));
 }
 
 criterion_group!(benches, my_benchmark);

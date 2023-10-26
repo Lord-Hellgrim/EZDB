@@ -12,3 +12,5 @@ pub mod aes;
 pub mod aes_temp_crypto;
 pub mod diffie_hellman;
 pub mod threadpool;
+pub mod compression;
+pub mod compression_opt;
