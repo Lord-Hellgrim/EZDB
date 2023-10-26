@@ -31,7 +31,7 @@ essentially a BtreeMap with some tacked on metadata and identifiers and some met
 schema. All of the rest of the code is for sending, receiving, updating, querying, securing, and encrypting StrictTable
 structs.
 
-To read understand the codebase, it is probably best to start with "db_structure.rs" which is where the main data structure is defined.
+To understand the codebase, it is probably best to start with "db_structure.rs" which is where the main data structure is defined.
 Once you have a handle on that you can move on to "client_networking.rs" and "server_networking.rs" which have to be read together
 since all their functions are talking to each other, Both rely heavily on "networking_utilities.rs" but if you just want to see the
 big picture structure of the code then you won't need to see the implementation details there. If you're curious about encryption
