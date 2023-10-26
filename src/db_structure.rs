@@ -40,7 +40,6 @@ pub struct Metadata {
     pub last_access: u64,
     pub times_accessed: u64,
     pub created_by: String,
-    pub accessed_by: BTreeMap<String, Actions>,
 }
 
 impl fmt::Display for Metadata {
@@ -49,13 +48,8 @@ impl fmt::Display for Metadata {
 
         printer.push_str(&format!("last_access:{}\n", self.last_access));
         printer.push_str(&format!("times_accessed:{}\n", self.times_accessed));
-        printer.push_str(&format!("created_by:{}\n", self.created_by));
-        printer.push_str(&format!("accessed_by:", ));
-        for (client, action) in &self.accessed_by {
-            printer.push_str(&format!("{}/{}", client, action.to_string()));
-        }
-        printer.push('\n');
-        write!(f, "{}", printer)
+        printer.push_str(&format!("created_by:{}", self.created_by));
+        writeln!(f, "{}", printer)
     }
 }
 
@@ -65,52 +59,10 @@ impl Metadata {
             last_access: get_current_time(),
             times_accessed: 0,
             created_by: String::from(client),
-            accessed_by: BTreeMap::from([(String::from(client), Actions::new())]),
         }
     }
 }
 
-#[derive(PartialEq, Clone, Debug)]
-pub struct Actions {
-    pub uploaded: bool,
-    pub downloaded: u64,
-    pub updated: u64,
-    pub queried: u64,
-}
-
-impl fmt::Display for Actions {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        
-        let mut printer = String::new();
-        printer.push_str(&format!("uploaded-{},downloaded-{},updated-{},queried-{}",
-            self.uploaded,
-            self.downloaded,
-            self.updated,
-            self.queried,
-        ));
-
-        write!(f, "{}", printer)
-    }
-}
-
-impl Actions {
-    pub fn new() -> Actions {
-        Actions { uploaded: true, downloaded: 0, updated: 0, queried: 0 }
-    }
-
-    pub fn first_download() -> Actions {
-        Actions { uploaded: false, downloaded: 1, updated: 0, queried: 0 }
-    }
-
-    pub fn first_update() -> Actions {
-        Actions { uploaded: false, downloaded: 0, updated: 1, queried: 0 }
-    }
-
-    pub fn first_query() -> Actions {
-        Actions { uploaded: false, downloaded: 0, updated: 0, queried: 1 }
-    }
-
-}
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub enum DbEntry {

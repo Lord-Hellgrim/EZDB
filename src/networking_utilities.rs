@@ -1,5 +1,6 @@
 use std::arch::asm;
 use std::char::MAX;
+use std::collections::HashMap;
 use std::io::{Write, Read};
 use std::net::{TcpStream, IpAddr};
 use std::num::ParseIntError;
@@ -102,6 +103,7 @@ pub enum Instruction {
     Download(String),
     Update(String),
     Query(String /* table_name */, String /* query */),
+    NewUser(String),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -177,8 +179,7 @@ impl Connection {
         let user = User {
             Username: username.to_owned(),
             Password: password.as_bytes().to_owned(),
-            LastAddress: stream.local_addr().expect("Really should have an IP address by now or else rustc is broken").to_string(),
-            Authenticated: true,
+            Permissions: HashMap::new(),
         };
         Ok(
             Connection {
@@ -397,6 +398,7 @@ pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut C
         Instruction::Upload(table_name) => format!("Uploading|{}|blank", table_name),
         Instruction::Update(table_name) => format!("Updating|{}|blank", table_name),
         Instruction::Query(table_name, query) => format!("Querying|{}|{}", table_name, query),
+        Instruction::NewUser(user_string) => format!("NewUser|{}|blank", user_string),
     };
 
     let instruction_string = format!("{instruction}");
