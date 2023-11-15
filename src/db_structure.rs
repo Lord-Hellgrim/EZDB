@@ -360,7 +360,7 @@ impl StrictTable {
             Err(e) => return Err(StrictError::Io(e.kind())),
         };
 
-        let mut meta_file = match std::fs::File::create(&format!("{}raw_tables/{}-metadata",path, file_name)) {
+        let mut meta_file = match std::fs::File::create(&format!("{}raw_tables-metadata/{}",path, file_name)) {
             Ok(f) => f,
             Err(e) => return Err(StrictError::Io(e.kind())),
         };
@@ -409,6 +409,45 @@ pub fn create_StrictTable_from_csv(s: &str, name: &str) -> Result<StrictTable, S
     
 }
 
+
+#[derive(PartialEq, Clone, Debug)]
+pub struct Value {
+    pub body: Vec<u8>,
+    pub metadata: Metadata,
+}
+
+impl Value {
+    pub fn new(creator: &str, body: &[u8]) -> Value {
+        let mut body = Vec::from(body);
+        body.shrink_to_fit();
+        Value {
+            body: body,
+            metadata: Metadata::new(creator),
+        }
+    }
+
+    pub fn save_to_disk_raw(&self, key: &str, path: &str) -> Result<(), StrictError> {
+        let file_name = key;
+
+        let metadata = &self.metadata.to_string();
+
+        let mut value_file = match std::fs::File::create(&format!("{}key_value/{}",path, file_name)) {
+            Ok(f) => f,
+            Err(e) => return Err(StrictError::Io(e.kind())),
+        };
+
+        let mut meta_file = match std::fs::File::create(&format!("{}key_value-metadata/{}",path, file_name)) {
+            Ok(f) => f,
+            Err(e) => return Err(StrictError::Io(e.kind())),
+        };
+
+        value_file.write_all(&self.body);
+        meta_file.write_all(metadata.as_bytes());
+
+        Ok(())
+
+    }
+}
 
 
 #[cfg(test)]

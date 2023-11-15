@@ -1,4 +1,3 @@
-use std::array;
 
 use rug::{Integer, Complete};
 use rand::Rng;
@@ -73,7 +72,7 @@ mod tests {
 
     use rug::integer::Order;
 
-    use crate::{aes, networking_utilities::hash_function};
+    use crate::networking_utilities::hash_function;
 
     use super::*;
     

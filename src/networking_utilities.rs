@@ -1,16 +1,14 @@
 use std::arch::asm;
-use std::char::MAX;
 use std::collections::HashMap;
 use std::io::{Write, Read};
-use std::net::{TcpStream, IpAddr};
+use std::net::TcpStream;
 use std::num::ParseIntError;
-use std::str::{self, Utf8Error, FromStr};
+use std::str::{self, Utf8Error};
 use std::time::Duration;
 use std::{usize, fmt};
 
-use aes_gcm::{Aes256Gcm, AeadCore, aead};
-use aes_gcm::aead::OsRng;
-use rug::{Integer, Complete};
+use aes_gcm::aead;
+use rug::Integer;
 use rug::integer::Order;
 
 use crate::aes_temp_crypto::{encrypt_aes256, decrypt_aes256};
@@ -410,14 +408,14 @@ pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut C
     let instruction_string = format!("{instruction}");
     let (encrypted_instructions, nonce) = encrypt_aes256(&instruction_string.as_bytes(), &connection.aes_key);
 
-    println!("encrypted instructions: {:x?}", encrypted_instructions);
-    println!("nonce: {:x?}", nonce);
+    // println!("encrypted instructions: {:x?}", encrypted_instructions);
+    // println!("nonce: {:x?}", nonce);
 
     let mut encrypted_data_block = Vec::with_capacity(encrypted_instructions.len() + 28);
     encrypted_data_block.extend_from_slice(&encrypted_instructions);
     encrypted_data_block.extend_from_slice(&nonce);
 
-    println!("encrypted instructions.len(): {}", encrypted_instructions.len());
+    // println!("encrypted instructions.len(): {}", encrypted_instructions.len());
     match connection.stream.write(&encrypted_data_block) {
         Ok(n) => println!("Wrote request as {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e));},
@@ -428,7 +426,7 @@ pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut C
     connection.stream.set_read_timeout(Some(Duration::from_secs(5)))?;
     connection.stream.read(&mut buffer)?;
 
-    println!("About to parse resonse from server");
+    println!("About to parse response from server");
     let response = bytes_to_str(&buffer)?;
     println!("response: {}", response);
 
@@ -454,9 +452,11 @@ pub fn parse_response(response: &str, username: &str, password: &[u8], table_nam
 }
 
 
-pub fn data_send_and_confirm(connection: &mut Connection, data: &str) -> Result<String, ServerError> {
+pub fn data_send_and_confirm(connection: &mut Connection, data: &[u8]) -> Result<String, ServerError> {
 
-    let (encrypted_data, data_nonce) = encrypt_aes256(data.as_bytes(), &connection.aes_key);
+    // println!("data: {:x?}", data);
+
+    let (encrypted_data, data_nonce) = encrypt_aes256(data, &connection.aes_key);
     
     let mut encrypted_data_block = Vec::with_capacity(data.len() + 28);
     encrypted_data_block.extend_from_slice(&encrypted_data);
@@ -486,7 +486,7 @@ pub fn data_send_and_confirm(connection: &mut Connection, data: &str) -> Result<
 }
 
 
-pub fn receive_data(connection: &mut Connection) -> Result<(String, usize), ServerError> {
+pub fn receive_data(connection: &mut Connection) -> Result<(Vec<u8>, usize), ServerError> {
 
     println!("Allocating size and data buffer");
     
@@ -522,11 +522,10 @@ pub fn receive_data(connection: &mut Connection) -> Result<(String, usize), Serv
     let instant = std::time::Instant::now();
 
     let csv = decrypt_aes256(&ciphertext, &connection.aes_key, &nonce)?;
-    let csv = bytes_to_str(&csv)?;
     let elapsed = instant.elapsed().as_millis();
     println!("Finished decrypting in: {} milliseconds", elapsed);
 
-    Ok((csv.to_owned(), total_read))
+    Ok((csv, total_read))
 }
 
 

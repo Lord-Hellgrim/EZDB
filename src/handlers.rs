@@ -1,6 +1,6 @@
 use std::{sync::{Arc, Mutex}, collections::HashMap, io::Write};
 
-use crate::{networking_utilities::*, db_structure::StrictTable, logger::get_current_time, auth::User};
+use crate::{networking_utilities::*, db_structure::{StrictTable, Value}, logger::get_current_time, auth::User};
 
 
 
@@ -12,11 +12,11 @@ pub fn handle_download_request(mut connection: &mut Connection, name: &str, glob
     };
 
     let mut mutex_binding = global_tables.lock().unwrap();
-    let mut requested_table = mutex_binding.get_mut(name).expect("Instruction parser should have verified table");
+    let requested_table = mutex_binding.get_mut(name).expect("Instruction parser should have verified table");
     let requested_csv = requested_table.to_csv_string();
     println!("Requested_csv: {}", requested_csv);
 
-    let response = data_send_and_confirm(&mut connection, &requested_csv)?;
+    let response = data_send_and_confirm(&mut connection, requested_csv.as_bytes())?;
 
     if response == "OK" {
         requested_table.metadata.last_access = get_current_time();
@@ -44,7 +44,7 @@ pub fn handle_upload_request(mut connection: &mut Connection, name: &str, global
     // Here we create a StrictTable from the csv and supplied name
     println!("About to check for strictness");
     let instant = std::time::Instant::now();
-    match StrictTable::from_csv_string(&csv, name) {
+    match StrictTable::from_csv_string(bytes_to_str(&csv)?, name) {
         Ok(mut table) => {
             match connection.stream.write(format!("{}", total_read).as_bytes()) {
                 Ok(_) => {
@@ -88,7 +88,7 @@ pub fn handle_update_request(mut connection: &mut Connection, name: &str, global
 
     let requested_table = mutex_binding.get_mut(name).expect("Instruction parser should have verified existence of table");
     
-    match requested_table.update(&csv) {
+    match requested_table.update(bytes_to_str(&csv)?) {
         Ok(_) => {
             connection.stream.write(total_read.to_string().as_bytes())?;
         },
@@ -115,7 +115,7 @@ pub fn handle_query_request(mut connection: &mut Connection, name: &str, query: 
     // PARSE INSTRUCTION
     let query_type;
     match query.find("..") {
-        Some(i) => query_type = "range",
+        Some(_) => query_type = "range",
         None => query_type = "list"
     };
 
@@ -127,7 +127,7 @@ pub fn handle_query_request(mut connection: &mut Connection, name: &str, query: 
         requested_csv = requested_table.query_list(parsed_query)?;
     }
 
-    let response = data_send_and_confirm(&mut connection, &requested_csv)?;
+    let response = data_send_and_confirm(&mut connection, requested_csv.as_bytes())?;
     
     if response == "OK" {
         return Ok("OK".to_owned())
@@ -149,23 +149,89 @@ pub fn handle_new_user_request(user_string: &str, users: Arc<Mutex<HashMap<Strin
 
 }
 
-pub fn handle_kv_upload(mut connection: &mut Connection, name: &str, global_kv_table: Arc<Mutex<HashMap<String, &[u8]>>>) -> Result<(), ServerError> {
+pub fn handle_kv_upload(mut connection: &mut Connection, name: &str, global_kv_table: Arc<Mutex<HashMap<String, Value>>>) -> Result<(), ServerError> {
 
+    match connection.stream.write("OK".as_bytes()) {
+        Ok(n) => println!("Wrote OK as {n} bytes"),
+        Err(e) => {return Err(ServerError::Io(e));},
+    };
+
+    let (value, total_read) = receive_data(&mut connection)?;
+    println!("value: {:?}", value);
+
+    // Here we create a StrictTable from the csv and supplied name
+    println!("About to check for strictness");
+    match connection.stream.write(format!("{}", total_read).as_bytes()) {
+        Ok(_) => {
+            println!("Confirmed correctness with client");
+        },
+        Err(e) => {return Err(ServerError::Io(e));},
+    };
+
+    println!("Appending to global");
+    
+    let value = Value::new(&connection.peer.Username, &value);
+
+    let mut global_kv_table_lock = global_kv_table.lock().unwrap();
+    global_kv_table_lock.insert(name.to_owned(), value);
+    println!("value from table: {:x?}", global_kv_table_lock.get(name).unwrap().body);
+
+
+    Ok(())
+
+}
+
+pub fn handle_kv_update(mut connection: &mut Connection, name: &str, global_kv_table: Arc<Mutex<HashMap<String, Value>>>) -> Result<(), ServerError> {
+
+    match connection.stream.write("OK".as_bytes()) {
+        Ok(n) => println!("Wrote OK as {n} bytes"),
+        Err(e) => {return Err(ServerError::Io(e));},
+    };
+
+    let (value, total_read) = receive_data(&mut connection)?;
+
+    // Here we create a StrictTable from the csv and supplied name
+    println!("About to check for strictness");
+    match connection.stream.write(format!("{}", total_read).as_bytes()) {
+        Ok(_) => {
+            println!("Confirmed correctness with client");
+        },
+        Err(e) => {return Err(ServerError::Io(e));},
+    };
+
+    println!("Appending to global");
+    
+    let value = Value::new(&connection.peer.Username, &value);
+
+    global_kv_table.lock().unwrap().insert(name.to_owned(), value);
 
 
     Ok(())
 }
 
-pub fn handle_kv_update(mut connection: &mut Connection, name: &str, global_kv_table: Arc<Mutex<HashMap<String, &[u8]>>>) -> Result<(), ServerError> {
+pub fn handle_kv_download(mut connection: &mut Connection, name: &str, global_kv_table: Arc<Mutex<HashMap<String, Value>>>) -> Result<(), ServerError> {
 
-    
+    match connection.stream.write("OK".as_bytes()) {
+        Ok(n) => println!("Wrote {n} bytes"),
+        Err(e) => {return Err(ServerError::Io(e));},
+    };
 
-    Ok(())
-}
+    let mut mutex_binding = global_kv_table.lock().unwrap();
+    let requested_value = mutex_binding.get_mut(name).expect("Instruction parser should have verified table");
 
-pub fn handle_kv_download(mut connection: &mut Connection, name: &str, global_kv_table: Arc<Mutex<HashMap<String, &[u8]>>>) -> Result<(), ServerError> {
+    println!("Requested_value: {:x?}", requested_value.body);
 
-    
+    let response = data_send_and_confirm(&mut connection, &requested_value.body)?;
 
-    Ok(())
+    if response == "OK" {
+        requested_value.metadata.last_access = get_current_time();
+
+        requested_value.metadata.times_accessed += 1;
+        println!("metadata: {}", requested_value.metadata.to_string());
+
+        return Ok(())
+    } else {
+        return Err(ServerError::Confirmation(response))
+    }
+
 }

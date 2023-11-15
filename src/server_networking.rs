@@ -1,27 +1,23 @@
 use std::collections::HashMap;
 use std::io::{Write, Read};
-use std::net::{TcpListener, IpAddr};
-use std::ops::{Add, Sub};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::str::{self};
-use std::time::Duration;
 
-use rug::{Integer, Complete};
+use rug::Integer;
 use rug::integer::Order;
 
 use crate::aes_temp_crypto::decrypt_aes256;
-use crate::auth::{User, AuthenticationError};
+use crate::auth::User;
 use crate::diffie_hellman::{DiffieHellman, blake3_hash, shared_secret};
-use crate::logger::{get_current_time, LogTimeStamp};
 use crate::networking_utilities::*;
-use crate::db_structure::{StrictTable, StrictError};
+use crate::db_structure::{StrictTable, StrictError, Value};
 use crate::handlers::*;
 
 pub const CONFIG_FOLDER: &str = "EZconfig/";
 
 
-pub fn parse_instruction(instructions: &[u8], users: Arc<Mutex<HashMap<String, User>>>, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>, global_kv_table: Arc<Mutex<HashMap<String, &[u8]>>>, aes_key: &[u8]) -> Result<Instruction, ServerError> {
+pub fn parse_instruction(instructions: &[u8], users: Arc<Mutex<HashMap<String, User>>>, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>, global_kv_table: Arc<Mutex<HashMap<String, Value>>>, aes_key: &[u8]) -> Result<Instruction, ServerError> {
 
     println!("Decrypting instructions");
     let ciphertext = &instructions[0..instructions.len()-12];
@@ -87,13 +83,27 @@ pub fn parse_instruction(instructions: &[u8], users: Arc<Mutex<HashMap<String, U
                 Ok(Instruction::Update(table_name.to_owned()))
             }
         },
-        "KV_UPLOAD" => {
+        "KvUpload" => {
             if global_kv_table.lock().unwrap().contains_key(table_name) {
-                return Err(ServerError::Instruction(InstructionError::InvalidTable("Entry already exists. Use 'update' instead".to_owned())));
+                return Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' already exists. Use 'update' instead", table_name))));
             } else {
                 Ok(Instruction::KvUpload(table_name.to_owned()))
             }
-        }
+        },
+        "KvUpdate" => {
+            if !global_kv_table.lock().unwrap().contains_key(table_name) {
+                return Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' does not exist. Use 'upload' instead", table_name))));
+            } else {
+                Ok(Instruction::KvUpdate(table_name.to_owned()))
+            }
+        },
+        "KvDownload" => {
+            if !global_kv_table.lock().unwrap().contains_key(table_name) {
+                return Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry does not exist. You asked for '{}'", table_name))));
+            } else {
+                Ok(Instruction::KvDownload(table_name.to_owned()))
+            }
+        },
         _ => {return Err(ServerError::Instruction(InstructionError::Invalid(action.to_owned())));},
     }
 }
@@ -121,8 +131,8 @@ pub fn server(address: &str) -> Result<(), ServerError> {
     
     println!("Reading users config into memory");
     
-    let mut global_tables: Arc<Mutex<HashMap<String, StrictTable>>> = Arc::new(Mutex::new(HashMap::new()));
-    let mut global_kv_table: Arc<Mutex<HashMap<String, &[u8]>>> = Arc::new(Mutex::new(HashMap::new()));
+    let global_tables: Arc<Mutex<HashMap<String, StrictTable>>> = Arc::new(Mutex::new(HashMap::new()));
+    let global_kv_table: Arc<Mutex<HashMap<String, Value>>> = Arc::new(Mutex::new(HashMap::new()));
     let mut users: HashMap<String, User> = HashMap::new();
     
     if std::path::Path::new("EZconfig").is_dir() {
@@ -140,6 +150,9 @@ pub fn server(address: &str) -> Result<(), ServerError> {
         let temp = String::from("#username;password_hash;permissions\nadmin;6ef5f331ccc2384c9e744dead5cb61b7e1624b9bf2eaf9b2a1aa8baf4cc0692e;All:All\nguest;0d99d15ec31cb06b828ed4de120e2f82a3b3d1ca716b4fd574159d97f13cf6b3;good_csv:Download,Query-All:Download");
         std::fs::create_dir("EZconfig").expect("Need IO access to initialize database");
         std::fs::create_dir("EZconfig/raw_tables").expect("Need IO access to initialize database");
+        std::fs::create_dir("EZconfig/raw_tables-metadata").expect("Need IO access to initialize database");
+        std::fs::create_dir("EZconfig/key_value").expect("Need IO access to initialize database");
+        std::fs::create_dir("EZconfig/key_value-metadata").expect("Need IO access to initialize database");
         let mut user_file = match std::fs::File::create(format!("{CONFIG_FOLDER}.users")) {
             Ok(f) => f,
             Err(e) => return Err(ServerError::Strict(StrictError::Io(e.kind()))),
@@ -165,6 +178,7 @@ pub fn server(address: &str) -> Result<(), ServerError> {
 
     let data_saving_global_data = global_tables.clone();
     let data_saving_users = Arc::clone(&users);
+    let data_saving_kv = global_kv_table.clone();
     std::thread::spawn(move || {
         loop {
             std::thread::sleep(std::time::Duration::from_secs(10));
@@ -174,7 +188,7 @@ pub fn server(address: &str) -> Result<(), ServerError> {
                 for (name, table) in data.iter() {
                     match table.save_to_disk_raw(CONFIG_FOLDER) {
                         Ok(_) => (),
-                        Err(e) => println!("Unable to save because: {}", e),
+                        Err(e) => println!("Unable to save table {} because: {}", name, e),
                     };
                 }
                 let user_lock = data_saving_users.lock().unwrap();
@@ -184,6 +198,16 @@ pub fn server(address: &str) -> Result<(), ServerError> {
                     printer.push_str("\n");
                 }
                 printer.pop();
+            }
+
+            {
+                let data = data_saving_kv.lock().unwrap();
+                for (key, value) in data.iter() {
+                    match value.save_to_disk_raw(key, CONFIG_FOLDER) {
+                        Ok(_) => (),
+                        Err(e) => println!("Unable to save value of key '{}' because: {}",key, e),
+                    };
+                }
             }
         }
     
@@ -244,8 +268,8 @@ pub fn server(address: &str) -> Result<(), ServerError> {
                     return
                 }
             }
-            println!("encrypted auth_buffer: {:x?}", auth_buffer);
-            println!("Encrypted auth_buffer.len(): {}", auth_buffer.len());
+            // println!("encrypted auth_buffer: {:x?}", auth_buffer);
+            // println!("Encrypted auth_buffer.len(): {}", auth_buffer.len());
 
             let (ciphertext, nonce) = (&auth_buffer[0..auth_buffer.len()-12], &auth_buffer[auth_buffer.len()-12..auth_buffer.len()]);
             println!("About to decrypt auth string");
@@ -266,9 +290,9 @@ pub fn server(address: &str) -> Result<(), ServerError> {
             };
             let password = &auth_string[512..];
 
-            println!("username: {}\npassword: {:x?}", username, password);
+            // println!("username: {}\npassword: {:x?}", username, password);
             let password = blake3_hash(&password);
-            println!("password_hash: {:x?}", password);
+            // println!("password_hash: {:x?}", password);
             println!("About to verify username and password");
             
             let mut connection: Connection;
@@ -315,7 +339,7 @@ pub fn server(address: &str) -> Result<(), ServerError> {
                 };
             }
             
-            println!("Instruction buffer[0..50]: {:x?}", &buffer[0..50]);
+            // println!("Instruction buffer[0..50]: {:x?}", &buffer[0..50]);
             let instructions = &buffer[0..instruction_size];
             
             println!("Parsing instructions...");
@@ -379,9 +403,11 @@ pub fn server(address: &str) -> Result<(), ServerError> {
                         
                     },
                     Instruction::KvUpload(table_name) => {
+                        let check_global_kv  = thread_global_kv_table.clone(); 
                         match handle_kv_upload(&mut connection, &table_name, thread_global_kv_table.clone()) {
                             Ok(_) => {
                                 println!("Operation finished!");
+                                println!("kv result: {:x?}", check_global_kv.lock().unwrap().get("test_key").unwrap().body);
                             },
                             Err(e) => {
                                 println!("Operation failed because: {}", e);
