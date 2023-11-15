@@ -104,6 +104,9 @@ pub enum Instruction {
     Update(String),
     Query(String /* table_name */, String /* query */),
     NewUser(String),
+    KvUpload(String),
+    KvUpdate(String),
+    KvDownload(String),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -399,6 +402,9 @@ pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut C
         Instruction::Update(table_name) => format!("Updating|{}|blank", table_name),
         Instruction::Query(table_name, query) => format!("Querying|{}|{}", table_name, query),
         Instruction::NewUser(user_string) => format!("NewUser|{}|blank", user_string),
+        Instruction::KvUpload(table_name) => format!("KvUpload|{}|blank", table_name),
+        Instruction::KvUpdate(table_name) => format!("KvUpdate|{}|blank", table_name),
+        Instruction::KvDownload(table_name) => format!("KvDownload|{}|blank", table_name),
     };
 
     let instruction_string = format!("{instruction}");

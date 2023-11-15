@@ -14,24 +14,24 @@ use crate::aes_temp_crypto::decrypt_aes256;
 use crate::auth::{User, AuthenticationError};
 use crate::diffie_hellman::{DiffieHellman, blake3_hash, shared_secret};
 use crate::logger::{get_current_time, LogTimeStamp};
-use crate::threadpool::ThreadPool;
-use crate::{networking_utilities::*, threadpool};
+use crate::networking_utilities::*;
 use crate::db_structure::{StrictTable, StrictError};
+use crate::handlers::*;
 
 pub const CONFIG_FOLDER: &str = "EZconfig/";
 
 
-pub fn parse_instruction(instructions: &[u8], users: Arc<Mutex<HashMap<String, User>>>, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>, aes_key: &[u8]) -> Result<Instruction, ServerError> {
+pub fn parse_instruction(instructions: &[u8], users: Arc<Mutex<HashMap<String, User>>>, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>, global_kv_table: Arc<Mutex<HashMap<String, &[u8]>>>, aes_key: &[u8]) -> Result<Instruction, ServerError> {
 
-    println!("parsing 1...");
+    println!("Decrypting instructions");
     let ciphertext = &instructions[0..instructions.len()-12];
     let nonce = &instructions[instructions.len()-12..];
-    println!("received encrypted instructions: {:x?}", ciphertext);
-    println!("received nonce: {:x?}", nonce);
+
     let plaintext = decrypt_aes256(&ciphertext, aes_key, &nonce)?;
-    println!("decrypted_instructions: {:x?}", plaintext);
+
     let instruction = bytes_to_str(&plaintext)?;
-    println!("instruction: {}", instruction);
+
+
     let instruction_block: Vec<&str> = instruction.split('|').collect();
 
     println!("parsing 2...");
@@ -87,155 +87,17 @@ pub fn parse_instruction(instructions: &[u8], users: Arc<Mutex<HashMap<String, U
                 Ok(Instruction::Update(table_name.to_owned()))
             }
         },
+        "KV_UPLOAD" => {
+            if global_kv_table.lock().unwrap().contains_key(table_name) {
+                return Err(ServerError::Instruction(InstructionError::InvalidTable("Entry already exists. Use 'update' instead".to_owned())));
+            } else {
+                Ok(Instruction::KvUpload(table_name.to_owned()))
+            }
+        }
         _ => {return Err(ServerError::Instruction(InstructionError::Invalid(action.to_owned())));},
     }
 }
 
-
-fn handle_download_request(mut connection: &mut Connection, name: &str, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<(), ServerError> {
-    
-    match connection.stream.write("OK".as_bytes()) {
-        Ok(n) => println!("Wrote {n} bytes"),
-        Err(e) => {return Err(ServerError::Io(e));},
-    };
-
-    let mut mutex_binding = global_tables.lock().unwrap();
-    let mut requested_table = mutex_binding.get_mut(name).expect("Instruction parser should have verified table");
-    let requested_csv = requested_table.to_csv_string();
-    println!("Requested_csv: {}", requested_csv);
-
-    let response = data_send_and_confirm(&mut connection, &requested_csv)?;
-
-    if response == "OK" {
-        requested_table.metadata.last_access = get_current_time();
-
-        requested_table.metadata.times_accessed += 1;
-        println!("metadata: {}", requested_table.metadata.to_string());
-
-        return Ok(())
-    } else {
-        return Err(ServerError::Confirmation(response))
-    }
-
-}
-
-
-fn handle_upload_request(mut connection: &mut Connection, name: &str, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<String, ServerError> {
-
-    match connection.stream.write("OK".as_bytes()) {
-        Ok(n) => println!("Wrote OK as {n} bytes"),
-        Err(e) => {return Err(ServerError::Io(e));},
-    };
-
-    let (csv, total_read) = receive_data(&mut connection)?;
-
-    // Here we create a StrictTable from the csv and supplied name
-    println!("About to check for strictness");
-    let instant = std::time::Instant::now();
-    match StrictTable::from_csv_string(&csv, name) {
-        Ok(mut table) => {
-            match connection.stream.write(format!("{}", total_read).as_bytes()) {
-                Ok(_) => {
-                    println!("Time to check strictness: {}", instant.elapsed().as_millis());
-                    println!("Confirmed correctness with client");
-                },
-                Err(e) => {return Err(ServerError::Io(e));},
-            };
-
-            println!("Appending to global");
-            println!("{:?}", &table.header);
-            table.metadata.last_access = get_current_time();
-            table.metadata.created_by = connection.peer.Username.clone();
-        
-            table.metadata.times_accessed += 1;
-            
-            global_tables.lock().unwrap().insert(table.name.clone(), table);
-
-        },
-        Err(e) => match connection.stream.write(e.to_string().as_bytes()){
-            Ok(_) => println!("Informed client of unstrictness"),
-            Err(e) => {return Err(ServerError::Io(e));},
-        },
-    };
-    
-
-    Ok("OK".to_owned())
-}
-    
-    
-pub fn handle_update_request(mut connection: &mut Connection, name: &str, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<String, ServerError> {
-    
-    match connection.stream.write("OK".as_bytes()) {
-        Ok(n) => println!("Wrote {n} bytes"),
-        Err(e) => {return Err(ServerError::Io(e));},
-    };
-
-    let (csv, total_read) = receive_data(&mut connection)?;
-
-    let mut mutex_binding = global_tables.lock().unwrap();
-
-    let requested_table = mutex_binding.get_mut(name).expect("Instruction parser should have verified existence of table");
-    
-    match requested_table.update(&csv) {
-        Ok(_) => {
-            connection.stream.write(total_read.to_string().as_bytes())?;
-        },
-        Err(e) => {
-            connection.stream.write(e.to_string().as_bytes())?;
-            return Err(ServerError::Strict(e));
-        },
-    };
-
-    Ok("OK".to_owned())
-}
-
-
-fn handle_query_request(mut connection: &mut Connection, name: &str, query: &str, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<String, ServerError> {
-    match connection.stream.write("OK".as_bytes()) {
-        Ok(n) => println!("Wrote {n} bytes"),
-        Err(e) => {return Err(ServerError::Io(e));},
-    };
-
-    
-    let mutex_binding = global_tables.lock().unwrap();
-    let requested_table = mutex_binding.get(name).expect("Instruction parser should have verified table");
-    let requested_csv: String;
-    // PARSE INSTRUCTION
-    let query_type;
-    match query.find("..") {
-        Some(i) => query_type = "range",
-        None => query_type = "list"
-    };
-
-    if query_type == "range" {
-        let parsed_query: Vec<&str> = query.split("..").collect();
-        requested_csv = requested_table.query_range((parsed_query[0], parsed_query[1]))?;
-    } else {
-        let parsed_query = query.split(',').collect();
-        requested_csv = requested_table.query_list(parsed_query)?;
-    }
-
-    let response = data_send_and_confirm(&mut connection, &requested_csv)?;
-    
-    if response == "OK" {
-        return Ok("OK".to_owned())
-    } else {
-        return Err(ServerError::Confirmation(response))
-    }
-}
-
-
-pub fn handle_new_user_request(user_string: &str, users: Arc<Mutex<HashMap<String, User>>>) -> Result<(), ServerError> {
-
-    let user = User::from_str(user_string)?;
-
-    let mut user_lock = users.lock().unwrap();
-    user_lock.insert(user.Username.clone(), user);
-
-
-    Ok(())
-
-}
 
 
 
@@ -245,6 +107,7 @@ pub fn server(address: &str) -> Result<(), ServerError> {
     println!("Starting server...\n###########################");
     println!("Binding to address: {address}");
 
+    let thread_pool = rayon::ThreadPoolBuilder::new().build().unwrap();
     
     let server_dh = DiffieHellman::new();
     let server_public_key = Arc::new(server_dh.public_key().to_digits::<u8>(Order::Lsf));
@@ -259,6 +122,7 @@ pub fn server(address: &str) -> Result<(), ServerError> {
     println!("Reading users config into memory");
     
     let mut global_tables: Arc<Mutex<HashMap<String, StrictTable>>> = Arc::new(Mutex::new(HashMap::new()));
+    let mut global_kv_table: Arc<Mutex<HashMap<String, &[u8]>>> = Arc::new(Mutex::new(HashMap::new()));
     let mut users: HashMap<String, User> = HashMap::new();
     
     if std::path::Path::new("EZconfig").is_dir() {
@@ -274,8 +138,8 @@ pub fn server(address: &str) -> Result<(), ServerError> {
     } else {
         println!("config does not exist");
         let temp = String::from("#username;password_hash;permissions\nadmin;6ef5f331ccc2384c9e744dead5cb61b7e1624b9bf2eaf9b2a1aa8baf4cc0692e;All:All\nguest;0d99d15ec31cb06b828ed4de120e2f82a3b3d1ca716b4fd574159d97f13cf6b3;good_csv:Download,Query-All:Download");
-        std::fs::create_dir("EZconfig").unwrap();
-        std::fs::create_dir("EZconfig/raw_tables").unwrap();
+        std::fs::create_dir("EZconfig").expect("Need IO access to initialize database");
+        std::fs::create_dir("EZconfig/raw_tables").expect("Need IO access to initialize database");
         let mut user_file = match std::fs::File::create(format!("{CONFIG_FOLDER}.users")) {
             Ok(f) => f,
             Err(e) => return Err(ServerError::Strict(StrictError::Io(e.kind()))),
@@ -338,21 +202,33 @@ pub fn server(address: &str) -> Result<(), ServerError> {
         println!("Accepted connection from: {}", client_address);        
         
         let thread_global_tables = global_tables.clone();
+        let thread_global_kv_table = global_kv_table.clone();
         let mut thread_users = Arc::clone(&users);
         let thread_public_key = server_public_key.clone();
         let thread_private_key = server_private_key.clone();
         
 
         // Spawn a thread to handle establishing connections
-        let thread_builder = std::thread::Builder::new();
-        thread_builder.spawn(move || {
+        thread_pool.spawn(move || {
 
             // ################## ESTABLISHING ENCRYPTED CONNECTION ##########################################################################################################
-            stream.write(&thread_public_key)?;
+            match stream.write(&thread_public_key) {
+                Ok(n) => (),
+                Err(e) => {
+                    println!("failed to write server public key because: {}", e);
+                    return
+                }
+            }
             println!("About to get crypto");
             let mut buffer: [u8; 256] = [0; 256];
             
-            stream.read_exact(&mut buffer)?;
+            match stream.read_exact(&mut buffer){
+                Ok(n) => (),
+                Err(e) => {
+                    println!("failed to read client public key because: {}", e);
+                    return
+                }
+            }
             
             let client_public_key = Integer::from_digits(&buffer, Order::Lsf);
             
@@ -361,15 +237,34 @@ pub fn server(address: &str) -> Result<(), ServerError> {
 
             let mut auth_buffer = [0u8; 1052];
             println!("About to read auth string");
-            stream.read_exact(&mut auth_buffer)?;
+            match stream.read_exact(&mut auth_buffer) {
+                Ok(n) => (),
+                Err(e) => {
+                    println!("failed to read auth_string because: {}", e);
+                    return
+                }
+            }
             println!("encrypted auth_buffer: {:x?}", auth_buffer);
             println!("Encrypted auth_buffer.len(): {}", auth_buffer.len());
 
             let (ciphertext, nonce) = (&auth_buffer[0..auth_buffer.len()-12], &auth_buffer[auth_buffer.len()-12..auth_buffer.len()]);
             println!("About to decrypt auth string");
-            let auth_string = decrypt_aes256(ciphertext, &aes_key, nonce).unwrap();
+            let auth_string = match decrypt_aes256(ciphertext, &aes_key, nonce) {
+                Ok(s) => s,
+                Err(e) => {
+                    println!("failed to decrypt auth string because: {}", e);
+                    return
+                }
+            };
             println!("About to parse auth_string");
-            let (username, password) = (bytes_to_str(&auth_string[0..512])?, &auth_string[512..]);
+            let username = match bytes_to_str(&auth_string[0..512]) {
+                Ok(s) => s,
+                Err(e) => {
+                    println!("failed to read auth_string from bytes because: {}", e);
+                    return
+                }
+            };
+            let password = &auth_string[512..];
 
             println!("username: {}\npassword: {:x?}", username, password);
             let password = blake3_hash(&password);
@@ -380,12 +275,20 @@ pub fn server(address: &str) -> Result<(), ServerError> {
             {
                 let thread_users_lock = thread_users.lock().unwrap();
                 if !thread_users_lock.contains_key(username) {
-                    return Err::<(), ServerError>(ServerError::Authentication(AuthenticationError::WrongUser(username.to_owned())));
+                    println!("Username:\n\t{}\n...is wrong", username);
+                    return 
                 } else if thread_users_lock[username].Password != password {
-                    return Err(ServerError::Authentication(AuthenticationError::WrongPassword(password)));
+                    println!("Password hash:\n\t{:?}\n...is wrong", password);
+                    return
                 }
                 
-                let peer_addr = stream.peer_addr()?.clone().to_string();
+                let peer_addr = match stream.peer_addr() {
+                    Ok(addr) => addr,
+                    Err(e) => {
+                        println!("failed to get peer_addr because: {}", e);
+                        return
+                    }
+                };
                 connection = Connection {
                     stream: stream, 
                     peer: thread_users_lock[username].clone(), 
@@ -405,7 +308,10 @@ pub fn server(address: &str) -> Result<(), ServerError> {
             while instruction_size == 0 {
                 match connection.stream.read(&mut buffer) {
                     Ok(n) => instruction_size = n,
-                    Err(e) => return Err(ServerError::Io(e)),
+                    Err(e) => {
+                        println!("There was an io error during a large read");
+                        return
+                    },
                 };
             }
             
@@ -413,7 +319,7 @@ pub fn server(address: &str) -> Result<(), ServerError> {
             let instructions = &buffer[0..instruction_size];
             
             println!("Parsing instructions...");
-            match parse_instruction(instructions, thread_users.clone(), thread_global_tables.clone(), &connection.aes_key) {
+            match parse_instruction(instructions, thread_users.clone(), thread_global_tables.clone(), thread_global_kv_table.clone(), &connection.aes_key) {
                 Ok(i) => match i {
                     
                     Instruction::Download(name) => {
@@ -421,7 +327,10 @@ pub fn server(address: &str) -> Result<(), ServerError> {
                             Ok(_) => {
                                 println!("Operation finished!");
                             },
-                            Err(e) => {return Err(e);}
+                            Err(e) => {
+                                println!("Operation failed because: {}", e);
+                                return
+                            }
                         }
                     },
                     Instruction::Upload(name) => {
@@ -429,7 +338,10 @@ pub fn server(address: &str) -> Result<(), ServerError> {
                             Ok(_) => {
                                 println!("Operation finished!");
                             },
-                            Err(e) => {return Err(e);}
+                            Err(e) => {
+                                println!("Operation failed because: {}", e);
+                                return
+                            }
                         }
                     },
                     Instruction::Update(name) => {
@@ -437,7 +349,10 @@ pub fn server(address: &str) -> Result<(), ServerError> {
                             Ok(_) => {
                                 println!("Operation finished!");
                             },
-                            Err(e) => {return Err(e);},
+                            Err(e) => {
+                                println!("Operation failed because: {}", e);
+                                return
+                            },
                         }
                     },
                     Instruction::Query(table_name, query) => {
@@ -445,7 +360,10 @@ pub fn server(address: &str) -> Result<(), ServerError> {
                             Ok(_) => {
                                 println!("Operation finished!");
                             },
-                            Err(e) => {return Err(e);},
+                            Err(e) => {
+                                println!("Operation failed because: {}", e);
+                                return
+                            },
                         }
                     },
                     Instruction::NewUser(user_string) => {
@@ -453,24 +371,64 @@ pub fn server(address: &str) -> Result<(), ServerError> {
                             Ok(_) => {
                                 println!("New user added!");
                             },
-                            Err(e) => {return Err(e);},
+                            Err(e) => {
+                                println!("Operation failed because: {}", e);
+                                return
+                            },
                         }
                         
+                    },
+                    Instruction::KvUpload(table_name) => {
+                        match handle_kv_upload(&mut connection, &table_name, thread_global_kv_table.clone()) {
+                            Ok(_) => {
+                                println!("Operation finished!");
+                            },
+                            Err(e) => {
+                                println!("Operation failed because: {}", e);
+                                return
+                            },
+                        }
+                    },
+                    Instruction::KvUpdate(table_name) => {
+                        match handle_kv_update(&mut connection, &table_name, thread_global_kv_table.clone()) {
+                            Ok(_) => {
+                                println!("Operation finished!");
+                            },
+                            Err(e) => {
+                                println!("Operation failed because: {}", e);
+                                return
+                            },
+                        }
+                    },
+                    Instruction::KvDownload(table_name) => {
+                        match handle_kv_download(&mut connection, &table_name, thread_global_kv_table.clone()) {
+                            Ok(_) => {
+                                println!("Operation finished!");
+                            },
+                            Err(e) => {
+                                println!("Operation failed because: {}", e);
+                                return
+                            },
+                        }
                     },
                 },
                 
                 Err(e) => {
-                    connection.stream.write(&e.to_string().as_bytes())?;
+                    match connection.stream.write(&e.to_string().as_bytes()){
+                        Ok(n) => (),
+                        Err(e) => {
+                            println!("failed to write error message because: {}", e);
+                            return
+                        }
+                    }
                     println!("Thread finished on error: {e}");
-                    return Err(e);
+                    return
                 },
                 
             };
 
-            Ok(())
-
             //####################### END OF HANDLING REQUESTS #############################################################################################################
-        })?;
+        });
 
     ()
 
