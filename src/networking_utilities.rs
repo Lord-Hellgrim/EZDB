@@ -136,7 +136,7 @@ impl From<Utf8Error> for InstructionError {
 
 pub struct Connection {
     pub stream: TcpStream,
-    pub peer: User,
+    pub user: String,
     pub aes_key: Vec<u8>,   
 }
 
@@ -177,12 +177,11 @@ impl Connection {
         stream.write_all(&encrypted_data_block)?;
         stream.flush()?;
 
-        let mut user = User::new(username, password);
-        user.password = password.as_bytes().to_owned();
+        let mut user = username.to_owned();
         Ok(
             Connection {
                 stream: stream,
-                peer: user,
+                user: user,
                 aes_key: aes_key,
             }
         )
@@ -392,14 +391,14 @@ pub fn hash_function(a: &str) -> Vec<u8> {
 pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut Connection) -> Result<String, ServerError> {
 
     let instruction = match instruction {
-        Instruction::Download(table_name) => format!("Downloading|{}|blank|{}", table_name, connection.peer.username),
-        Instruction::Upload(table_name) => format!("Uploading|{}|blank|{}", table_name, connection.peer.username),
-        Instruction::Update(table_name) => format!("Updating|{}|blank|{}", table_name, connection.peer.username),
-        Instruction::Query(table_name, query) => format!("Querying|{}|{}|{}", table_name, query, connection.peer.username),
-        Instruction::NewUser(user_string) => format!("NewUser|{}|blank|{}", user_string, connection.peer.username),
-        Instruction::KvUpload(table_name) => format!("KvUpload|{}|blank|{}", table_name, connection.peer.username),
-        Instruction::KvUpdate(table_name) => format!("KvUpdate|{}|blank|{}", table_name, connection.peer.username),
-        Instruction::KvDownload(table_name) => format!("KvDownload|{}|blank|{}", table_name, connection.peer.username),
+        Instruction::Download(table_name) => format!("Downloading|{}|blank|{}", table_name, connection.user),
+        Instruction::Upload(table_name) => format!("Uploading|{}|blank|{}", table_name, connection.user),
+        Instruction::Update(table_name) => format!("Updating|{}|blank|{}", table_name, connection.user),
+        Instruction::Query(table_name, query) => format!("Querying|{}|{}|{}", table_name, query, connection.user),
+        Instruction::NewUser(user_string) => format!("NewUser|{}|blank|{}", user_string, connection.user),
+        Instruction::KvUpload(table_name) => format!("KvUpload|{}|blank|{}", table_name, connection.user),
+        Instruction::KvUpdate(table_name) => format!("KvUpdate|{}|blank|{}", table_name, connection.user),
+        Instruction::KvDownload(table_name) => format!("KvDownload|{}|blank|{}", table_name, connection.user),
     };
 
     let instruction_string = format!("{instruction}");

@@ -117,13 +117,17 @@ impl User {
 
 #[inline]
 pub fn user_has_permission(table_name: &str, action: &str, username: &str, users: Arc<Mutex<HashMap<String, User>>>) -> bool {
-    
+
     let permission = match Permission::from_str(action) {
         Some(action) => action,
         None => return false
     };
     let user_lock = users.lock().unwrap();
     let user = user_lock.get(username).expect("We already know the user exists");
+
+    if user.admin {
+        return true
+    }
 
     match permission {
         Permission::Upload => {

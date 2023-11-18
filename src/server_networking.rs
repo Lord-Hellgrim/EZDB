@@ -301,9 +301,11 @@ pub fn server(address: &str) -> Result<(), ServerError> {
                 }
             };
             let password = &auth_string[512..];
+            println!("password: {:?}", password);
 
             // println!("username: {}\npassword: {:x?}", username, password);
-            let password = blake3_hash(&password);
+            let password = blake3_hash(&bytes_to_str(password).unwrap().as_bytes());
+            println!("password: {:?}", password);
             // println!("password_hash: {:x?}", password);
             println!("About to verify username and password");
             
@@ -315,6 +317,8 @@ pub fn server(address: &str) -> Result<(), ServerError> {
                     println!("Username:\n\t{}\n...is wrong", username);
                     return 
                 } else if thread_users_lock[username].password != password {
+                    println!("thread_users_lock[username].password: {:?}", thread_users_lock[username].password);
+                    println!("password: {:?}", password);
                     println!("Password hash:\n\t{:?}\n...is wrong", password);
                     return
                 }
@@ -328,7 +332,7 @@ pub fn server(address: &str) -> Result<(), ServerError> {
                 };
                 connection = Connection {
                     stream: stream, 
-                    peer: thread_users_lock[username].clone(), 
+                    user: username.to_owned(), 
                     aes_key: aes_key
                 };
             }

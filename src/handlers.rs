@@ -57,7 +57,7 @@ pub fn handle_upload_request(mut connection: &mut Connection, name: &str, global
             println!("Appending to global");
             println!("{:?}", &table.header);
             table.metadata.last_access = get_current_time();
-            table.metadata.created_by = connection.peer.username.clone();
+            table.metadata.created_by = connection.user.clone();
         
             table.metadata.times_accessed += 1;
             
@@ -170,7 +170,7 @@ pub fn handle_kv_upload(mut connection: &mut Connection, name: &str, global_kv_t
 
     println!("Appending to global");
     
-    let value = Value::new(&connection.peer.username, &value);
+    let value = Value::new(&connection.user, &value);
 
     let mut global_kv_table_lock = global_kv_table.lock().unwrap();
     global_kv_table_lock.insert(name.to_owned(), value);
@@ -201,7 +201,7 @@ pub fn handle_kv_update(mut connection: &mut Connection, name: &str, global_kv_t
 
     println!("Appending to global");
     
-    let value = Value::new(&connection.peer.username, &value);
+    let value = Value::new(&connection.user, &value);
 
     global_kv_table.lock().unwrap().insert(name.to_owned(), value);
 
