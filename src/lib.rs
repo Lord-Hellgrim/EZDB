@@ -1,5 +1,5 @@
 //#![allow(unused)]
-#![allow(non_snake_case)]
+//#![allow(non_snake_case)]
 #![feature(core_intrinsics, stdsimd)]
 
 pub mod db_structure;

@@ -8,7 +8,7 @@ use rug::Integer;
 use rug::integer::Order;
 
 use crate::aes_temp_crypto::decrypt_aes256;
-use crate::auth::User;
+use crate::auth::{User, AuthenticationError, Permission, user_has_permission};
 use crate::diffie_hellman::{DiffieHellman, blake3_hash, shared_secret};
 use crate::networking_utilities::*;
 use crate::db_structure::{StrictTable, StrictError, Value};
@@ -40,10 +40,12 @@ pub fn parse_instruction(instructions: &[u8], users: Arc<Mutex<HashMap<String, U
         action, 
         table_name,
         query,
+        username,
     ) = (
         instruction_block[0], 
         instruction_block[1],
         instruction_block[2],
+        instruction_block[3],
     );
 
     if table_name == "All" {
@@ -55,11 +57,21 @@ pub fn parse_instruction(instructions: &[u8], users: Arc<Mutex<HashMap<String, U
         "Querying" => {
             if !global_tables.lock().unwrap().contains_key(table_name) {
                 return Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())));
+            } else if user_has_permission(table_name, action, username, users) {
+                
+                return Ok(Instruction::Query(table_name.to_owned(), query.to_owned()));
+                
             } else {
-                Ok(Instruction::Query(table_name.to_owned(), query.to_owned()))
+                return Err(ServerError::Authentication(AuthenticationError::Permission))
             }
         }
-        "Uploading" => Ok(Instruction::Upload(table_name.to_owned())),
+        "Uploading" => {
+            if user_has_permission(table_name, action, username, users) {
+                return Ok(Instruction::Upload(table_name.to_owned()));
+            } else {
+                return Err(ServerError::Authentication(AuthenticationError::Permission))
+            }
+        } 
         "Downloading" => {
             if !global_tables.lock().unwrap().contains_key(table_name) {
                 let raw_table_exists = std::path::Path::new(&format!("{}/raw_tables/{}", CONFIG_FOLDER, table_name)).exists();
@@ -142,12 +154,12 @@ pub fn server(address: &str) -> Result<(), ServerError> {
             if line.as_bytes()[0] == '#' as u8 {
                 continue
             }
-            let t: Vec<&str> = line.split(';').collect();
-            users.insert(t[0].to_owned(), User::from_str(line)?);
+            let temp_user: User = ron::from_str(line).unwrap();
+            users.insert(temp_user.username.clone(), temp_user);
         }
     } else {
         println!("config does not exist");
-        let temp = String::from("#username;password_hash;permissions\nadmin;6ef5f331ccc2384c9e744dead5cb61b7e1624b9bf2eaf9b2a1aa8baf4cc0692e;All:All\nguest;0d99d15ec31cb06b828ed4de120e2f82a3b3d1ca716b4fd574159d97f13cf6b3;good_csv:Download,Query-All:Download");
+        let temp = ron::to_string(&User::admin("admin", "admin")).unwrap();
         std::fs::create_dir("EZconfig").expect("Need IO access to initialize database");
         std::fs::create_dir("EZconfig/raw_tables").expect("Need IO access to initialize database");
         std::fs::create_dir("EZconfig/raw_tables-metadata").expect("Need IO access to initialize database");
@@ -162,8 +174,8 @@ pub fn server(address: &str) -> Result<(), ServerError> {
             if line.as_bytes()[0] == '#' as u8 {
                 continue
             }
-            let t: Vec<&str> = line.split(';').collect();
-            users.insert(t[0].to_owned(), User::from_str(line)?);
+            let temp_user: User = ron::from_str(line).unwrap();
+            users.insert(temp_user.username.clone(), temp_user);
         }
     } 
 
@@ -194,7 +206,7 @@ pub fn server(address: &str) -> Result<(), ServerError> {
                 let user_lock = data_saving_users.lock().unwrap();
                 let mut printer = String::new();
                 for (_, user) in user_lock.iter() {
-                    printer.push_str(&user.to_str());
+                    printer.push_str(&ron::to_string(&user).unwrap());
                     printer.push_str("\n");
                 }
                 printer.pop();
@@ -299,9 +311,10 @@ pub fn server(address: &str) -> Result<(), ServerError> {
             {
                 let thread_users_lock = thread_users.lock().unwrap();
                 if !thread_users_lock.contains_key(username) {
+                    println!("users: {:?}", thread_users_lock["admin"]);
                     println!("Username:\n\t{}\n...is wrong", username);
                     return 
-                } else if thread_users_lock[username].Password != password {
+                } else if thread_users_lock[username].password != password {
                     println!("Password hash:\n\t{:?}\n...is wrong", password);
                     return
                 }

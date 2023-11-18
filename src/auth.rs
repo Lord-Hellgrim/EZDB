@@ -1,6 +1,8 @@
-use std::{fmt, collections::HashMap};
+use std::{fmt, collections::HashMap, sync::{Arc, Mutex}};
 
-use crate::networking_utilities::{decode_hex, ServerError, encode_hex};
+use serde::{Serialize, Deserialize};
+
+use crate::{networking_utilities::{decode_hex, ServerError, encode_hex, Instruction}, diffie_hellman::blake3_hash};
 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -9,17 +11,15 @@ pub enum Permission {
     Download,
     Update,
     Query,
-    All,
 }
 
 impl Permission {
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
-            "Upload" => Some(Permission::Upload),
-            "Download" => Some(Permission::Download),
-            "Update" => Some(Permission::Update),
-            "Query" => Some(Permission::Query),
-            "All" => Some(Permission::All),
+            "Upload" | "Uploading" | "KvUpload" => Some(Permission::Upload),
+            "Download" | "Downloading" | "KvDownload" => Some(Permission::Download),
+            "Update" | "Updating" | "KvUpdate" => Some(Permission::Update),
+            "Query" | "Querying" => Some(Permission::Query),
             _ => None
         }
     }
@@ -30,72 +30,139 @@ impl Permission {
             Permission::Download => "Download".to_owned(),
             Permission::Update => "Update".to_owned(),
             Permission::Query => "Query".to_owned(),
-            Permission::All => "All".to_owned(),
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct User {
-    pub Username: String,
-    pub Password: Vec<u8>,
-    pub Permissions: HashMap<String, Vec<Permission>>,
+    pub username: String,
+    pub password: Vec<u8>,
+    pub admin: bool,
+    pub can_upload: bool,
+    pub can_download: Vec<String>,
+    pub can_update: Vec<String>,
+    pub can_query: Vec<String>,
 }
 
 impl User {
-    pub fn from_str(s: &str) -> Result<Self, ServerError> {
 
-        let s: Vec<&str> = s.split(';').collect();
-
-        let Username = s[0].to_owned();
-        let Password = decode_hex(s[1]).expect("File must have been corrupted"); // safe because we are reading froma file that was written to by encode_hex
-        let permissions_temp = s[2];
-        let mut permissions = HashMap::new();
-        let permissions_temp: Vec<&str> = permissions_temp.split('-').collect();
-        for permission in permissions_temp {
-            let temp: Vec<&str> = permission.split(':').collect();
-            let perms: Vec<&str> = temp[1].split(',').collect();
-            let perms: Vec<Permission> = perms.iter().map(|n| Permission::from_str(n).unwrap()).collect();
-            permissions.insert(temp[0].to_owned(), perms);
+    pub fn new(username: &str, password: &str) -> User {
+        User {
+            username: username.to_owned(),
+            password: blake3_hash(password.as_bytes()),
+            admin: false,
+            can_upload: false,
+            can_download: Vec::new(),
+            can_update: Vec::new(),
+            can_query: Vec::new(),
         }
-        Ok(
-            User {
-                Username: Username,
-                Password: Password,
-                Permissions: permissions,
-            }
-        )
     }
 
-    pub fn to_str(&self) -> String {
-        let mut output = String::new();
-
-        output.push_str(&self.Username);
-        output.push_str(";");
-        output.push_str(&encode_hex(&self.Password));
-        output.push_str(";");
-        for (table, permissions) in &self.Permissions {
-            output.push_str(table);
-            output.push_str(":");
-            for permission in permissions {
-                output.push_str(&permission.to_str());
-                output.push_str(",");
-            }
-            output.pop();
-            output.push_str("-");
+    pub fn admin(username: &str, password: &str) -> User {
+        User {
+            username: username.to_owned(),
+            password: blake3_hash(password.as_bytes()),
+            admin: true,
+            can_upload: true,
+            can_download: Vec::new(),
+            can_update: Vec::new(),
+            can_query: Vec::new(),
         }
-        output.pop();
-
-        output
     }
 
+    // pub fn from_str(s: &str) -> Result<Self, ServerError> {
+
+    //     let s: Vec<&str> = s.split(';').collect();
+
+    //     let username = s[0].to_owned();
+    //     let password = decode_hex(s[1]).expect("User config file must have been corrupted"); // safe because we are reading froma file that was written to by encode_hex
+    //     let permissions_temp = s[2];
+    //     if permissions_temp == "Admin" {
+    //         return Ok(User::admin(&username))
+    //     }
+    //     let permissions_temp: Vec<&str> = permissions_temp.split('-').collect();
+    //     let mut user = User::new(&username);
+    //     for permission in permissions_temp {
+    //         let t: Vec<&str> = permission.split(':').collect();
+    //         if t.len() >= 2 {
+    //             match t[0] {
+    //                 "Upload" => user.can_upload = t[1].parse::<bool>().expect("Config file must be wrongly spelled. Make sure upload is ony eith 'false' or 'true"),
+    //                 "Download" => user.can_download = t[1].split(',').map(|n| n.to_owned()).collect() ,
+    //                 "Update" => user.can_update = t[1].split(',').map(|n| n.to_owned()).collect(),
+    //                 "Query" => user.can_query = t[1].split(',').map(|n| n.to_owned()).collect(),
+    //             }
+    //         }
+    //     }
+    //     Ok(user)
+    // }
+
+    // pub fn to_str(&self) -> String {
+    //     let mut output = String::new();
+    //     output.push_str(&self.username);
+    //     output.push_str(&encode_hex(&self.password));
+    //     output.push_str(&format!("Upload:{}", self.can_upload));
+    //     output.push_str("Download");
+    //     for permission in self.can_download {
+    //         output.push_str(string)
+    //     }
+        
+
+    //     guest;0d99d15ec31cb06b828ed4de120e2f82a3b3d1ca716b4fd574159d97f13cf6b3;Upload:false-Download:good_csv,test_csv-Update:good_csv-Query:All
+    // }
+
+    
+
+}
+
+#[inline]
+pub fn user_has_permission(table_name: &str, action: &str, username: &str, users: Arc<Mutex<HashMap<String, User>>>) -> bool {
+    
+    let permission = match Permission::from_str(action) {
+        Some(action) => action,
+        None => return false
+    };
+    let user_lock = users.lock().unwrap();
+    let user = user_lock.get(username).expect("We already know the user exists");
+
+    match permission {
+        Permission::Upload => {
+            if user.can_upload {
+                return true
+            } else {
+                return false
+            }
+        },
+        Permission::Download => {
+            if user.can_download.contains(&table_name.to_owned()) {
+                return true
+            } else {
+                return false
+            }
+        },
+        Permission::Update => {
+            if user.can_update.contains(&table_name.to_owned()) {
+                return true
+            } else {
+                return false
+            }
+        },
+        Permission::Query => {
+            if user.can_query.contains(&table_name.to_owned()) {
+                return true
+            } else {
+                return false
+            }
+        },
+    }
 }
 
 #[derive(Debug, Clone)]
 pub enum AuthenticationError {
     WrongUser(String),
     WrongPassword(Vec<u8>),
-    TooLong
+    TooLong,
+    Permission,
 }
 
 impl fmt::Display for AuthenticationError {
@@ -104,6 +171,7 @@ impl fmt::Display for AuthenticationError {
             AuthenticationError::WrongUser(_) => write!(f, "Username is incorrect"),
             AuthenticationError::WrongPassword(_) => write!(f, "Password is incorrect"),
             AuthenticationError::TooLong => write!(f, "Neither password or username can be more than 512 bytes"),
+            AuthenticationError::Permission => write!(f, "You do not have permission for this action"),
         }
     }
 }
@@ -115,18 +183,13 @@ mod tests {
 
     #[test]
     fn test_user_string_parsing() {
-        let user_string = String::from("admin;6ef5f331ccc2384c9e744dead5cb61b7e1624b9bf2eaf9b2a1aa8baf4cc0692e;All:All");
-        let user = User::from_str(&user_string).unwrap();
-        let mut expected_permissions = HashMap::new();
-        expected_permissions.insert("All".to_owned(), vec![Permission::All]);
-        let expected_user = User {
-            Username: "admin".to_owned(),
-            Password: decode_hex("6ef5f331ccc2384c9e744dead5cb61b7e1624b9bf2eaf9b2a1aa8baf4cc0692e").unwrap(),
-            Permissions: expected_permissions,
-        };
-        assert!(user == expected_user);
-        let stringed_user = user.to_str();
-        assert!(user_string == stringed_user);
+        let temp = String::from(r#"(username:"admin",password:[0x6e,0xf5,0xf3,0x31,0xcc,0xc2,0x38,0x4c,0x9e,0x74,0x4d,0xea,0xd5,0xcb,0x61,0xb7,0xe1,0x62,0x4b,0x9b,0xf2,0xea,0xf9,0xb2,0xa1,0xaa,0x8b,0xaf,0x4c,0xc0,0x69,0x2e],admin:true,can_upload:true,can_download:[],can_update:[],can_query:[])"#);
+        let test_user: User = ron::from_str(&temp).unwrap();
+        dbg!(test_user);
+        let user_string = ron::to_string(&User::admin("admin", "admin")).unwrap();
+        println!("{}", user_string);
+        let user: User = ron::from_str(&user_string).unwrap();
+        assert!(user == User::admin("admin", "admin"));
 
     }
 

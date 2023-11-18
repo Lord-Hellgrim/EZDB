@@ -25,7 +25,10 @@ blake3 = "1.5.0"
 fnv = "1.0.7"
 rand = "0.8.5"
 rayon = "1.8.0"
+ron = "0.8.1"
 rug = "1.22.0"
+serde = { version = "1.0.192", features = ["derive", "alloc"] }
+smartstring = { version = "1.0.1", features = ["serde"] }
 
 
 [dev-dependencies]

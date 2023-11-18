@@ -14,7 +14,7 @@ pub fn download_table(address: &str, username: &str, password: &str, table_name:
 
     let csv: Vec<u8>;
     
-    match parse_response(&response, &connection.peer.Username, &connection.peer.Password, table_name) {
+    match parse_response(&response, &connection.peer.username, &connection.peer.password, table_name) {
         Ok(_) => (csv, _) = receive_data(&mut connection)?,
         Err(e) => return Err(e),
     }
@@ -40,7 +40,7 @@ pub fn upload_table(address: &str, username: &str, password: &str, table_name: &
     let confirmation: String;
 
     println!("upload_table - parsing response");
-    match parse_response(&response, &connection.peer.Username, &connection.peer.Password, table_name) {
+    match parse_response(&response, &connection.peer.username, &connection.peer.password, table_name) {
         Ok(_) => confirmation = data_send_and_confirm(&mut connection, csv.as_bytes())?,
         Err(e) => return Err(e),
     }
@@ -65,7 +65,7 @@ pub fn update_table(address: &str, username: &str, password: &str, table_name: &
 
     let confirmation: String;
 
-    match parse_response(&response, &connection.peer.Username, &connection.peer.Password, table_name) {
+    match parse_response(&response, &connection.peer.username, &connection.peer.password, table_name) {
         Ok(_) => confirmation = data_send_and_confirm(&mut connection, csv.as_bytes())?,
         Err(e) => return Err(e),
     }
@@ -97,8 +97,8 @@ pub fn query_table(address: &str, username: &str, password: &str, table_name: &s
         //########## SUCCESS BRANCH #################################
         "OK" => (csv, _) = receive_data(&mut connection)?,
         //###########################################################
-        "Username is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongUser(connection.peer.Username.to_owned()))),
-        "Password is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongPassword(connection.peer.Password.to_owned()))),
+        "Username is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongUser(connection.peer.username.to_owned()))),
+        "Password is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongPassword(connection.peer.password.to_owned()))),
         e => panic!("Need to handle error: {}", e),
     };
 
@@ -120,7 +120,7 @@ pub fn kv_upload(address: &str, username: &str, password: &str, key: &str, value
     let confirmation: String;
 
     println!("upload_value - parsing response");
-    match parse_response(&response, &connection.peer.Username, &connection.peer.Password, key) {
+    match parse_response(&response, &connection.peer.username, &connection.peer.password, key) {
         Ok(_) => confirmation = data_send_and_confirm(&mut connection, value)?,
         Err(e) => return Err(e),
     }
@@ -145,7 +145,7 @@ pub fn kv_download(address: &str, username: &str, password: &str, key: &str) -> 
 
     let value: Vec<u8>;
     
-    match parse_response(&response, &connection.peer.Username, &connection.peer.Password, key) {
+    match parse_response(&response, &connection.peer.username, &connection.peer.password, key) {
         Ok(_) => (value, _) = receive_data(&mut connection)?,
         Err(e) => return Err(e),
     }
