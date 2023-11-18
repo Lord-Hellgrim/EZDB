@@ -2,9 +2,11 @@ use std::{sync::{Arc, Mutex}, collections::HashMap, io::Write};
 
 use crate::{networking_utilities::*, db_structure::{StrictTable, Value}, logger::get_current_time, auth::User};
 
+use smartstring::{SmartString, LazyCompact};
 
+pub type KeyString = SmartString<LazyCompact>;
 
-pub fn handle_download_request(mut connection: &mut Connection, name: &str, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<(), ServerError> {
+pub fn handle_download_request(mut connection: &mut Connection, name: &str, global_tables: Arc<Mutex<HashMap<KeyString, StrictTable>>>) -> Result<(), ServerError> {
     
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
@@ -32,7 +34,7 @@ pub fn handle_download_request(mut connection: &mut Connection, name: &str, glob
 }
 
 
-pub fn handle_upload_request(mut connection: &mut Connection, name: &str, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<String, ServerError> {
+pub fn handle_upload_request(mut connection: &mut Connection, name: &str, global_tables: Arc<Mutex<HashMap<KeyString, StrictTable>>>) -> Result<String, ServerError> {
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote OK as {n} bytes"),
@@ -61,7 +63,7 @@ pub fn handle_upload_request(mut connection: &mut Connection, name: &str, global
         
             table.metadata.times_accessed += 1;
             
-            global_tables.lock().unwrap().insert(table.name.clone(), table);
+            global_tables.lock().unwrap().insert(KeyString::from(table.name.clone()), table);
 
         },
         Err(e) => match connection.stream.write(e.to_string().as_bytes()){
@@ -75,7 +77,7 @@ pub fn handle_upload_request(mut connection: &mut Connection, name: &str, global
 }
     
     
-pub fn handle_update_request(mut connection: &mut Connection, name: &str, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<String, ServerError> {
+pub fn handle_update_request(mut connection: &mut Connection, name: &str, global_tables: Arc<Mutex<HashMap<KeyString, StrictTable>>>) -> Result<String, ServerError> {
     
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
@@ -102,7 +104,7 @@ pub fn handle_update_request(mut connection: &mut Connection, name: &str, global
 }
 
 
-pub fn handle_query_request(mut connection: &mut Connection, name: &str, query: &str, global_tables: Arc<Mutex<HashMap<String, StrictTable>>>) -> Result<String, ServerError> {
+pub fn handle_query_request(mut connection: &mut Connection, name: &str, query: &str, global_tables: Arc<Mutex<HashMap<KeyString, StrictTable>>>) -> Result<String, ServerError> {
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e));},
@@ -137,19 +139,19 @@ pub fn handle_query_request(mut connection: &mut Connection, name: &str, query: 
 }
 
 
-pub fn handle_new_user_request(user_string: &str, users: Arc<Mutex<HashMap<String, User>>>) -> Result<(), ServerError> {
+pub fn handle_new_user_request(user_string: &str, users: Arc<Mutex<HashMap<KeyString, User>>>) -> Result<(), ServerError> {
 
     let user: User = ron::from_str(user_string).unwrap();
 
     let mut user_lock = users.lock().unwrap();
-    user_lock.insert(user.username.clone(), user);
+    user_lock.insert(KeyString::from(user.username.clone()), user);
 
 
     Ok(())
 
 }
 
-pub fn handle_kv_upload(mut connection: &mut Connection, name: &str, global_kv_table: Arc<Mutex<HashMap<String, Value>>>) -> Result<(), ServerError> {
+pub fn handle_kv_upload(mut connection: &mut Connection, name: &str, global_kv_table: Arc<Mutex<HashMap<KeyString, Value>>>) -> Result<(), ServerError> {
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote OK as {n} bytes"),
@@ -173,7 +175,7 @@ pub fn handle_kv_upload(mut connection: &mut Connection, name: &str, global_kv_t
     let value = Value::new(&connection.user, &value);
 
     let mut global_kv_table_lock = global_kv_table.lock().unwrap();
-    global_kv_table_lock.insert(name.to_owned(), value);
+    global_kv_table_lock.insert(KeyString::from(name), value);
     println!("value from table: {:x?}", global_kv_table_lock.get(name).unwrap().body);
 
 
@@ -181,7 +183,7 @@ pub fn handle_kv_upload(mut connection: &mut Connection, name: &str, global_kv_t
 
 }
 
-pub fn handle_kv_update(mut connection: &mut Connection, name: &str, global_kv_table: Arc<Mutex<HashMap<String, Value>>>) -> Result<(), ServerError> {
+pub fn handle_kv_update(mut connection: &mut Connection, name: &str, global_kv_table: Arc<Mutex<HashMap<KeyString, Value>>>) -> Result<(), ServerError> {
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote OK as {n} bytes"),
@@ -203,13 +205,13 @@ pub fn handle_kv_update(mut connection: &mut Connection, name: &str, global_kv_t
     
     let value = Value::new(&connection.user, &value);
 
-    global_kv_table.lock().unwrap().insert(name.to_owned(), value);
+    global_kv_table.lock().unwrap().insert(KeyString::from(name), value);
 
 
     Ok(())
 }
 
-pub fn handle_kv_download(mut connection: &mut Connection, name: &str, global_kv_table: Arc<Mutex<HashMap<String, Value>>>) -> Result<(), ServerError> {
+pub fn handle_kv_download(mut connection: &mut Connection, name: &str, global_kv_table: Arc<Mutex<HashMap<KeyString, Value>>>) -> Result<(), ServerError> {
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),

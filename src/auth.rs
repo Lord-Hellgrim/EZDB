@@ -2,6 +2,10 @@ use std::{fmt, collections::HashMap, sync::{Arc, Mutex}};
 
 use serde::{Serialize, Deserialize};
 
+use smartstring::{SmartString, LazyCompact};
+
+pub type KeyString = SmartString<LazyCompact>;
+
 use crate::{networking_utilities::{decode_hex, ServerError, encode_hex, Instruction}, diffie_hellman::blake3_hash};
 
 
@@ -36,7 +40,7 @@ impl Permission {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct User {
-    pub username: String,
+    pub username: KeyString,
     pub password: Vec<u8>,
     pub admin: bool,
     pub can_upload: bool,
@@ -49,7 +53,7 @@ impl User {
 
     pub fn new(username: &str, password: &str) -> User {
         User {
-            username: username.to_owned(),
+            username: KeyString::from(username),
             password: blake3_hash(password.as_bytes()),
             admin: false,
             can_upload: false,
@@ -61,7 +65,7 @@ impl User {
 
     pub fn admin(username: &str, password: &str) -> User {
         User {
-            username: username.to_owned(),
+            username: KeyString::from(username),
             password: blake3_hash(password.as_bytes()),
             admin: true,
             can_upload: true,
@@ -116,7 +120,7 @@ impl User {
 }
 
 #[inline]
-pub fn user_has_permission(table_name: &str, action: &str, username: &str, users: Arc<Mutex<HashMap<String, User>>>) -> bool {
+pub fn user_has_permission(table_name: &str, action: &str, username: &str, users: Arc<Mutex<HashMap<KeyString, User>>>) -> bool {
 
     let permission = match Permission::from_str(action) {
         Some(action) => action,

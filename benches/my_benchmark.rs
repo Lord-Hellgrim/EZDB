@@ -3,7 +3,6 @@ use std::io::Write;
 use criterion::{criterion_group, criterion_main, Criterion};
 use EZDB::db_structure::*;
 use EZDB::networking_utilities::*;
-use EZDB::compression::*;
 use EZDB::client_networking::*;
 
 fn test_concurrent_connections() {
@@ -48,11 +47,6 @@ fn my_benchmark(c: &mut Criterion) {
     let good_csv = std::fs::read_to_string("good_csv.txt").unwrap();
     c.bench_function("fast_split small", |b| b.iter( || fast_split(&good_csv, "\n".as_bytes()[0])));
 
-    // lzw
-    let compressed_big_csv = lzw_compress(&big_csv);
-    c.bench_function("lzw_compress_opt", |b| b.iter( || lzw_compress(&big_csv)));
-    c.bench_function("lzw_decompress_opt", |b| b.iter( || lzw_decompress(compressed_big_csv.clone())));
-    
     // // concurrent connections
     // c.bench_function("concurrent downloads (small csv)", |b| b.iter( || test_concurrent_connections()));
 
