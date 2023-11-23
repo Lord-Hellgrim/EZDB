@@ -209,10 +209,8 @@ pub fn parse_column(col_name: KeyString, type_name: DbTypes, col: Vec<&str>) -> 
         },
         DbTypes::Text => {
             let mut outvec = Vec::with_capacity(col.len());
-            let mut index = 0;
             for cell in col {
                 outvec.push(KeyString::from(cell));
-                index += 1;
             }
             DbVec::Texts { name: col_name, col: outvec }
         },
