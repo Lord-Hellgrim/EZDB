@@ -3,6 +3,10 @@ use std::{fmt, collections::{BTreeMap, HashMap}, path::{Display, self, Path}, io
 use crate::logger::get_current_time;
 use crate::networking_utilities::*;
 
+use smartstring::{SmartString, LazyCompact};
+
+pub type KeyString = SmartString<LazyCompact>;
+
 #[derive(Debug, PartialEq)]
 pub enum StrictError {
     MoreItemsThanHeader(usize),
@@ -12,6 +16,10 @@ pub enum StrictError {
     Empty,
     Update(String),
     Io(std::io::ErrorKind),
+    MissingType,
+    TooManyHeaderFields,
+    WrongType,
+    Parse(usize),
 }
 
 impl fmt::Display for StrictError {
@@ -24,6 +32,11 @@ impl fmt::Display for StrictError {
             StrictError::Empty => write!(f, "Don't pass an empty string."),
             StrictError::Update(s) => write!(f, "Failed to update because:\n{s}"),
             StrictError::Io(e) => write!(f, "Failed to write to disk because: \n--> {e}"),
+            StrictError::MissingType => write!(f, "Missing type from header"),
+            StrictError::TooManyHeaderFields => write!(f, "Too many fields in header"),
+            StrictError::WrongType => write!(f, "Wrong type specified in header"),
+            StrictError::Parse(i) => write!(f, "Item in line {i} cannot be parsed"),
+
         }
     }
 }
@@ -72,36 +85,142 @@ pub enum DbEntry {
     Empty,
 }
 
+#[derive(Clone, Debug)]
 pub enum DbTypes {
     Int,
     Float,
     Text,
 }
 
+#[derive(Clone, Debug)]
 pub enum DbVec {
-    Ints(Vec<i64>),
-    Floats(Vec<f64>),
-    Texts(Vec<String>),
+    Ints{ name: KeyString, col: Vec<i64> },
+    Floats{ name: KeyString, col: Vec<f64> },
+    Texts{ name: KeyString, col: Vec<KeyString> },
 }
 
-// #[derive(PartialEq, Clone, Debug)]
-// pub struct ColumnTable {
-//     metadata: Metadata,
-//     header: Vec<DbTypes>,
-//     table: Vec<DbVec>,
-// }
+#[derive(Clone, Debug)]
+pub struct ColumnTable {
+    metadata: Metadata,
+    header: Vec<KeyString>,
+    table: Vec<DbVec>,
+}
 
-// impl ColumnTable {
-//     pub fn from_csv_string(s: &str, name: &str) -> Result<ColumnTable, StrictError> {
+impl ColumnTable {
+    pub fn from_csv_string(s: &str, name: &str) -> Result<ColumnTable, StrictError> {
 
-//         if s.len() < 1 {
-//             return Err(StrictError::Empty)
-//         }
+        if s.len() < 1 {
+            return Err(StrictError::Empty)
+        }
 
-//         let header = Vec::new();
+        let mut header_names = Vec::new();
+        let mut header_types = Vec::new();
 
-//     }
-// }
+        let header: Vec<&str> = s.split('\n').next().expect("confirmed to exist because of earlier check").split(';').collect();
+        for item in header {
+            let temp: Vec<&str> = item.split(',').collect();
+            if temp.len() < 2 {
+                return Err(StrictError::MissingType)
+            } else if temp.len() > 2 {
+                return Err(StrictError::TooManyHeaderFields)
+            } else {
+                header_names.push(KeyString::from(temp[0].trim()));
+                let t = temp[1].trim();
+                match t {
+                    "I" | "Int" | "int" | "i" => header_types.push(DbTypes::Int),
+                    "F" | "Float" | "float" | "f" => header_types.push(DbTypes::Float),
+                    "T" | "Text" | "text" | "t" => header_types.push(DbTypes::Text),
+                    _ => return Err(StrictError::WrongType),
+                }
+            }
+        }
+
+        let mut line_index = 0;
+        
+
+        
+        let mut result = Vec::new();
+
+        let mut data: Vec<Vec<&str>> = Vec::new();
+        for line in s.lines() {
+            if line_index == 0 {
+                line_index += 1;
+                continue
+            }
+            let mut row_index = 0;
+            for cell in line.split(';') {
+                if line_index == 1 {
+                    data.push(Vec::from([cell]));
+                } else {
+                    data[row_index].push(cell);
+                }
+                row_index += 1;
+
+            }
+            line_index += 1;
+        }
+
+        let mut i = 0;
+        for col in data {
+            result.push(parse_column(header_names[i].clone(), header_types[i].clone(), col).unwrap());
+            i += 1;
+        }
+
+
+        Ok(
+            ColumnTable { metadata: Metadata::new("test"), header: header_names, table: result }
+        )
+    }
+}
+
+pub fn parse_column(col_name: KeyString, type_name: DbTypes, col: Vec<&str>) -> Result<DbVec, StrictError> {
+    let result = match type_name {
+        DbTypes::Float => {
+            let mut outvec = Vec::with_capacity(col.len());
+            let mut index = 0;
+            for cell in col {
+                let temp = match cell.parse::<f64>() {
+                    Ok(x) => x,
+                    Err(_) => {
+                        println!("failed to parse: {}", cell);
+                        return Err(StrictError::Parse(index))
+                    },
+                };
+                outvec.push(temp);
+                index += 1;
+            }
+            DbVec::Floats { name: col_name, col: outvec }
+        },
+        DbTypes::Int => {
+            let mut outvec = Vec::with_capacity(col.len());
+            let mut index = 0;
+            for cell in col {
+                let temp = match cell.parse::<i64>() {
+                    Ok(x) => x,
+                    Err(_) => {
+                        println!("failed to parse: {}", cell);
+                        return Err(StrictError::Parse(index))
+                    },
+                };
+                outvec.push(temp);
+                index += 1;
+            }
+            DbVec::Ints { name: col_name, col: outvec }
+        },
+        DbTypes::Text => {
+            let mut outvec = Vec::with_capacity(col.len());
+            let mut index = 0;
+            for cell in col {
+                outvec.push(KeyString::from(cell));
+                index += 1;
+            }
+            DbVec::Texts { name: col_name, col: outvec }
+        },
+    };
+
+    Ok(result)
+
+}
 
 
 #[derive(PartialEq, Clone, Debug)]
@@ -452,6 +571,10 @@ impl Value {
 
 #[cfg(test)]
 mod tests {
+    use std::str::from_utf8;
+
+    use rand::Rng;
+
     use super::*;
 
     #[test]
@@ -570,6 +693,31 @@ mod tests {
         println!("{:?}", t.header);
         println!("{:?}", t.table);
         t.save_to_disk_raw("EZconfig/").unwrap();
+    }
+
+    #[test]
+    fn test_columntable() {
+
+        // let mut i = 0;
+        // let mut printer = String::from("vnr,int;heiti,text;magn,int;lengd,float\n");
+        // loop {
+        //     if i > 10_000_000 {
+        //         break;
+        //     }
+        //     let random_number: i64 = rand::thread_rng().gen();
+        //     let random_float: f64 = rand::thread_rng().gen();
+        //     printer.push_str(&format!("i{};product name;{random_number};{random_float}\n", i));
+        //     i+= 1;
+        // }
+        // let mut file = std::fs::File::create("large.csv").unwrap();
+        // file.write_all(printer.as_bytes()).unwrap();
+
+        let csv = std::fs::read_to_string("large.csv").unwrap();
+        let instant = std::time::Instant::now();
+        for i in 0..4 {
+            let t = ColumnTable::from_csv_string(&csv, "test").unwrap();
+        }
+        println!("TIME! {}", instant.elapsed().as_millis()/20)
     }
 
 }
