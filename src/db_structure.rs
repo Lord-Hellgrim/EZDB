@@ -20,6 +20,7 @@ pub enum StrictError {
     TooManyHeaderFields,
     WrongType,
     Parse(usize),
+    TooManyPrimaryKeys,
 }
 
 impl fmt::Display for StrictError {
@@ -36,6 +37,7 @@ impl fmt::Display for StrictError {
             StrictError::TooManyHeaderFields => write!(f, "Too many fields in header"),
             StrictError::WrongType => write!(f, "Wrong type specified in header"),
             StrictError::Parse(i) => write!(f, "Item in line {i} cannot be parsed"),
+            StrictError::TooManyPrimaryKeys => write!(f, "There can only be one primary key column"),
 
         }
     }
@@ -90,13 +92,15 @@ pub enum DbTypes {
     Int,
     Float,
     Text,
+    IntPrimaryKey,
+    TextPrimaryKey,
 }
 
 #[derive(Clone, Debug)]
 pub enum DbVec {
-    Ints{ name: KeyString, col: Vec<i64> },
-    Floats{ name: KeyString, col: Vec<f64> },
-    Texts{ name: KeyString, col: Vec<KeyString> },
+    Ints{ name: KeyString, primary_key: bool, col: Vec<i64> },
+    Floats{ name: KeyString, primary_key: bool, col: Vec<f64> },
+    Texts{ name: KeyString, primary_key: bool, col: Vec<KeyString> },
 }
 
 #[derive(Clone, Debug)]
@@ -115,6 +119,7 @@ impl ColumnTable {
 
         let mut header_names = Vec::new();
         let mut header_types = Vec::new();
+        let mut primary_key_set = false;
 
         let header: Vec<&str> = s.split('\n').next().expect("confirmed to exist because of earlier check").split(';').collect();
         for item in header {
@@ -130,17 +135,37 @@ impl ColumnTable {
                     "I" | "Int" | "int" | "i" => header_types.push(DbTypes::Int),
                     "F" | "Float" | "float" | "f" => header_types.push(DbTypes::Float),
                     "T" | "Text" | "text" | "t" => header_types.push(DbTypes::Text),
+                    "I-p" | "Int-p" | "int-p" | "i-p" => {
+                        if primary_key_set {
+                            return Err(StrictError::TooManyPrimaryKeys)
+                        } else {
+                            header_types.push(DbTypes::IntPrimaryKey);
+                            primary_key_set = true;
+                        }
+                    },
+                    "F-p" | "Float-p" | "float-p" | "f-p" => return Err(StrictError::FloatPrimaryKey),
+                    "T-p" | "Text-p" | "text-p" | "t-p" => {
+                        if primary_key_set {
+                            return Err(StrictError::TooManyPrimaryKeys)
+                        } else {
+                            header_types.push(DbTypes::TextPrimaryKey);
+                            primary_key_set = true;
+                        }
+                    },
                     _ => return Err(StrictError::WrongType),
                 }
             }
         }
 
+        if !primary_key_set {
+            match header_types[0] {
+                DbTypes::Int => header_types[0] = DbTypes::IntPrimaryKey,
+                DbTypes::Text => header_types[0] = DbTypes::TextPrimaryKey,
+                _ => unreachable!("Should already have a primary key or have been rejected for float primary key")
+            };
+        }
+
         let mut line_index = 0;
-        
-
-        
-        let mut result = Vec::new();
-
         let mut data: Vec<Vec<&str>> = Vec::new();
         for line in s.lines() {
             if line_index == 0 {
@@ -160,64 +185,169 @@ impl ColumnTable {
             line_index += 1;
         }
 
+        let mut result = Vec::new();
         let mut i = 0;
         for col in data {
-            result.push(parse_column(header_names[i].clone(), header_types[i].clone(), col).unwrap());
+            
+            let db_vec = match header_types[i] {
+                DbTypes::Float => {
+                    let mut outvec = Vec::with_capacity(col.len());
+                    let mut index = 0;
+                    for cell in col {
+                        let temp = match cell.parse::<f64>() {
+                            Ok(x) => x,
+                            Err(_) => {
+                                println!("failed to parse: {}", cell);
+                                return Err(StrictError::Parse(index))
+                            },
+                        };
+                        outvec.push(temp);
+                        index += 1;
+                    }
+                    DbVec::Floats { name: header_names[i].clone(), primary_key: false, col: outvec }
+                },
+                DbTypes::Int => {
+                    let mut outvec = Vec::with_capacity(col.len());
+                    let mut index = 0;
+                    for cell in col {
+                        let temp = match cell.parse::<i64>() {
+                            Ok(x) => x,
+                            Err(_) => {
+                                println!("failed to parse: {}", cell);
+                                return Err(StrictError::Parse(index))
+                            },
+                        };
+                        outvec.push(temp);
+                        index += 1;
+                    }
+                    DbVec::Ints { name: header_names[i].clone(), primary_key: false, col: outvec }
+                },
+                DbTypes::Text => {
+                    let mut outvec = Vec::with_capacity(col.len());
+                    for cell in col {
+                        outvec.push(KeyString::from(cell));
+                    }
+                    DbVec::Texts { name: header_names[i].clone(), primary_key: false, col: outvec }
+                },
+                DbTypes::IntPrimaryKey => {
+                    let mut outvec = Vec::with_capacity(col.len());
+                    let mut index = 0;
+                    for cell in col {
+                        let temp = match cell.parse::<i64>() {
+                            Ok(x) => x,
+                            Err(_) => {
+                                println!("failed to parse: {}", cell);
+                                return Err(StrictError::Parse(index))
+                            },
+                        };
+                        outvec.push(temp);
+                        index += 1;
+                    }
+                    DbVec::Ints { name: header_names[i].clone(), primary_key: true, col: outvec }
+                },
+                DbTypes::TextPrimaryKey => {
+                    let mut outvec = Vec::with_capacity(col.len());
+                    for cell in col {
+                        outvec.push(KeyString::from(cell));
+                    }
+                    DbVec::Texts { name: header_names[i].clone(), primary_key: true, col: outvec }
+                },
+            };
+            
+            result.push(db_vec);
             i += 1;
         }
 
-
         Ok(
-            ColumnTable { metadata: Metadata::new("test"), header: header_names, table: result }
+            ColumnTable { metadata: Metadata::new(name), header: header_names, table: result }
         )
+
     }
-}
 
-pub fn parse_column(col_name: KeyString, type_name: DbTypes, col: Vec<&str>) -> Result<DbVec, StrictError> {
-    let result = match type_name {
-        DbTypes::Float => {
-            let mut outvec = Vec::with_capacity(col.len());
-            let mut index = 0;
-            for cell in col {
-                let temp = match cell.parse::<f64>() {
-                    Ok(x) => x,
-                    Err(_) => {
-                        println!("failed to parse: {}", cell);
-                        return Err(StrictError::Parse(index))
-                    },
-                };
-                outvec.push(temp);
-                index += 1;
-            }
-            DbVec::Floats { name: col_name, col: outvec }
-        },
-        DbTypes::Int => {
-            let mut outvec = Vec::with_capacity(col.len());
-            let mut index = 0;
-            for cell in col {
-                let temp = match cell.parse::<i64>() {
-                    Ok(x) => x,
-                    Err(_) => {
-                        println!("failed to parse: {}", cell);
-                        return Err(StrictError::Parse(index))
-                    },
-                };
-                outvec.push(temp);
-                index += 1;
-            }
-            DbVec::Ints { name: col_name, col: outvec }
-        },
-        DbTypes::Text => {
-            let mut outvec = Vec::with_capacity(col.len());
-            for cell in col {
-                outvec.push(KeyString::from(cell));
-            }
-            DbVec::Texts { name: col_name, col: outvec }
-        },
-    };
+    pub fn insert_csv(&mut self, input_csv: &str) -> Result<(), StrictError> {
 
-    Ok(result)
+        let insert_table = ColumnTable::from_csv_string(input_csv, "insert")?;
 
+        self.combine(insert_table)?;
+
+        Ok(())
+    }
+
+    pub fn combine(&mut self, other_table: ColumnTable) -> Result<(), StrictError> {
+
+
+
+        Ok(())
+    }
+
+    pub fn sort(&mut self) {
+
+        let len: usize;
+        match &self.table[0] {
+            DbVec::Floats { name, primary_key, col } => len = col.len(),
+            DbVec::Ints { name, primary_key, col } => len = col.len(),
+            DbVec::Texts { name, primary_key, col } => len = col.len(),
+        }
+
+        let mut indexer: Vec<usize> = (0..len).collect();
+
+        let mut primary_key_exists = false;
+        for vec in self.table.iter_mut() {
+            match vec {
+            DbVec::Ints { name, primary_key, col } => {
+                if *primary_key {
+                    indexer.sort_unstable_by_key(|&i|col[i] );
+                    primary_key_exists = true;
+                }
+            },
+            DbVec::Texts { name, primary_key, col } => {
+                if *primary_key {
+                    indexer.sort_unstable_by_key(|&i|&col[i] );
+                    primary_key_exists = true;
+                }
+            },
+            DbVec::Floats { name, primary_key, col } => {
+                if *primary_key {
+                    unreachable!("There should never be a float primary key");
+                }
+            },
+            }
+        }
+
+
+        if !primary_key_exists {
+            unreachable!("There should always be a primary key on every table")
+        }
+
+
+
+        for vec in self.table.iter_mut() {
+            match vec {
+            DbVec::Floats { name, primary_key, col } => {
+                let mut temp = Vec::with_capacity(col.len());
+                for i in 0..col.len() {
+                    temp.push(col[indexer[i]]);
+                }
+                *col = temp;
+            },
+            DbVec::Ints { name, primary_key, col } => {
+                let mut temp = Vec::with_capacity(col.len());
+                for i in 0..col.len() {
+                    temp.push(col[indexer[i]]);
+                }
+                *col = temp;
+            },
+            DbVec::Texts { name, primary_key, col } => {
+                let mut temp = Vec::with_capacity(col.len());
+                for i in 0..col.len() {
+                    temp.push(col[indexer[i]].clone());
+                }
+                *col = temp;
+            },
+            }
+        }
+
+    }
 }
 
 
@@ -696,26 +826,59 @@ mod tests {
     #[test]
     fn test_columntable() {
 
-        // let mut i = 0;
-        // let mut printer = String::from("vnr,int;heiti,text;magn,int;lengd,float\n");
-        // loop {
-        //     if i > 10_000_000 {
-        //         break;
-        //     }
-        //     let random_number: i64 = rand::thread_rng().gen();
-        //     let random_float: f64 = rand::thread_rng().gen();
-        //     printer.push_str(&format!("i{};product name;{random_number};{random_float}\n", i));
-        //     i+= 1;
-        // }
-        // let mut file = std::fs::File::create("large.csv").unwrap();
-        // file.write_all(printer.as_bytes()).unwrap();
+        let mut i = 0;
+        let mut printer = String::from("vnr,text-p;heiti,text;magn,int;lengd,float\n");
+        loop {
+            if i > 100 {
+                break;
+            }
+            let random_number: i64 = rand::thread_rng().gen();
+            let random_float: f64 = rand::thread_rng().gen();
+            let random_key: u32 = rand::thread_rng().gen();
+            let mut random_string = String::new();
+            for _ in 0..8 {
+                random_string.push(rand::thread_rng().gen_range(97..122) as u8 as char);
+            }
+            printer.push_str(&format!("i{random_key};{random_string};{random_key};{random_float}\n"));
+            i+= 1;
+        }
+        let mut file = std::fs::File::create("large.csv").unwrap();
+        file.write_all(printer.as_bytes()).unwrap();
 
         let csv = std::fs::read_to_string("large.csv").unwrap();
         let instant = std::time::Instant::now();
-        for i in 0..4 {
-            let t = ColumnTable::from_csv_string(&csv, "test").unwrap();
+        // for i in 0..4 {
+        //     let t = ColumnTable::from_csv_string(&csv, "test").unwrap();
+        // }
+        // println!("TIME! {}", instant.elapsed().as_millis()/20)
+
+        let mut t = ColumnTable::from_csv_string(&csv, "test").unwrap();
+        t.sort();
+
+        let mut printer = String::new();
+        for i in 0..100 {
+
+            for vec in &t.table {
+                match vec {
+                    DbVec::Floats { name, primary_key, col } => {
+                        printer.push_str(&col[i].to_string());
+                        printer.push_str(";");
+                    },
+                    DbVec::Ints { name, primary_key, col } => {
+                        printer.push_str(&col[i].to_string());
+                        printer.push_str(";");
+                    },
+                    DbVec::Texts { name, primary_key, col } => {
+                        printer.push_str(&col[i]);
+                        printer.push_str(";");
+                    },
+                }
+            }
+            printer.push_str("\n");
         }
-        println!("TIME! {}", instant.elapsed().as_millis()/20)
+
+        let mut file = std::fs::File::create("sorted_large.csv").unwrap();
+        file.write_all(printer.as_bytes()).unwrap();
     }
 
 }
