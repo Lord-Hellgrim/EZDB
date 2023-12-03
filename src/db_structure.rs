@@ -1,9 +1,11 @@
-use std::{fmt, collections::{BTreeMap, HashMap}, path::{Display, self, Path}, io::{ErrorKind, Write}};
+use std::{fmt, collections::BTreeMap, io::Write};
 
 use crate::logger::get_current_time;
 use crate::networking_utilities::*;
 
 use smartstring::{SmartString, LazyCompact};
+
+use rayon::prelude::*;
 
 pub type KeyString = SmartString<LazyCompact>;
 
@@ -258,8 +260,10 @@ impl ColumnTable {
             i += 1;
         }
 
+        let mut output = ColumnTable { metadata: Metadata::new(name), header: header_names, table: result };
+        output.sort();
         Ok(
-            ColumnTable { metadata: Metadata::new(name), header: header_names, table: result }
+            output
         )
 
     }
@@ -273,46 +277,151 @@ impl ColumnTable {
         Ok(())
     }
 
+    pub fn get_primary_key_col_index(&self) -> usize {
+        let mut self_primary_key_index = 0;
+        for i in 0..self.table.len() {
+            match self.table[i] {
+                DbVec::Ints { name: _, primary_key, col: _ } => {
+                    if primary_key {
+                    self_primary_key_index = 0;
+                    break
+                }
+            },
+            DbVec::Texts { name: _, primary_key, col: _ } => {
+                if primary_key {
+                    self_primary_key_index = 0;
+                    break
+                }
+            },
+            DbVec::Floats { name: _, primary_key, col: _ } => {
+                if primary_key {
+                    unreachable!("There should never be a float primary key");
+                }
+            },
+            }
+        }
+
+        self_primary_key_index
+    }
+
     pub fn combine(&mut self, other_table: ColumnTable) -> Result<(), StrictError> {
 
+        if self.header != other_table.header {
+            return Err(StrictError::Update("Headers don't match".to_owned()));
+        }
 
+        let self_primary_key_index = self.get_primary_key_col_index();
+
+        let minlen = std::cmp::min(self.len(), other_table.len());
+        let self_len = self.len();
+
+        let mut record_vec: Vec<u8>;
+        for i in 0..minlen {
+            match &mut self.table[self_primary_key_index] {
+                DbVec::Ints { name: _, primary_key: _, col } => {
+                    match &other_table.table[self_primary_key_index] {
+                        DbVec::Ints { name: _, primary_key: _, col: other_col } => {
+                            (*col, record_vec) = merge_sorted(col, other_col);
+                        },
+                        _ => unreachable!("Should always have the same primary key column")
+                    }
+                },
+                DbVec::Texts { name: _, primary_key: _, col } => {
+                    match &other_table.table[self_primary_key_index] {
+                        DbVec::Texts { name: _, primary_key: _, col: other_col } => {
+                            (*col, record_vec) = merge_sorted(col, other_col);
+                        },
+                        _ => unreachable!("Should always have the same primary key column")
+                    }
+                },
+                DbVec::Floats { name: _, primary_key: _, col } => unreachable!("Should never have a float primary key column"),
+            }
+
+            if i == self_primary_key_index {
+                continue
+            }
+
+            match &mut self.table[i] {
+                DbVec::Ints { name: _, primary_key: _, col } => {
+                    match &other_table.table[self_primary_key_index] {
+                        DbVec::Ints { name: _, primary_key: _, col: other_col } => {
+                            *col = merge_in_order(col, other_col, &record_vec);
+                        },
+                        _ => unreachable!("Should always have the same primary key column")
+                    }
+                },
+                DbVec::Texts { name: _, primary_key: _, col } => {
+                    match &other_table.table[self_primary_key_index] {
+                        DbVec::Texts { name: _, primary_key: _, col: other_col } => {
+                            *col = merge_in_order(col, other_col, &record_vec);
+                        },
+                        _ => unreachable!("Should always have the same primary key column")
+                    }
+                },
+                DbVec::Floats { name: _, primary_key: _, col } => {
+                    match &other_table.table[self_primary_key_index] {
+                        DbVec::Floats { name: _, primary_key: _, col: other_col } => {
+                            *col = merge_in_order(col, other_col, &record_vec);
+                        },
+                        _ => unreachable!("Should always have the same primary key column")
+                    }
+                },
+            }
+
+
+
+        }
 
         Ok(())
     }
 
-    pub fn sort(&mut self) {
-
+    pub fn len(&self) -> usize {
         let len: usize;
         match &self.table[0] {
-            DbVec::Floats { name, primary_key, col } => len = col.len(),
-            DbVec::Ints { name, primary_key, col } => len = col.len(),
-            DbVec::Texts { name, primary_key, col } => len = col.len(),
+            DbVec::Floats { name: _, primary_key: _, col } => len = col.len(),
+            DbVec::Ints { name: _, primary_key: _, col } => len = col.len(),
+            DbVec::Texts { name: _, primary_key: _, col } => len = col.len(),
         }
+        len
+    }
 
+    pub fn sort(&mut self) {
+
+        let len = self.len();
+
+        let outer_instant = std::time::Instant::now();
         let mut indexer: Vec<usize> = (0..len).collect();
-
+        
         let mut primary_key_exists = false;
         for vec in self.table.iter_mut() {
             match vec {
-            DbVec::Ints { name, primary_key, col } => {
-                if *primary_key {
+                DbVec::Ints { name: _, primary_key, col } => {
+                    if *primary_key {
+                    let instant = std::time::Instant::now();
                     indexer.sort_unstable_by_key(|&i|col[i] );
+                    let time = instant.elapsed().as_millis();
+                    println!("time to sort indexer with int PK: {} millis", time);
                     primary_key_exists = true;
                 }
             },
-            DbVec::Texts { name, primary_key, col } => {
+            DbVec::Texts { name: _, primary_key, col } => {
                 if *primary_key {
+                    let instant = std::time::Instant::now();
                     indexer.sort_unstable_by_key(|&i|&col[i] );
+                    let time = instant.elapsed().as_millis();
+                    println!("time to sort indexer with text PK: {} millis", time);
                     primary_key_exists = true;
                 }
             },
-            DbVec::Floats { name, primary_key, col } => {
+            DbVec::Floats { name: _, primary_key, col: _ } => {
                 if *primary_key {
                     unreachable!("There should never be a float primary key");
                 }
             },
             }
         }
+        let outer_time = outer_instant.elapsed().as_millis();
+        println!("total indexer sorting time: {} millis", outer_time);
 
 
         if !primary_key_exists {
@@ -320,34 +429,106 @@ impl ColumnTable {
         }
 
 
-
-        for vec in self.table.iter_mut() {
+        let instant = std::time::Instant::now();
+        self.table.par_iter_mut().for_each(|vec| {
             match vec {
-            DbVec::Floats { name, primary_key, col } => {
-                let mut temp = Vec::with_capacity(col.len());
-                for i in 0..col.len() {
-                    temp.push(col[indexer[i]]);
-                }
-                *col = temp;
+            DbVec::Floats { name: _, primary_key: _, col } => {
+                rearrange_by_index(col, &indexer);
             },
-            DbVec::Ints { name, primary_key, col } => {
-                let mut temp = Vec::with_capacity(col.len());
-                for i in 0..col.len() {
-                    temp.push(col[indexer[i]]);
-                }
-                *col = temp;
+            DbVec::Ints { name: _, primary_key: _, col } => {
+                rearrange_by_index(col, &indexer);
             },
-            DbVec::Texts { name, primary_key, col } => {
-                let mut temp = Vec::with_capacity(col.len());
-                for i in 0..col.len() {
-                    temp.push(col[indexer[i]].clone());
-                }
-                *col = temp;
+            DbVec::Texts { name: _, primary_key: _, col } => {
+                rearrange_by_index(col, &indexer);
             },
             }
-        }
+        });
+
+        let time = instant.elapsed().as_millis();
+        println!("time to rearrange columns: {} millis", time);
 
     }
+
+    pub fn to_string(&self) -> String {
+        let mut printer = String::new();
+        for i in 0..self.len() {
+
+            for vec in &self.table {
+                match vec {
+                    DbVec::Floats { name: _, primary_key: _, col } => {
+                        printer.push_str(&col[i].to_string());
+                        printer.push_str(";");
+                    },
+                    DbVec::Ints { name: _, primary_key: _, col } => {
+                        printer.push_str(&col[i].to_string());
+                        printer.push_str(";");
+                    },
+                    DbVec::Texts { name: _, primary_key: _, col } => {
+                        printer.push_str(&col[i]);
+                        printer.push_str(";");
+                    },
+                }
+                printer.pop();
+            }
+            printer.push_str("\n");
+        }
+        printer.pop();
+
+        printer
+    }
+}
+
+#[inline]
+fn rearrange_by_index<T: Clone>(col: &mut Vec<T>, indexer: &Vec<usize>) {
+
+    let mut temp = Vec::with_capacity(col.len());
+    for i in 0..col.len() {
+        temp.push(col[indexer[i]].clone());
+    }
+    *col = temp;
+
+} 
+
+fn merge_sorted<T: Ord + Clone>(one: &Vec<T>, two: &Vec<T>) -> (Vec<T>, Vec<u8>) {
+    let mut new_vec: Vec<T> = Vec::with_capacity(one.len() + two.len());
+    let mut record_vec: Vec<u8> = Vec::with_capacity(one.len() + two.len());
+    let mut one_pointer = 0;
+    let mut two_pointer = 0;
+
+    while (one_pointer < one.len()) && (two_pointer < two.len()) {
+        if one[one_pointer] < two[two_pointer] {
+            new_vec.push(one[one_pointer].clone());
+            one_pointer += 1;
+            record_vec.push(1);
+        } else {
+            new_vec.push(two[two_pointer].clone());
+            two_pointer += 1;
+            record_vec.push(2);
+        }
+    }
+
+    (new_vec, record_vec)
+}
+
+fn merge_in_order<T: Clone>(one: &Vec<T>, two: &Vec<T>, order: &Vec<u8>) -> Vec<T> {
+    let mut new_vec = Vec::with_capacity(one.len() + two.len());
+    let mut one_pointer = 0;
+    let mut two_pointer = 0;
+    for index in order {
+        match index {
+            1 => {
+                new_vec.push(one[one_pointer].clone());
+                one_pointer += 1;
+            },
+            2 => {
+                new_vec.push(two[two_pointer].clone());
+                two_pointer += 1;
+            },
+            _ => unreachable!("Should always be 1 or 2"),
+        }
+    }
+
+    new_vec
 }
 
 
@@ -699,7 +880,6 @@ impl Value {
 
 #[cfg(test)]
 mod tests {
-    use std::str::from_utf8;
 
     use rand::Rng;
 
@@ -829,7 +1009,7 @@ mod tests {
         let mut i = 0;
         let mut printer = String::from("vnr,text-p;heiti,text;magn,int;lengd,float\n");
         loop {
-            if i > 100 {
+            if i > 50 {
                 break;
             }
             let random_number: i64 = rand::thread_rng().gen();
@@ -839,7 +1019,7 @@ mod tests {
             for _ in 0..8 {
                 random_string.push(rand::thread_rng().gen_range(97..122) as u8 as char);
             }
-            printer.push_str(&format!("i{random_key};{random_string};{random_key};{random_float}\n"));
+            printer.push_str(&format!("i{random_key};{random_string};{random_number};{random_float}\n"));
             i+= 1;
         }
         let mut file = std::fs::File::create("large.csv").unwrap();
@@ -847,38 +1027,15 @@ mod tests {
 
         let csv = std::fs::read_to_string("large.csv").unwrap();
         let instant = std::time::Instant::now();
-        // for i in 0..4 {
-        //     let t = ColumnTable::from_csv_string(&csv, "test").unwrap();
-        // }
-        // println!("TIME! {}", instant.elapsed().as_millis()/20)
-
+        // let mut t: ColumnTable = ColumnTable::from_csv_string(&csv, "init").unwrap();
         let mut t = ColumnTable::from_csv_string(&csv, "test").unwrap();
-        t.sort();
+        let el = instant.elapsed().as_millis();
+        println!("TIME to parse! {}", el);
+        
+        let r = ColumnTable::from_csv_string(&csv, "test").unwrap();
+        t.combine(r);
+        println!("t: {}", t.to_string());
 
-        let mut printer = String::new();
-        for i in 0..100 {
-
-            for vec in &t.table {
-                match vec {
-                    DbVec::Floats { name, primary_key, col } => {
-                        printer.push_str(&col[i].to_string());
-                        printer.push_str(";");
-                    },
-                    DbVec::Ints { name, primary_key, col } => {
-                        printer.push_str(&col[i].to_string());
-                        printer.push_str(";");
-                    },
-                    DbVec::Texts { name, primary_key, col } => {
-                        printer.push_str(&col[i]);
-                        printer.push_str(";");
-                    },
-                }
-            }
-            printer.push_str("\n");
-        }
-
-        let mut file = std::fs::File::create("sorted_large.csv").unwrap();
-        file.write_all(printer.as_bytes()).unwrap();
     }
 
 }
