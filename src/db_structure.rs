@@ -1,4 +1,4 @@
-use std::{fmt, collections::BTreeMap, io::Write};
+use std::{fmt::{self, Display, Debug}, collections::BTreeMap, io::Write};
 
 use crate::logger::get_current_time;
 use crate::networking_utilities::*;
@@ -272,7 +272,7 @@ impl ColumnTable {
 
         let insert_table = ColumnTable::from_csv_string(input_csv, "insert")?;
 
-        self.combine(insert_table)?;
+        self.update(insert_table)?;
 
         Ok(())
     }
@@ -304,7 +304,7 @@ impl ColumnTable {
         self_primary_key_index
     }
 
-    pub fn combine(&mut self, other_table: ColumnTable) -> Result<(), StrictError> {
+    pub fn update(&mut self, other_table: ColumnTable) -> Result<(), StrictError> {
 
         if self.header != other_table.header {
             return Err(StrictError::Update("Headers don't match".to_owned()));
@@ -312,8 +312,7 @@ impl ColumnTable {
 
         let self_primary_key_index = self.get_primary_key_col_index();
 
-        let minlen = std::cmp::min(self.len(), other_table.len());
-        let self_len = self.len();
+        let minlen = std::cmp::min(self.table.len(), other_table.table.len());
 
         let mut record_vec: Vec<u8>;
         for i in 0..minlen {
@@ -334,7 +333,7 @@ impl ColumnTable {
                         _ => unreachable!("Should always have the same primary key column")
                     }
                 },
-                DbVec::Floats { name: _, primary_key: _, col } => unreachable!("Should never have a float primary key column"),
+                DbVec::Floats { name: _, primary_key: _, col: _ } => unreachable!("Should never have a float primary key column"),
             }
 
             if i == self_primary_key_index {
@@ -343,27 +342,27 @@ impl ColumnTable {
 
             match &mut self.table[i] {
                 DbVec::Ints { name: _, primary_key: _, col } => {
-                    match &other_table.table[self_primary_key_index] {
+                    match &other_table.table[i] {
                         DbVec::Ints { name: _, primary_key: _, col: other_col } => {
                             *col = merge_in_order(col, other_col, &record_vec);
                         },
-                        _ => unreachable!("Should always have the same primary key column")
+                        _ => unreachable!("Should always have the same type column")
                     }
                 },
                 DbVec::Texts { name: _, primary_key: _, col } => {
-                    match &other_table.table[self_primary_key_index] {
+                    match &other_table.table[i] {
                         DbVec::Texts { name: _, primary_key: _, col: other_col } => {
                             *col = merge_in_order(col, other_col, &record_vec);
                         },
-                        _ => unreachable!("Should always have the same primary key column")
+                        _ => unreachable!("Should always have the same type column")
                     }
                 },
                 DbVec::Floats { name: _, primary_key: _, col } => {
-                    match &other_table.table[self_primary_key_index] {
+                    match &other_table.table[i] {
                         DbVec::Floats { name: _, primary_key: _, col: other_col } => {
                             *col = merge_in_order(col, other_col, &record_vec);
                         },
-                        _ => unreachable!("Should always have the same primary key column")
+                        _ => unreachable!("Should always have the same type column")
                     }
                 },
             }
@@ -451,7 +450,7 @@ impl ColumnTable {
 
     pub fn to_string(&self) -> String {
         let mut printer = String::new();
-        for i in 0..self.len() {
+        for i in 0..(self.len()-1) {
 
             for vec in &self.table {
                 match vec {
@@ -489,32 +488,50 @@ fn rearrange_by_index<T: Clone>(col: &mut Vec<T>, indexer: &Vec<usize>) {
 
 } 
 
-fn merge_sorted<T: Ord + Clone>(one: &Vec<T>, two: &Vec<T>) -> (Vec<T>, Vec<u8>) {
+fn merge_sorted<T: Ord + Clone + Display + Debug>(one: &Vec<T>, two: &Vec<T>) -> (Vec<T>, Vec<u8>) {
     let mut new_vec: Vec<T> = Vec::with_capacity(one.len() + two.len());
     let mut record_vec: Vec<u8> = Vec::with_capacity(one.len() + two.len());
     let mut one_pointer = 0;
     let mut two_pointer = 0;
 
-    while (one_pointer < one.len()) && (two_pointer < two.len()) {
+    loop {
+        println!("one[{one_pointer}]: {}\ntwo[{two_pointer}]: {}", one[one_pointer], two[two_pointer]);
         if one[one_pointer] < two[two_pointer] {
             new_vec.push(one[one_pointer].clone());
-            one_pointer += 1;
             record_vec.push(1);
+            one_pointer += 1;
+        } else if one[one_pointer] > two[two_pointer] {
+            new_vec.push(two[two_pointer].clone());
+            record_vec.push(2);
+            two_pointer += 1;
         } else {
             new_vec.push(two[two_pointer].clone());
+            record_vec.push(3);
             two_pointer += 1;
-            record_vec.push(2);
+            one_pointer += 1;
+        }
+        if one_pointer >= one.len() {
+            new_vec.extend_from_slice(&two[two_pointer..two.len()]);
+            break;
+        } else if two_pointer >= two.len() {
+            new_vec.extend_from_slice(&one[one_pointer..one.len()]);
+            break;
         }
     }
+    println!("new_vec: \n{:?}", new_vec);
+    println!("\n\n");
 
     (new_vec, record_vec)
 }
 
-fn merge_in_order<T: Clone>(one: &Vec<T>, two: &Vec<T>, order: &Vec<u8>) -> Vec<T> {
+fn merge_in_order<T: Clone>(one: &Vec<T>, two: &Vec<T>, record_vec: &Vec<u8>) -> Vec<T> {
     let mut new_vec = Vec::with_capacity(one.len() + two.len());
     let mut one_pointer = 0;
     let mut two_pointer = 0;
-    for index in order {
+    println!("record_vec.len(): {}", record_vec.len());
+    println!("one.len():   {}", one.len());
+    println!("two.len():   {}", two.len());
+    for index in record_vec {
         match index {
             1 => {
                 new_vec.push(one[one_pointer].clone());
@@ -524,7 +541,12 @@ fn merge_in_order<T: Clone>(one: &Vec<T>, two: &Vec<T>, order: &Vec<u8>) -> Vec<
                 new_vec.push(two[two_pointer].clone());
                 two_pointer += 1;
             },
-            _ => unreachable!("Should always be 1 or 2"),
+            3 => {
+                new_vec.push(two[two_pointer].clone());
+                one_pointer += 1;
+                two_pointer += 1;
+            }
+            _ => unreachable!("Should always be 1, 2, or 3"),
         }
     }
 
@@ -1008,6 +1030,7 @@ mod tests {
 
         let mut i = 0;
         let mut printer = String::from("vnr,text-p;heiti,text;magn,int;lengd,float\n");
+        let mut printer2 = String::from("vnr,text-p;heiti,text;magn,int;lengd,float\n");
         loop {
             if i > 50 {
                 break;
@@ -1020,20 +1043,26 @@ mod tests {
                 random_string.push(rand::thread_rng().gen_range(97..122) as u8 as char);
             }
             printer.push_str(&format!("i{random_key};{random_string};{random_number};{random_float}\n"));
+            printer2.push_str(&format!("b{random_key};{random_string};{random_number};{random_float}\n"));
+            
             i+= 1;
         }
         let mut file = std::fs::File::create("large.csv").unwrap();
         file.write_all(printer.as_bytes()).unwrap();
+        let mut file = std::fs::File::create("large2.csv").unwrap();
+        file.write_all(printer2.as_bytes()).unwrap();
+
 
         let csv = std::fs::read_to_string("large.csv").unwrap();
+        let csv2 = std::fs::read_to_string("large2.csv").unwrap();
         let instant = std::time::Instant::now();
         // let mut t: ColumnTable = ColumnTable::from_csv_string(&csv, "init").unwrap();
         let mut t = ColumnTable::from_csv_string(&csv, "test").unwrap();
         let el = instant.elapsed().as_millis();
         println!("TIME to parse! {}", el);
         
-        let r = ColumnTable::from_csv_string(&csv, "test").unwrap();
-        t.combine(r);
+        let r = ColumnTable::from_csv_string(&csv2, "test").unwrap();
+        t.update(r);
         println!("t: {}", t.to_string());
 
     }
