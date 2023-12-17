@@ -4,8 +4,7 @@ use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::str::{self};
 
-use rug::Integer;
-use rug::integer::Order;
+use num_bigint::BigUint;
 
 use smartstring::{SmartString, LazyCompact};
 
@@ -132,11 +131,9 @@ pub fn server(address: &str) -> Result<(), ServerError> {
     
     println!("Starting server...\n###########################");
     println!("Binding to address: {address}");
-
-    let thread_pool = rayon::ThreadPoolBuilder::new().build().unwrap();
     
     let server_dh = DiffieHellman::new();
-    let server_public_key = Arc::new(server_dh.public_key().to_digits::<u8>(Order::Lsf));
+    let server_public_key = Arc::new(server_dh.public_key().to_bytes_le());
     let server_private_key = Arc::new(server_dh.private_key);
     
     let l = match TcpListener::bind(address) {
@@ -249,7 +246,7 @@ pub fn server(address: &str) -> Result<(), ServerError> {
         
 
         // Spawn a thread to handle establishing connections
-        thread_pool.spawn(move || {
+        std::thread::spawn(move || {
 
             // ################## ESTABLISHING ENCRYPTED CONNECTION ##########################################################################################################
             match stream.write(&thread_public_key) {
@@ -270,10 +267,10 @@ pub fn server(address: &str) -> Result<(), ServerError> {
                 }
             }
             
-            let client_public_key = Integer::from_digits(&buffer, Order::Lsf);
+            let client_public_key = BigUint::from_bytes_le(&buffer);
             
             let shared_secret = shared_secret(&client_public_key, &thread_private_key);
-            let aes_key = blake3_hash(&shared_secret.to_digits::<u8>(Order::Lsf));
+            let aes_key = blake3_hash(&shared_secret.to_bytes_le());
 
             let mut auth_buffer = [0u8; 1052];
             println!("About to read auth string");

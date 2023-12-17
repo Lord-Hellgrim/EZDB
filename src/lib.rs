@@ -1,5 +1,5 @@
-//#![allow(unused)]
-//#![allow(non_snake_case)]
+#![allow(unused)]
+#![allow(non_snake_case)]
 
 
 pub mod db_structure;

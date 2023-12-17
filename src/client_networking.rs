@@ -252,11 +252,11 @@ mod tests {
             printer.push_str(&format!("i{};product name;569\n", i));
             i+= 1;
         }
-        let mut file = std::fs::File::create("large.csv").unwrap();
+        let mut file = std::fs::File::create("testlarge.csv").unwrap();
         file.write_all(printer.as_bytes()).unwrap();
 
 
-        let csv = std::fs::read_to_string("large.csv").unwrap();
+        let csv = std::fs::read_to_string("testlarge.csv").unwrap();
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";

@@ -283,21 +283,21 @@ impl ColumnTable {
             match self.table[i] {
                 DbVec::Ints { name: _, primary_key, col: _ } => {
                     if primary_key {
-                    self_primary_key_index = 0;
-                    break
+                        self_primary_key_index = i;
+                        break
                 }
             },
-            DbVec::Texts { name: _, primary_key, col: _ } => {
-                if primary_key {
-                    self_primary_key_index = 0;
-                    break
-                }
-            },
-            DbVec::Floats { name: _, primary_key, col: _ } => {
-                if primary_key {
-                    unreachable!("There should never be a float primary key");
-                }
-            },
+                DbVec::Texts { name: _, primary_key, col: _ } => {
+                    if primary_key {
+                        self_primary_key_index = i;
+                        break
+                    }
+                },
+                DbVec::Floats { name: _, primary_key, col: _ } => {
+                    if primary_key {
+                        unreachable!("There should never be a float primary key");
+                    }
+                },
             }
         }
 
@@ -315,29 +315,29 @@ impl ColumnTable {
         let minlen = std::cmp::min(self.table.len(), other_table.table.len());
 
         let mut record_vec: Vec<u8>;
+        match &mut self.table[self_primary_key_index] {
+            DbVec::Ints { name: _, primary_key: _, col } => {
+                match &other_table.table[self_primary_key_index] {
+                    DbVec::Ints { name: _, primary_key: _, col: other_col } => {
+                        (*col, record_vec) = merge_sorted(col, other_col);
+                    },
+                    _ => unreachable!("Should always have the same primary key column")
+                }
+            },
+            DbVec::Texts { name: _, primary_key: _, col } => {
+                match &other_table.table[self_primary_key_index] {
+                    DbVec::Texts { name: _, primary_key: _, col: other_col } => {
+                        (*col, record_vec) = merge_sorted(col, other_col);
+                    },
+                    _ => unreachable!("Should always have the same primary key column")
+                }
+            },
+            DbVec::Floats { name: _, primary_key: _, col: _ } => unreachable!("Should never have a float primary key column"),
+        }
         for i in 0..minlen {
-            match &mut self.table[self_primary_key_index] {
-                DbVec::Ints { name: _, primary_key: _, col } => {
-                    match &other_table.table[self_primary_key_index] {
-                        DbVec::Ints { name: _, primary_key: _, col: other_col } => {
-                            (*col, record_vec) = merge_sorted(col, other_col);
-                        },
-                        _ => unreachable!("Should always have the same primary key column")
-                    }
-                },
-                DbVec::Texts { name: _, primary_key: _, col } => {
-                    match &other_table.table[self_primary_key_index] {
-                        DbVec::Texts { name: _, primary_key: _, col: other_col } => {
-                            (*col, record_vec) = merge_sorted(col, other_col);
-                        },
-                        _ => unreachable!("Should always have the same primary key column")
-                    }
-                },
-                DbVec::Floats { name: _, primary_key: _, col: _ } => unreachable!("Should never have a float primary key column"),
-            }
 
             if i == self_primary_key_index {
-                continue
+                continue;
             }
 
             match &mut self.table[i] {
@@ -455,14 +455,17 @@ impl ColumnTable {
             for vec in &self.table {
                 match vec {
                     DbVec::Floats { name: _, primary_key: _, col } => {
+                        println!("float: col.len(): {}", col.len());
                         printer.push_str(&col[i].to_string());
                         printer.push_str(";");
                     },
                     DbVec::Ints { name: _, primary_key: _, col } => {
+                        println!("int: col.len(): {}", col.len());
                         printer.push_str(&col[i].to_string());
                         printer.push_str(";");
                     },
                     DbVec::Texts { name: _, primary_key: _, col } => {
+                        println!("text: col.len(): {}", col.len());
                         printer.push_str(&col[i]);
                         printer.push_str(";");
                     },
@@ -494,8 +497,9 @@ fn merge_sorted<T: Ord + Clone + Display + Debug>(one: &Vec<T>, two: &Vec<T>) ->
     let mut one_pointer = 0;
     let mut two_pointer = 0;
 
+    println!("RUNNING merge_sorted()!!!--------------------------------");
     loop {
-        println!("one[{one_pointer}]: {}\ntwo[{two_pointer}]: {}", one[one_pointer], two[two_pointer]);
+        println!("one[{one_pointer}]: {}\t\ttwo[{two_pointer}]: {}", one[one_pointer], two[two_pointer]);
         if one[one_pointer] < two[two_pointer] {
             new_vec.push(one[one_pointer].clone());
             record_vec.push(1);
@@ -504,21 +508,36 @@ fn merge_sorted<T: Ord + Clone + Display + Debug>(one: &Vec<T>, two: &Vec<T>) ->
             new_vec.push(two[two_pointer].clone());
             record_vec.push(2);
             two_pointer += 1;
-        } else {
+        } else if one[one_pointer] == two[two_pointer]{
             new_vec.push(two[two_pointer].clone());
             record_vec.push(3);
             two_pointer += 1;
             one_pointer += 1;
+        } else {
+            unreachable!();
         }
         if one_pointer >= one.len() {
             new_vec.extend_from_slice(&two[two_pointer..two.len()]);
+            let cap = two.len() - two_pointer;
+            while two_pointer < cap + 1 {
+                record_vec.push(2);
+                two_pointer += 1;
+            }
             break;
         } else if two_pointer >= two.len() {
             new_vec.extend_from_slice(&one[one_pointer..one.len()]);
+            let cap = one.len() - one_pointer;
+            while one_pointer < cap + 1 {
+                record_vec.push(1);
+                one_pointer += 1;
+            }
+            
             break;
         }
     }
-    println!("new_vec: \n{:?}", new_vec);
+    println!("new_vec.len(): {}\nnew_vec\n{:?}", new_vec.len(), new_vec);
+    println!("record_vec.len(): {}\nrecord_vec: \n{:?}", record_vec.len(), record_vec);
+    println!("merge_sorted() FINISHED !!!!!!######################################");
     println!("\n\n");
 
     (new_vec, record_vec)
@@ -528,10 +547,12 @@ fn merge_in_order<T: Clone>(one: &Vec<T>, two: &Vec<T>, record_vec: &Vec<u8>) ->
     let mut new_vec = Vec::with_capacity(one.len() + two.len());
     let mut one_pointer = 0;
     let mut two_pointer = 0;
-    println!("record_vec.len(): {}", record_vec.len());
-    println!("one.len():   {}", one.len());
-    println!("two.len():   {}", two.len());
+    // println!("record_vec.len(): {}", record_vec.len());
+    // println!("one.len():   {}", one.len());
+    // println!("two.len():   {}", two.len());
+    println!("record_vec: {:?}", record_vec);
     for index in record_vec {
+        println!("one_p: {}\ttwo_p: {}", one_pointer, two_pointer);
         match index {
             1 => {
                 new_vec.push(one[one_pointer].clone());
@@ -1038,11 +1059,12 @@ mod tests {
             let random_number: i64 = rand::thread_rng().gen();
             let random_float: f64 = rand::thread_rng().gen();
             let random_key: u32 = rand::thread_rng().gen();
+            let random_key2: u32 = rand::thread_rng().gen();
             let mut random_string = String::new();
             for _ in 0..8 {
                 random_string.push(rand::thread_rng().gen_range(97..122) as u8 as char);
             }
-            printer.push_str(&format!("i{random_key};{random_string};{random_number};{random_float}\n"));
+            printer.push_str(&format!("a{random_key};{random_string};{random_number};{random_float}\n"));
             printer2.push_str(&format!("b{random_key};{random_string};{random_number};{random_float}\n"));
             
             i+= 1;
