@@ -33,8 +33,12 @@ pub fn unix_time_to_real(seconds: u64) -> String {
     const DAY: u64 = 24 * 60 * 60;
     const HOUR: u64 = 60 * 60;
     const MINUTE: u64 = 60;
-
-    let mut days = (seconds%YEAR - ((seconds / YEAR)/4) * DAY) / DAY + 1;
+    let mut days: u64; 
+    if (seconds%YEAR)%DAY >=335 {
+        days = (seconds%YEAR) / DAY;
+    } else {
+        days = (seconds%YEAR - ((seconds / YEAR)/4) * DAY) / DAY + 1;
+    }
     let months: u64;
     
     match days {

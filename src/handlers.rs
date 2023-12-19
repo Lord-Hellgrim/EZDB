@@ -59,7 +59,7 @@ pub fn handle_upload_request(mut connection: &mut Connection, name: &str, global
             println!("Appending to global");
             println!("{:?}", &table.header);
             table.metadata.last_access = get_current_time();
-            table.metadata.created_by = connection.user.clone();
+            table.metadata.created_by = KeyString::from(connection.user.clone());
         
             table.metadata.times_accessed += 1;
             

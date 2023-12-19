@@ -24,6 +24,7 @@ pub enum StrictError {
     WrongType,
     Parse(usize),
     TooManyPrimaryKeys,
+    WrongKey,
 }
 
 impl fmt::Display for StrictError {
@@ -41,6 +42,7 @@ impl fmt::Display for StrictError {
             StrictError::WrongType => write!(f, "Wrong type specified in header"),
             StrictError::Parse(i) => write!(f, "Item in line {i} cannot be parsed"),
             StrictError::TooManyPrimaryKeys => write!(f, "There can only be one primary key column"),
+            StrictError::WrongKey => write!(f, "The type of the primary key is wrong"),
 
         }
     }
@@ -57,7 +59,7 @@ impl From<std::io::ErrorKind> for StrictError {
 pub struct Metadata {
     pub last_access: u64,
     pub times_accessed: u64,
-    pub created_by: String,
+    pub created_by: KeyString,
 }
 
 impl fmt::Display for Metadata {
@@ -76,7 +78,7 @@ impl Metadata {
         Metadata{
             last_access: get_current_time(),
             times_accessed: 0,
-            created_by: String::from(client),
+            created_by: KeyString::from(client),
         }
     }
 }
@@ -124,6 +126,7 @@ impl HeaderItem {
 #[derive(Clone, Debug)]
 pub struct ColumnTable {
     metadata: Metadata,
+    name: KeyString,
     header: Vec<HeaderItem>,
     table: Vec<DbVec>,
 }
@@ -179,7 +182,7 @@ impl Display for ColumnTable {
 }
 
 impl ColumnTable {
-    pub fn from_csv_string(s: &str, name: &str) -> Result<ColumnTable, StrictError> {
+    pub fn from_csv_string(s: &str, table_name: &str, created_by: &str) -> Result<ColumnTable, StrictError> {
 
         if s.len() < 1 {
             return Err(StrictError::Empty)
@@ -306,7 +309,12 @@ impl ColumnTable {
             i += 1;
         }
 
-        let mut output = ColumnTable { metadata: Metadata::new(name), header: header, table: result };
+        let mut output = ColumnTable { 
+            metadata: Metadata::new(created_by), 
+            name: KeyString::from(table_name), 
+            header: header, 
+            table: result 
+        };
         output.sort();
         Ok(
             output
@@ -316,7 +324,7 @@ impl ColumnTable {
 
     pub fn update_from_csv(&mut self, input_csv: &str) -> Result<(), StrictError> {
 
-        let insert_table = ColumnTable::from_csv_string(input_csv, "insert")?;
+        let insert_table = ColumnTable::from_csv_string(input_csv, "insert", "system")?;
 
         self.update(&insert_table)?;
 
@@ -523,54 +531,112 @@ impl ColumnTable {
     pub fn query_range(&self, range: (&str, &str)) -> Result<String, StrictError> {
         let mut printer = String::new();
 
+        if range.1 < range.0 {
+            return Err(StrictError::Empty)
+        }
+
+        if range.0 == range.1 {
+            return self.query(range.0);
+        }
+
         let primary_index = self.get_primary_key_col_index();
 
-        let mut indexes = Vec::new();
+        let mut indexes: [usize;2] = [0,0];
         match &self.table[primary_index] {
             DbVec::Floats { name: _, col: _ } => return Err(StrictError::FloatPrimaryKey),
             DbVec::Ints { name, col } => {
                 let key: i64;
                 match range.0.parse::<i64>() {
                     Ok(num) => key = num,
-                    Err(_) => (),
+                    Err(_) => return Err(StrictError::Empty),
                 };
-                let index: usize;
-                match col.partition_point(&key) {
-                    Ok(num) => index = num,
-                    Err(_) => (),
-                } 
-                indexes.push(index);
+                let index: usize = col.partition_point(|n| n < &key);
+                indexes[0] = index;
+
+                if range.1 == "" {
+                    indexes[1] = col.len();
+                } else {
+                    let key2: i64;
+                    match range.1.parse::<i64>() {
+                        Ok(num) => key2 = num,
+                        Err(_) => return Err(StrictError::WrongKey),
+                    };
+                    println!("key2: {}", key2);
+                    let index: usize = col.partition_point(|n| n < &key2);
+                    if col[index] == key2 {
+                        indexes[1] = index;
+                    } else {
+                        indexes[1] = index - 1;
+                    }
+                }
+
             },
             DbVec::Texts { name, col } => {
-                let index: usize;
-                match col.binary_search(&KeyString::from(item)) {
-                    Ok(num) => index = num,
-                    Err(_) => (),
-                } 
-                indexes.push(index);
+                let index: usize = col.partition_point(|n| n < &KeyString::from(range.0));
+                indexes[0] = index;
+
+                if range.1 == "" {
+                    indexes[1] = col.len();
+                }
+
+                let index: usize = col.partition_point(|n| n < &KeyString::from(range.1));
+
+                if col[index] == range.1 {
+                    indexes[1] = index;
+                } else {
+                    indexes[1] = index - 1;
+                }
+
+                indexes[1] = index;
             }
         }
 
-        for index in indexes {
+        let mut i = indexes[0];
+        while i <= indexes[1] {
             for v in &self.table {
                 match v {
-                    DbVec::Floats { name, col } => printer.push_str(&col[index].to_string()),
-                    DbVec::Ints { name, col } => printer.push_str(&col[index].to_string()),
-                    DbVec::Texts { name, col } => printer.push_str(&col[index]),
+                    DbVec::Floats { name, col } => printer.push_str(&col[i].to_string()),
+                    DbVec::Ints { name, col } => printer.push_str(&col[i].to_string()),
+                    DbVec::Texts { name, col } => printer.push_str(&col[i]),
                 }
                 printer.push(';');
             }
             printer.pop();
             printer.push('\n');
+            i += 1;
         }
         printer.pop();
-
 
         Ok(printer)
     }
 
     pub fn query(&self, query: &str) -> Result<String, StrictError> {
         self.query_list(Vec::from([query]))
+    }
+
+    pub fn save_to_disk_raw(&self, path: &str) -> Result<(), StrictError> {
+        let file_name = &self.name;
+
+        let metadata = &self.metadata.to_string();
+
+        let table = &self.to_string();
+
+
+        let mut table_file = match std::fs::File::create(&format!("{}raw_tables/{}",path, file_name)) {
+            Ok(f) => f,
+            Err(e) => return Err(StrictError::Io(e.kind())),
+        };
+
+        let mut meta_file = match std::fs::File::create(&format!("{}raw_tables-metadata/{}",path, file_name)) {
+            Ok(f) => f,
+            Err(e) => return Err(StrictError::Io(e.kind())),
+        };
+
+        table_file.write_all(table.as_bytes());
+        meta_file.write_all(metadata.as_bytes());
+
+
+        Ok(())
     }
 
     
@@ -1173,11 +1239,11 @@ mod tests {
         let csv2 = std::fs::read_to_string("large2.csv").unwrap();
         let instant = std::time::Instant::now();
         // let mut t: ColumnTable = ColumnTable::from_csv_string(&csv, "init").unwrap();
-        let mut t = ColumnTable::from_csv_string(&csv, "test").unwrap();
+        let mut t = ColumnTable::from_csv_string(&csv, "test", "test").unwrap();
         let el = instant.elapsed().as_millis();
         println!("TIME to parse! {}", el);
         
-        let r = ColumnTable::from_csv_string(&csv2, "test").unwrap();
+        let r = ColumnTable::from_csv_string(&csv2, "test", "test").unwrap();
         t.update(&r);
         println!("t: {}", t.to_string());
 
@@ -1186,7 +1252,7 @@ mod tests {
     #[test]
     fn test_columntable_from_to_string() {
         let input = "vnr,i-p;heiti,t;magn,i\n113035;undirlegg;200\n113050;annad undirlegg;500";
-        let t = ColumnTable::from_csv_string(input, "test").unwrap();
+        let t = ColumnTable::from_csv_string(input, "test", "test").unwrap();
         println!("t: {}", t.to_string());
         assert_eq!(input, t.to_string());
 
@@ -1222,10 +1288,10 @@ mod tests {
         printer3.push_str(&printer22);
         // println!("{}", printer3);
 
-        let mut a = ColumnTable::from_csv_string(&printer, "a").unwrap();
-        let b = ColumnTable::from_csv_string(&printer2, "b").unwrap();
+        let mut a = ColumnTable::from_csv_string(&printer, "a", "test").unwrap();
+        let b = ColumnTable::from_csv_string(&printer2, "b", "test").unwrap();
         a.update(&b);
-        let c = ColumnTable::from_csv_string(&printer3, "c").unwrap();
+        let c = ColumnTable::from_csv_string(&printer3, "c", "test").unwrap();
 
         assert_eq!(a.to_string(), c.to_string());
 
@@ -1234,7 +1300,7 @@ mod tests {
     #[test]
     fn test_columntable_query_list() {
         let input = "vnr,i-p;heiti,t;magn,i\n113035;undirlegg;200\n113050;annad undirlegg;500";
-        let t = ColumnTable::from_csv_string(input, "test").unwrap();
+        let t = ColumnTable::from_csv_string(input, "test", "test").unwrap();
         println!("t: {}", t.to_string());
         let x = t.query_list(Vec::from(["113035"])).unwrap();
         assert_eq!(x, "113035;undirlegg;200");
@@ -1243,10 +1309,18 @@ mod tests {
     #[test]
     fn test_columntable_query_single() {
         let input = "vnr,i-p;heiti,t;magn,i\n113035;undirlegg;200\n113050;annad undirlegg;500";
-        let t = ColumnTable::from_csv_string(input, "test").unwrap();
+        let t = ColumnTable::from_csv_string(input, "test", "test").unwrap();
         println!("t: {}", t.to_string());
         let x = t.query("113035").unwrap();
         assert_eq!(x, "113035;undirlegg;200");
     }
 
+    #[test]
+    fn test_columntable_query_range() {
+        let input = "vnr,i-p;heiti,t;magn,i\n113035;undirlegg;200\n113050;annad undirlegg;500\n18572054;flísalím;42\n113446;harlech;250";
+        let t = ColumnTable::from_csv_string(input, "test", "test").unwrap();
+        let x = t.query_range(("113035", "113060")).unwrap();
+
+        assert_eq!(x, "113035;undirlegg;200\n113050;annad undirlegg;500")
+    }
 }
