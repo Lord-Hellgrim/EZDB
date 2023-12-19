@@ -299,7 +299,6 @@ mod tests {
 
     #[test]
     fn test_kv_download() {
-        test_kv_upload();
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";

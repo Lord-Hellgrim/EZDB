@@ -35,7 +35,7 @@ pub fn unix_time_to_real(seconds: u64) -> String {
     const MINUTE: u64 = 60;
     let mut days: u64; 
     if (seconds%YEAR)%DAY >=335 {
-        days = (seconds%YEAR) / DAY;
+        days = (seconds%YEAR)/DAY;
     } else {
         days = (seconds%YEAR - ((seconds / YEAR)/4) * DAY) / DAY + 1;
     }
@@ -147,6 +147,12 @@ impl Drop for Logger {
 mod tests {
 
     use super::*;
+
+    #[test]
+    fn test_unix_time() {
+        let x = unix_time_to_real(get_current_time());
+        println!("{}", x);
+    }
 
     #[test]
     fn test_destructor() {

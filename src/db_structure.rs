@@ -440,20 +440,20 @@ impl ColumnTable {
                 let instant = std::time::Instant::now();
                 indexer.sort_unstable_by_key(|&i|col[i] );
                 let time = instant.elapsed().as_millis();
-                println!("time to sort indexer with int PK: {} millis", time);
+                // println!("time to sort indexer with int PK: {} millis", time);
             },
             DbVec::Texts { name: _, col } => {
                 let instant = std::time::Instant::now();
                 indexer.sort_unstable_by_key(|&i|&col[i] );
                 let time = instant.elapsed().as_millis();
-                println!("time to sort indexer with text PK: {} millis", time);
+                // println!("time to sort indexer with text PK: {} millis", time);
             },
             DbVec::Floats { name: _, col: _ } => {
                 unreachable!("There should never be a float primary key");
             },
         }
         let outer_time = outer_instant.elapsed().as_millis();
-        println!("total indexer sorting time: {} millis", outer_time);
+        // println!("total indexer sorting time: {} millis", outer_time);
 
 
 
@@ -473,7 +473,7 @@ impl ColumnTable {
         });
 
         let time = instant.elapsed().as_millis();
-        println!("time to rearrange columns: {} millis", time);
+        // println!("time to rearrange columns: {} millis", time);
 
     }
 
@@ -561,7 +561,7 @@ impl ColumnTable {
                         Ok(num) => key2 = num,
                         Err(_) => return Err(StrictError::WrongKey),
                     };
-                    println!("key2: {}", key2);
+                    // println!("key2: {}", key2);
                     let index: usize = col.partition_point(|n| n < &key2);
                     if col[index] == key2 {
                         indexes[1] = index;
