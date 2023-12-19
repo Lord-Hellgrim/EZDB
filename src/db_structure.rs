@@ -125,10 +125,10 @@ impl HeaderItem {
 
 #[derive(Clone, Debug)]
 pub struct ColumnTable {
-    metadata: Metadata,
-    name: KeyString,
-    header: Vec<HeaderItem>,
-    table: Vec<DbVec>,
+    pub metadata: Metadata,
+    pub name: KeyString,
+    pub header: Vec<HeaderItem>,
+    pub table: Vec<DbVec>,
 }
 
 impl Display for ColumnTable {

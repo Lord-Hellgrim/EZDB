@@ -1,6 +1,6 @@
 use std::{sync::{Arc, Mutex}, collections::HashMap, io::Write};
 
-use crate::{networking_utilities::*, db_structure::{StrictTable, Value}, logger::get_current_time, auth::User};
+use crate::{networking_utilities::*, db_structure::{StrictTable, Value, ColumnTable}, logger::get_current_time, auth::User};
 
 use smartstring::{SmartString, LazyCompact};
 
@@ -46,7 +46,7 @@ pub fn handle_upload_request(mut connection: &mut Connection, name: &str, global
     // Here we create a StrictTable from the csv and supplied name
     println!("About to check for strictness");
     let instant = std::time::Instant::now();
-    match StrictTable::from_csv_string(bytes_to_str(&csv)?, name) {
+    match ColumnTable::from_csv_string(bytes_to_str(&csv)?, name, "test") {
         Ok(mut table) => {
             match connection.stream.write(format!("{}", total_read).as_bytes()) {
                 Ok(_) => {
@@ -63,7 +63,7 @@ pub fn handle_upload_request(mut connection: &mut Connection, name: &str, global
         
             table.metadata.times_accessed += 1;
             
-            global_tables.lock().unwrap().insert(KeyString::from(table.name.clone()), table);
+            // global_tables.lock().unwrap().insert(KeyString::from(table.name.clone()), table);
 
         },
         Err(e) => match connection.stream.write(e.to_string().as_bytes()){
