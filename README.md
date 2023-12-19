@@ -26,10 +26,10 @@ defined by "client_networking.rs". Both make heavy use of "networking_utilities.
 "logger.rs" will handle logging once that's implemented. The various .txt files in the root directory are for testing purposes 
 and should probably be in their own separate folder. 
 
-The main data structure of EZDB (currently, planning schemaless tables in future) is the StrictTable (db_structure.rs), which is
+_The main data structure of EZDB (currently, planning schemaless tables in future) is the StrictTable (db_structure.rs), which is
 essentially a BtreeMap with some tacked on metadata and identifiers and some methods for creating it to ensure it maintains the
 schema. All of the rest of the code is for sending, receiving, updating, querying, securing, and encrypting StrictTable
-structs.
+structs._ This portion is undergoing severe revision. Main data structure will now be a column based struct, which is currently about 10x faster.
 
 To understand the codebase, it is probably best to start with "db_structure.rs" which is where the main data structure is defined.
 Once you have a handle on that you can move on to "client_networking.rs" and "server_networking.rs" which have to be read together

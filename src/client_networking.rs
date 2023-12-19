@@ -1,13 +1,7 @@
-use std::net::TcpStream;
-use std::io::{Read, Write};
-use std::process::Command;
-use std::sync::TryLockError;
-use std::time::Duration;
+use std::io::Write;
 use std::str::{self};
 
 use crate::auth::AuthenticationError;
-use crate::db_structure::StrictTable;
-use crate::{diffie_hellman::*, aes};
 use crate::networking_utilities::*;
 
 
@@ -18,10 +12,10 @@ pub fn download_table(address: &str, username: &str, password: &str, table_name:
         
     let response = instruction_send_and_confirm(Instruction::Download(table_name.to_owned()), &mut connection)?;
 
-    let csv: String;
+    let csv: Vec<u8>;
     
-    match parse_response(&response, &connection.peer.Username, &connection.peer.Password, table_name) {
-        Ok(f) => (csv, _) = receive_data(&mut connection)?,
+    match parse_response(&response, &connection.user, password.as_bytes(), table_name) {
+        Ok(_) => (csv, _) = receive_data(&mut connection)?,
         Err(e) => return Err(e),
     }
 
@@ -31,7 +25,7 @@ pub fn download_table(address: &str, username: &str, password: &str, table_name:
         Err(e) => {return Err(ServerError::Io(e));}
     };
 
-    Ok(csv)
+    Ok(bytes_to_str(&csv)?.to_owned())
 
 
 }
@@ -46,8 +40,8 @@ pub fn upload_table(address: &str, username: &str, password: &str, table_name: &
     let confirmation: String;
 
     println!("upload_table - parsing response");
-    match parse_response(&response, &connection.peer.Username, &connection.peer.Password, table_name) {
-        Ok(_) => confirmation = data_send_and_confirm(&mut connection, &csv)?,
+    match parse_response(&response, &connection.user, password.as_bytes(), table_name) {
+        Ok(_) => confirmation = data_send_and_confirm(&mut connection, csv.as_bytes())?,
         Err(e) => return Err(e),
     }
 
@@ -71,8 +65,8 @@ pub fn update_table(address: &str, username: &str, password: &str, table_name: &
 
     let confirmation: String;
 
-    match parse_response(&response, &connection.peer.Username, &connection.peer.Password, table_name) {
-        Ok(_) => confirmation = data_send_and_confirm(&mut connection, &csv)?,
+    match parse_response(&response, &connection.user, password.as_bytes(), table_name) {
+        Ok(_) => confirmation = data_send_and_confirm(&mut connection, csv.as_bytes())?,
         Err(e) => return Err(e),
     }
 
@@ -96,15 +90,15 @@ pub fn query_table(address: &str, username: &str, password: &str, table_name: &s
 
     let response = instruction_send_and_confirm(Instruction::Query(table_name.to_owned(), query.to_owned()), &mut connection)?;
 
-    let csv: String;
+    let csv: Vec<u8>;
     match response.as_str() {
 
         // THIS IS WHERE YOU SEND THE BULK OF THE DATA
         //########## SUCCESS BRANCH #################################
         "OK" => (csv, _) = receive_data(&mut connection)?,
         //###########################################################
-        "Username is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongUser(connection.peer.Username.to_owned()))),
-        "Password is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongPassword(connection.peer.Password.to_owned()))),
+        "Username is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongUser(connection.user))),
+        "Password is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongPassword(password.as_bytes().to_owned()))),
         e => panic!("Need to handle error: {}", e),
     };
 
@@ -113,14 +107,68 @@ pub fn query_table(address: &str, username: &str, password: &str, table_name: &s
         Err(e) => {return Err(ServerError::Io(e));}
     };
 
-    Ok(csv)
+    Ok(bytes_to_str(&csv)?.to_owned())
 }
+
+
+pub fn kv_upload(address: &str, username: &str, password: &str, key: &str, value: &[u8]) -> Result<(), ServerError> {
+
+    let mut connection = Connection::connect(address, username, password)?;
+
+    let response = instruction_send_and_confirm(Instruction::KvUpload(key.to_owned()), &mut connection)?;
+
+    let confirmation: String;
+
+    println!("upload_value - parsing response");
+    match parse_response(&response, &connection.user, password.as_bytes(), key) {
+        Ok(_) => confirmation = data_send_and_confirm(&mut connection, value)?,
+        Err(e) => return Err(e),
+    }
+    println!("value uploaded successfully");
+
+    // The reason for the +28 in the length checker is that it accounts for the length of the nonce (IV) and the authentication tag
+    // in the aes-gcm encryption. The nonce is 12 bytes and the auth tag is 16 bytes
+    let data_len = (value.len() + 28).to_string();
+    if confirmation == data_len {
+        return Ok(());
+    } else {
+        return Err(ServerError::Confirmation(confirmation));
+    }
+}
+
+pub fn kv_download(address: &str, username: &str, password: &str, key: &str) -> Result<Vec<u8>, ServerError> {
+
+    let mut connection = Connection::connect(address, username, password)?;
+
+        
+    let response = instruction_send_and_confirm(Instruction::KvDownload(key.to_owned()), &mut connection)?;
+
+    let value: Vec<u8>;
+    
+    match parse_response(&response, &connection.user, password.as_bytes(), key) {
+        Ok(_) => (value, _) = receive_data(&mut connection)?,
+        Err(e) => return Err(e),
+    }
+
+
+    match connection.stream.write("OK".as_bytes()) {
+        Ok(n) => println!("Wrote 'OK' as {n} bytes"),
+        Err(e) => {return Err(ServerError::Io(e));}
+    };
+
+    Ok(value)
+
+}
+
+
+
 
 #[cfg(test)]
 mod tests {
-    use std::arch::asm;
     #[allow(unused)]
     use std::{path::Path, fs::remove_file};
+
+    use crate::db_structure::StrictTable;
 
     use super::*;
 
@@ -142,7 +190,7 @@ mod tests {
         let password = "admin";
         let e = upload_table(address, username, password, "good_csv", &csv).unwrap();
         println!("About to check second table");
-        std::thread::sleep(Duration::from_secs(2));
+        std::thread::sleep(std::time::Duration::from_secs(2));
         let d = upload_table(address, username, password, "good_csv", &csv).unwrap();
     }
 
@@ -154,7 +202,7 @@ mod tests {
         let password = "admin";
         let a = upload_table(address, username, password, "good_csv", &csv).unwrap();
         println!("About to check second table");
-        std::thread::sleep(Duration::from_secs(2));
+        std::thread::sleep(std::time::Duration::from_secs(2));
         for i in 0..100 {
             download_table(address, username, password, "good_csv");
         }
@@ -204,11 +252,11 @@ mod tests {
             printer.push_str(&format!("i{};product name;569\n", i));
             i+= 1;
         }
-        let mut file = std::fs::File::create("large.csv").unwrap();
+        let mut file = std::fs::File::create("testlarge.csv").unwrap();
         file.write_all(printer.as_bytes()).unwrap();
 
 
-        let csv = std::fs::read_to_string("large.csv").unwrap();
+        let csv = std::fs::read_to_string("testlarge.csv").unwrap();
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";
@@ -237,6 +285,26 @@ mod tests {
         let mut connection = Connection::connect(address, username, password).unwrap();        
         let response = query_table(address, username, password, "good_csv", query).unwrap();
         println!("{}", response);
+    }
+
+    #[test]
+    fn test_kv_upload() {
+        let value: &[u8] = &[1,2,3,4,5,6,7,8,9];
+        let address = "127.0.0.1:3004";
+        let username = "admin";
+        let password = "admin";
+        let e = kv_upload(address, username, password, "test_key", value).unwrap();   
+    
+    }
+
+    #[test]
+    fn test_kv_download() {
+        test_kv_upload();
+        let address = "127.0.0.1:3004";
+        let username = "admin";
+        let password = "admin";
+        let e = kv_download(address, username, password, "test_key").unwrap();
+        println!("value: {:x?}", e);
     }
 
 }

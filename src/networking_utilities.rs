@@ -1,17 +1,14 @@
 use std::arch::asm;
-use std::char::MAX;
 use std::collections::HashMap;
 use std::io::{Write, Read};
-use std::net::{TcpStream, IpAddr};
+use std::net::TcpStream;
 use std::num::ParseIntError;
-use std::str::{self, Utf8Error, FromStr};
+use std::str::{self, Utf8Error};
 use std::time::Duration;
 use std::{usize, fmt};
 
-use aes_gcm::{Aes256Gcm, AeadCore, aead};
-use aes_gcm::aead::OsRng;
-use rug::{Integer, Complete};
-use rug::integer::Order;
+use aes_gcm::aead;
+use num_bigint::BigUint;
 
 use crate::aes_temp_crypto::{encrypt_aes256, decrypt_aes256};
 use crate::auth::{AuthenticationError, User};
@@ -21,7 +18,7 @@ use crate::diffie_hellman::*;
 
 pub const INSTRUCTION_BUFFER: usize = 1024;
 pub const DATA_BUFFER: usize = 1_000_000;
-pub const INSTRUCTION_LENGTH: usize = 3;
+pub const INSTRUCTION_LENGTH: usize = 4;
 pub const MAX_DATA_LEN: usize = u32::MAX as usize;
 
 
@@ -104,6 +101,9 @@ pub enum Instruction {
     Update(String),
     Query(String /* table_name */, String /* query */),
     NewUser(String),
+    KvUpload(String),
+    KvUpdate(String),
+    KvDownload(String),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -135,7 +135,7 @@ impl From<Utf8Error> for InstructionError {
 
 pub struct Connection {
     pub stream: TcpStream,
-    pub peer: User,
+    pub user: String,
     pub aes_key: Vec<u8>,   
 }
 
@@ -151,11 +151,11 @@ impl Connection {
         let mut stream = TcpStream::connect(address)?;
         let mut key_buffer: [u8; 256] = [0u8;256];
         stream.read(&mut key_buffer)?;
-        let server_public_key = Integer::from_digits(&key_buffer, Order::Lsf);
-        let client_public_key = client_dh.public_key().to_digits::<u8>(Order::Lsf);
+        let server_public_key = BigUint::from_bytes_le(&key_buffer);
+        let client_public_key = client_dh.public_key().to_bytes_le();
         stream.write(&client_public_key)?;
         let shared_secret = client_dh.shared_secret(&server_public_key);
-        let aes_key = blake3_hash(&shared_secret.to_digits::<u8>(Order::Lsf));
+        let aes_key = blake3_hash(&shared_secret.to_bytes_le());
 
         let mut auth_buffer = [0u8; 1024];
         auth_buffer[0..username.len()].copy_from_slice(username.as_bytes());
@@ -176,15 +176,11 @@ impl Connection {
         stream.write_all(&encrypted_data_block)?;
         stream.flush()?;
 
-        let user = User {
-            Username: username.to_owned(),
-            Password: password.as_bytes().to_owned(),
-            Permissions: HashMap::new(),
-        };
+        let mut user = username.to_owned();
         Ok(
             Connection {
                 stream: stream,
-                peer: user,
+                user: user,
                 aes_key: aes_key,
             }
         )
@@ -394,24 +390,27 @@ pub fn hash_function(a: &str) -> Vec<u8> {
 pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut Connection) -> Result<String, ServerError> {
 
     let instruction = match instruction {
-        Instruction::Download(table_name) => format!("Downloading|{}|blank", table_name),
-        Instruction::Upload(table_name) => format!("Uploading|{}|blank", table_name),
-        Instruction::Update(table_name) => format!("Updating|{}|blank", table_name),
-        Instruction::Query(table_name, query) => format!("Querying|{}|{}", table_name, query),
-        Instruction::NewUser(user_string) => format!("NewUser|{}|blank", user_string),
+        Instruction::Download(table_name) => format!("Downloading|{}|blank|{}", table_name, connection.user),
+        Instruction::Upload(table_name) => format!("Uploading|{}|blank|{}", table_name, connection.user),
+        Instruction::Update(table_name) => format!("Updating|{}|blank|{}", table_name, connection.user),
+        Instruction::Query(table_name, query) => format!("Querying|{}|{}|{}", table_name, query, connection.user),
+        Instruction::NewUser(user_string) => format!("NewUser|{}|blank|{}", user_string, connection.user),
+        Instruction::KvUpload(table_name) => format!("KvUpload|{}|blank|{}", table_name, connection.user),
+        Instruction::KvUpdate(table_name) => format!("KvUpdate|{}|blank|{}", table_name, connection.user),
+        Instruction::KvDownload(table_name) => format!("KvDownload|{}|blank|{}", table_name, connection.user),
     };
 
     let instruction_string = format!("{instruction}");
     let (encrypted_instructions, nonce) = encrypt_aes256(&instruction_string.as_bytes(), &connection.aes_key);
 
-    println!("encrypted instructions: {:x?}", encrypted_instructions);
-    println!("nonce: {:x?}", nonce);
+    // println!("encrypted instructions: {:x?}", encrypted_instructions);
+    // println!("nonce: {:x?}", nonce);
 
     let mut encrypted_data_block = Vec::with_capacity(encrypted_instructions.len() + 28);
     encrypted_data_block.extend_from_slice(&encrypted_instructions);
     encrypted_data_block.extend_from_slice(&nonce);
 
-    println!("encrypted instructions.len(): {}", encrypted_instructions.len());
+    // println!("encrypted instructions.len(): {}", encrypted_instructions.len());
     match connection.stream.write(&encrypted_data_block) {
         Ok(n) => println!("Wrote request as {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e));},
@@ -422,7 +421,7 @@ pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut C
     connection.stream.set_read_timeout(Some(Duration::from_secs(5)))?;
     connection.stream.read(&mut buffer)?;
 
-    println!("About to parse resonse from server");
+    println!("About to parse response from server");
     let response = bytes_to_str(&buffer)?;
     println!("response: {}", response);
 
@@ -448,9 +447,11 @@ pub fn parse_response(response: &str, username: &str, password: &[u8], table_nam
 }
 
 
-pub fn data_send_and_confirm(connection: &mut Connection, data: &str) -> Result<String, ServerError> {
+pub fn data_send_and_confirm(connection: &mut Connection, data: &[u8]) -> Result<String, ServerError> {
 
-    let (encrypted_data, data_nonce) = encrypt_aes256(data.as_bytes(), &connection.aes_key);
+    // println!("data: {:x?}", data);
+
+    let (encrypted_data, data_nonce) = encrypt_aes256(data, &connection.aes_key);
     
     let mut encrypted_data_block = Vec::with_capacity(data.len() + 28);
     encrypted_data_block.extend_from_slice(&encrypted_data);
@@ -480,7 +481,7 @@ pub fn data_send_and_confirm(connection: &mut Connection, data: &str) -> Result<
 }
 
 
-pub fn receive_data(connection: &mut Connection) -> Result<(String, usize), ServerError> {
+pub fn receive_data(connection: &mut Connection) -> Result<(Vec<u8>, usize), ServerError> {
 
     println!("Allocating size and data buffer");
     
@@ -516,11 +517,10 @@ pub fn receive_data(connection: &mut Connection) -> Result<(String, usize), Serv
     let instant = std::time::Instant::now();
 
     let csv = decrypt_aes256(&ciphertext, &connection.aes_key, &nonce)?;
-    let csv = bytes_to_str(&csv)?;
     let elapsed = instant.elapsed().as_millis();
     println!("Finished decrypting in: {} milliseconds", elapsed);
 
-    Ok((csv.to_owned(), total_read))
+    Ok((csv, total_read))
 }
 
 
@@ -574,5 +574,3 @@ mod tests {
 
 
 }
-
-
