@@ -168,7 +168,7 @@ mod tests {
     #[allow(unused)]
     use std::{path::Path, fs::remove_file};
 
-    use crate::db_structure::StrictTable;
+    use crate::db_structure::ColumnTable;
 
     use super::*;
 
@@ -234,8 +234,8 @@ mod tests {
         let mut connection = Connection::connect(address, username, password).unwrap();        
         let table = download_table(address, username, password, name).unwrap();
         println!("{:?}", table);
-        let good_table = StrictTable::from_csv_string(&std::fs::read_to_string("good_csv.txt").unwrap(), "good_table").unwrap();
-        assert_eq!(table, good_table.to_csv_string());
+        let good_table = ColumnTable::from_csv_string(&std::fs::read_to_string("good_csv.txt").unwrap(), "good_table", "test").unwrap();
+        assert_eq!(table, good_table.to_string());
 
     }
 
@@ -275,14 +275,12 @@ mod tests {
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";
-        let mut connection = Connection::connect(address, username, password).unwrap();        
         let e = upload_table(address, username, password, "good_csv", &csv).unwrap();
         assert_eq!(e, "OK");
 
         let query = "0113000,0113035";
         let username = "admin";
         let password = "admin";
-        let mut connection = Connection::connect(address, username, password).unwrap();        
         let response = query_table(address, username, password, "good_csv", query).unwrap();
         println!("{}", response);
     }
