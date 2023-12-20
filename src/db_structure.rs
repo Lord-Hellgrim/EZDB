@@ -156,17 +156,17 @@ impl Display for ColumnTable {
             for vec in &self.table {
                 match vec {
                     DbVec::Floats { name: _, col } => {
-                        println!("float: col.len(): {}", col.len());
+                        // println!("float: col.len(): {}", col.len());
                         printer.push_str(&col[i].to_string());
                         printer.push_str(";");
                     },
                     DbVec::Ints { name: _, col } => {
-                        println!("int: col.len(): {}", col.len());
+                        // println!("int: col.len(): {}", col.len());
                         printer.push_str(&col[i].to_string());
                         printer.push_str(";");
                     },
                     DbVec::Texts { name: _, col } => {
-                        println!("text: col.len(): {}", col.len());
+                        // println!("text: col.len(): {}", col.len());
                         printer.push_str(&col[i]);
                         printer.push_str(";");
                     },
@@ -271,7 +271,7 @@ impl ColumnTable {
                         let temp = match cell.parse::<f64>() {
                             Ok(x) => x,
                             Err(_) => {
-                                println!("failed to parse: {}", cell);
+                                // println!("failed to parse: {}", cell);
                                 return Err(StrictError::Parse(index))
                             },
                         };
@@ -287,7 +287,7 @@ impl ColumnTable {
                         let temp = match cell.parse::<i64>() {
                             Ok(x) => x,
                             Err(_) => {
-                                println!("failed to parse: {}", cell);
+                                // println!("failed to parse: {}", cell);
                                 return Err(StrictError::Parse(index))
                             },
                         };
@@ -440,20 +440,20 @@ impl ColumnTable {
                 let instant = std::time::Instant::now();
                 indexer.sort_unstable_by_key(|&i|col[i] );
                 let time = instant.elapsed().as_millis();
-                // println!("time to sort indexer with int PK: {} millis", time);
+                // // println!("time to sort indexer with int PK: {} millis", time);
             },
             DbVec::Texts { name: _, col } => {
                 let instant = std::time::Instant::now();
                 indexer.sort_unstable_by_key(|&i|&col[i] );
                 let time = instant.elapsed().as_millis();
-                // println!("time to sort indexer with text PK: {} millis", time);
+                // // println!("time to sort indexer with text PK: {} millis", time);
             },
             DbVec::Floats { name: _, col: _ } => {
                 unreachable!("There should never be a float primary key");
             },
         }
         let outer_time = outer_instant.elapsed().as_millis();
-        // println!("total indexer sorting time: {} millis", outer_time);
+        // // println!("total indexer sorting time: {} millis", outer_time);
 
 
 
@@ -473,7 +473,7 @@ impl ColumnTable {
         });
 
         let time = instant.elapsed().as_millis();
-        // println!("time to rearrange columns: {} millis", time);
+        // // println!("time to rearrange columns: {} millis", time);
 
     }
 
@@ -561,7 +561,7 @@ impl ColumnTable {
                         Ok(num) => key2 = num,
                         Err(_) => return Err(StrictError::WrongKey),
                     };
-                    // println!("key2: {}", key2);
+                    // // println!("key2: {}", key2);
                     let index: usize = col.partition_point(|n| n < &key2);
                     if col[index] == key2 {
                         indexes[1] = index;
@@ -659,9 +659,9 @@ fn merge_sorted<T: Ord + Clone + Display + Debug>(one: &Vec<T>, two: &Vec<T>) ->
     let mut one_pointer = 0;
     let mut two_pointer = 0;
 
-    println!("RUNNING merge_sorted()!!!--------------------------------");
+    // println!("RUNNING merge_sorted()!!!--------------------------------");
     loop {
-        println!("one[{one_pointer}]: {}\t\ttwo[{two_pointer}]: {}", one[one_pointer], two[two_pointer]);
+        // println!("one[{one_pointer}]: {}\t\ttwo[{two_pointer}]: {}", one[one_pointer], two[two_pointer]);
         if one[one_pointer] < two[two_pointer] {
             new_vec.push(one[one_pointer].clone());
             record_vec.push(1);
@@ -695,10 +695,10 @@ fn merge_sorted<T: Ord + Clone + Display + Debug>(one: &Vec<T>, two: &Vec<T>) ->
             break;
         }
     }
-    println!("new_vec.len(): {}\nnew_vec\n{:?}", new_vec.len(), new_vec);
-    println!("record_vec.len(): {}\nrecord_vec: \n{:?}", record_vec.len(), record_vec);
-    println!("merge_sorted() FINISHED !!!!!!######################################");
-    println!("\n\n");
+    // println!("new_vec.len(): {}\nnew_vec\n{:?}", new_vec.len(), new_vec);
+    // println!("record_vec.len(): {}\nrecord_vec: \n{:?}", record_vec.len(), record_vec);
+    // println!("merge_sorted() FINISHED !!!!!!######################################");
+    // println!("\n\n");
 
     (new_vec, record_vec)
 }
@@ -707,12 +707,12 @@ fn merge_in_order<T: Clone + Display>(one: &Vec<T>, two: &Vec<T>, record_vec: &V
     let mut new_vec = Vec::with_capacity(one.len() + two.len());
     let mut one_pointer = 0;
     let mut two_pointer = 0;
-    // println!("record_vec.len(): {}", record_vec.len());
-    // println!("one.len():   {}", one.len());
-    // println!("two.len():   {}", two.len());
-    println!("record_vec: {:?}", record_vec);
+    // // println!("record_vec.len(): {}", record_vec.len());
+    // // println!("one.len():   {}", one.len());
+    // // println!("two.len():   {}", two.len());
+    // println!("record_vec: {:?}", record_vec);
     for index in record_vec {
-        //println!("one_p: {}\tone[one_p]: {}\ntwo_p: {}\ttwo[two_p]: {}", one_pointer, one[one_pointer], two_pointer, two[two_pointer]);
+        // //println!("one_p: {}\tone[one_p]: {}\ntwo_p: {}\ttwo[two_p]: {}", one_pointer, one[one_pointer], two_pointer, two[two_pointer]);
         match index {
             1 => {
                 new_vec.push(one[one_pointer].clone());
@@ -822,11 +822,11 @@ mod tests {
         // let mut t: ColumnTable = ColumnTable::from_csv_string(&csv, "init").unwrap();
         let mut t = ColumnTable::from_csv_string(&csv, "test", "test").unwrap();
         let el = instant.elapsed().as_millis();
-        println!("TIME to parse! {}", el);
+        // println!("TIME to parse! {}", el);
         
         let r = ColumnTable::from_csv_string(&csv2, "test", "test").unwrap();
         t.update(&r);
-        println!("t: {}", t.to_string());
+        // println!("t: {}", t.to_string());
 
     }
 
@@ -834,7 +834,7 @@ mod tests {
     fn test_columntable_from_to_string() {
         let input = "vnr,i-p;heiti,t;magn,i\n113035;undirlegg;200\n113050;annad undirlegg;500";
         let t = ColumnTable::from_csv_string(input, "test", "test").unwrap();
-        println!("t: {}", t.to_string());
+        // println!("t: {}", t.to_string());
         assert_eq!(input, t.to_string());
 
     }
@@ -867,7 +867,7 @@ mod tests {
         let mut printer3 = String::new();
         printer3.push_str(&printer);
         printer3.push_str(&printer22);
-        // println!("{}", printer3);
+        // // println!("{}", printer3);
 
         let mut a = ColumnTable::from_csv_string(&printer, "a", "test").unwrap();
         let b = ColumnTable::from_csv_string(&printer2, "b", "test").unwrap();
@@ -882,7 +882,7 @@ mod tests {
     fn test_columntable_query_list() {
         let input = "vnr,i-p;heiti,t;magn,i\n113035;undirlegg;200\n113050;annad undirlegg;500";
         let t = ColumnTable::from_csv_string(input, "test", "test").unwrap();
-        println!("t: {}", t.to_string());
+        // println!("t: {}", t.to_string());
         let x = t.query_list(Vec::from(["113035"])).unwrap();
         assert_eq!(x, "113035;undirlegg;200");
     }
@@ -891,7 +891,7 @@ mod tests {
     fn test_columntable_query_single() {
         let input = "vnr,i-p;heiti,t;magn,i\n113035;undirlegg;200\n113050;annad undirlegg;500";
         let t = ColumnTable::from_csv_string(input, "test", "test").unwrap();
-        println!("t: {}", t.to_string());
+        // println!("t: {}", t.to_string());
         let x = t.query("113035").unwrap();
         assert_eq!(x, "113035;undirlegg;200");
     }
