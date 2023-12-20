@@ -14,13 +14,13 @@ use crate::aes_temp_crypto::decrypt_aes256;
 use crate::auth::{User, AuthenticationError, Permission, user_has_permission};
 use crate::diffie_hellman::{DiffieHellman, blake3_hash, shared_secret};
 use crate::networking_utilities::*;
-use crate::db_structure::{StrictTable, StrictError, Value};
+use crate::db_structure::{ColumnTable, StrictError, Value};
 use crate::handlers::*;
 
 pub const CONFIG_FOLDER: &str = "EZconfig/";
 
 
-pub fn parse_instruction(instructions: &[u8], users: Arc<Mutex<HashMap<KeyString, User>>>, global_tables: Arc<Mutex<HashMap<KeyString, StrictTable>>>, global_kv_table: Arc<Mutex<HashMap<KeyString, Value>>>, aes_key: &[u8]) -> Result<Instruction, ServerError> {
+pub fn parse_instruction(instructions: &[u8], users: Arc<Mutex<HashMap<KeyString, User>>>, global_tables: Arc<Mutex<HashMap<KeyString, ColumnTable>>>, global_kv_table: Arc<Mutex<HashMap<KeyString, Value>>>, aes_key: &[u8]) -> Result<Instruction, ServerError> {
 
     println!("Decrypting instructions");
     let ciphertext = &instructions[0..instructions.len()-12];
@@ -82,7 +82,8 @@ pub fn parse_instruction(instructions: &[u8], users: Arc<Mutex<HashMap<KeyString
                     println!("Loading table from disk");
                     let mut temp = global_tables.lock().unwrap();
                     let disk_table = std::fs::read_to_string(&format!("{}/raw_tables/{}", CONFIG_FOLDER, table_name))?;
-                    temp.insert(KeyString::from(table_name), StrictTable::from_csv_string(&disk_table, table_name)?);
+                    let disk_table = ColumnTable::from_csv_string(&disk_table, table_name, "temp")?;
+                    temp.insert(KeyString::from(table_name), disk_table);
                     Ok(Instruction::Download(table_name.to_owned()))
                 } else {
                     return Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())));
@@ -144,7 +145,7 @@ pub fn server(address: &str) -> Result<(), ServerError> {
     
     println!("Reading users config into memory");
     
-    let global_tables: Arc<Mutex<HashMap<KeyString, StrictTable>>> = Arc::new(Mutex::new(HashMap::new()));
+    let global_tables: Arc<Mutex<HashMap<KeyString, ColumnTable>>> = Arc::new(Mutex::new(HashMap::new()));
     let global_kv_table: Arc<Mutex<HashMap<KeyString, Value>>> = Arc::new(Mutex::new(HashMap::new()));
     let mut users: HashMap<KeyString, User> = HashMap::new();
     
@@ -485,7 +486,7 @@ mod tests {
 
     // #[test]
     // fn test_listener() {
-    //     let global: HashMap<String, StrictTable> = HashMap::new();
+    //     let global: HashMap<String, ColumnTable> = HashMap::new();
     //     let arc_global = Arc::new(Mutex::new(global));
     //     server("127.0.0.1:3004", arc_global.clone()).unwrap();
     // }

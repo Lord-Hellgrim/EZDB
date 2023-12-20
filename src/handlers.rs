@@ -1,12 +1,12 @@
 use std::{sync::{Arc, Mutex}, collections::HashMap, io::Write};
 
-use crate::{networking_utilities::*, db_structure::{StrictTable, Value, ColumnTable}, logger::get_current_time, auth::User};
+use crate::{networking_utilities::*, db_structure::{ColumnTable, Value}, logger::get_current_time, auth::User};
 
 use smartstring::{SmartString, LazyCompact};
 
 pub type KeyString = SmartString<LazyCompact>;
 
-pub fn handle_download_request(mut connection: &mut Connection, name: &str, global_tables: Arc<Mutex<HashMap<KeyString, StrictTable>>>) -> Result<(), ServerError> {
+pub fn handle_download_request(mut connection: &mut Connection, name: &str, global_tables: Arc<Mutex<HashMap<KeyString, ColumnTable>>>) -> Result<(), ServerError> {
     
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
@@ -15,7 +15,7 @@ pub fn handle_download_request(mut connection: &mut Connection, name: &str, glob
 
     let mut mutex_binding = global_tables.lock().unwrap();
     let requested_table = mutex_binding.get_mut(name).expect("Instruction parser should have verified table");
-    let requested_csv = requested_table.to_csv_string();
+    let requested_csv = requested_table.to_string();
     println!("Requested_csv: {}", requested_csv);
 
     let response = data_send_and_confirm(&mut connection, requested_csv.as_bytes())?;
@@ -34,7 +34,7 @@ pub fn handle_download_request(mut connection: &mut Connection, name: &str, glob
 }
 
 
-pub fn handle_upload_request(mut connection: &mut Connection, name: &str, global_tables: Arc<Mutex<HashMap<KeyString, StrictTable>>>) -> Result<String, ServerError> {
+pub fn handle_upload_request(mut connection: &mut Connection, name: &str, global_tables: Arc<Mutex<HashMap<KeyString, ColumnTable>>>) -> Result<String, ServerError> {
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote OK as {n} bytes"),
@@ -43,7 +43,7 @@ pub fn handle_upload_request(mut connection: &mut Connection, name: &str, global
 
     let (csv, total_read) = receive_data(&mut connection)?;
 
-    // Here we create a StrictTable from the csv and supplied name
+    // Here we create a ColumnTable from the csv and supplied name
     println!("About to check for strictness");
     let instant = std::time::Instant::now();
     match ColumnTable::from_csv_string(bytes_to_str(&csv)?, name, "test") {
@@ -63,7 +63,7 @@ pub fn handle_upload_request(mut connection: &mut Connection, name: &str, global
         
             table.metadata.times_accessed += 1;
             
-            // global_tables.lock().unwrap().insert(KeyString::from(table.name.clone()), table);
+            global_tables.lock().unwrap().insert(KeyString::from(table.name.clone()), table);
 
         },
         Err(e) => match connection.stream.write(e.to_string().as_bytes()){
@@ -77,7 +77,7 @@ pub fn handle_upload_request(mut connection: &mut Connection, name: &str, global
 }
     
     
-pub fn handle_update_request(mut connection: &mut Connection, name: &str, global_tables: Arc<Mutex<HashMap<KeyString, StrictTable>>>) -> Result<String, ServerError> {
+pub fn handle_update_request(mut connection: &mut Connection, name: &str, global_tables: Arc<Mutex<HashMap<KeyString, ColumnTable>>>) -> Result<String, ServerError> {
     
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
@@ -90,7 +90,7 @@ pub fn handle_update_request(mut connection: &mut Connection, name: &str, global
 
     let requested_table = mutex_binding.get_mut(name).expect("Instruction parser should have verified existence of table");
     
-    match requested_table.update(bytes_to_str(&csv)?) {
+    match requested_table.update_from_csv(bytes_to_str(&csv)?) {
         Ok(_) => {
             connection.stream.write(total_read.to_string().as_bytes())?;
         },
@@ -104,7 +104,7 @@ pub fn handle_update_request(mut connection: &mut Connection, name: &str, global
 }
 
 
-pub fn handle_query_request(mut connection: &mut Connection, name: &str, query: &str, global_tables: Arc<Mutex<HashMap<KeyString, StrictTable>>>) -> Result<String, ServerError> {
+pub fn handle_query_request(mut connection: &mut Connection, name: &str, query: &str, global_tables: Arc<Mutex<HashMap<KeyString, ColumnTable>>>) -> Result<String, ServerError> {
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e));},
@@ -161,7 +161,7 @@ pub fn handle_kv_upload(mut connection: &mut Connection, name: &str, global_kv_t
     let (value, total_read) = receive_data(&mut connection)?;
     println!("value: {:?}", value);
 
-    // Here we create a StrictTable from the csv and supplied name
+    // Here we create a ColumnTable from the csv and supplied name
     println!("About to check for strictness");
     match connection.stream.write(format!("{}", total_read).as_bytes()) {
         Ok(_) => {
@@ -192,7 +192,7 @@ pub fn handle_kv_update(mut connection: &mut Connection, name: &str, global_kv_t
 
     let (value, total_read) = receive_data(&mut connection)?;
 
-    // Here we create a StrictTable from the csv and supplied name
+    // Here we create a ColumnTable from the csv and supplied name
     println!("About to check for strictness");
     match connection.stream.write(format!("{}", total_read).as_bytes()) {
         Ok(_) => {
