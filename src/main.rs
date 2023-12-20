@@ -19,7 +19,7 @@ fn main() -> Result<(), networking_utilities::ServerError> {
 
     unsafe { p() };
 
-    server_networking::server("70.34.250.199:3004")?;
+    server_networking::server("0.0.0.0:3004")?;
 
     Ok(())
 }
