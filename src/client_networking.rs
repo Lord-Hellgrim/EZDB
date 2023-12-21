@@ -176,7 +176,7 @@ mod tests {
     #[test]
     fn test_send_good_csv() {
         let csv = std::fs::read_to_string("good_csv.txt").unwrap();
-        let address = "70.34.250.199:3306";
+        let address = "70.34.250.199:3004";
         let username = "admin";
         let password = "admin";
         let e = upload_table(address, username, password, "good_csv", &csv).unwrap();
@@ -185,7 +185,7 @@ mod tests {
     #[test]
     fn test_send_good_csv_twice() {
         let csv = std::fs::read_to_string("good_csv.txt").unwrap();
-        let address = "70.34.250.199:3306";
+        let address = "70.34.250.199:3004";
         let username = "admin";
         let password = "admin";
         let e = upload_table(address, username, password, "good_csv", &csv).unwrap();
@@ -197,7 +197,7 @@ mod tests {
     #[test]
     fn test_concurrent_connections() {
         let csv = std::fs::read_to_string("good_csv.txt").unwrap();
-        let address = "70.34.250.199:3306";
+        let address = "70.34.250.199:3004";
         let username = "admin";
         let password = "admin";
         let a = upload_table(address, username, password, "good_csv", &csv).unwrap();
@@ -213,7 +213,7 @@ mod tests {
     #[test]
     fn test_send_bad_csv() {
         let csv = std::fs::read_to_string("bad_csv.txt").unwrap();
-        let address = "70.34.250.199:3306";
+        let address = "70.34.250.199:3004";
         let username = "admin";
         let password = "admin";
         let mut connection = Connection::connect(address, username, password).unwrap();        
@@ -227,7 +227,7 @@ mod tests {
         println!("Sending...\n##########################");
         test_send_good_csv();
         let name = "good_csv";
-        let address = "70.34.250.199:3306";
+        let address = "70.34.250.199:3004";
         println!("Receiving\n############################");
         let username = "admin";
         let password = "admin";
@@ -257,7 +257,7 @@ mod tests {
 
 
         let csv = std::fs::read_to_string("testlarge.csv").unwrap();
-        let address = "70.34.250.199:3306";
+        let address = "70.34.250.199:3004";
         let username = "admin";
         let password = "admin";
         let mut connection = Connection::connect(address, username, password).unwrap();        
@@ -272,7 +272,7 @@ mod tests {
     #[test]
     fn test_query_list() {
         let csv = std::fs::read_to_string("good_csv.txt").unwrap();
-        let address = "70.34.250.199:3306";
+        let address = "70.34.250.199:3004";
         let username = "admin";
         let password = "admin";
         let e = upload_table(address, username, password, "good_csv", &csv).unwrap();
@@ -288,7 +288,7 @@ mod tests {
     #[test]
     fn test_kv_upload() {
         let value: &[u8] = &[1,2,3,4,5,6,7,8,9];
-        let address = "70.34.250.199:3306";
+        let address = "70.34.250.199:3004";
         let username = "admin";
         let password = "admin";
         let e = kv_upload(address, username, password, "test_key", value).unwrap();   
@@ -297,7 +297,7 @@ mod tests {
 
     #[test]
     fn test_kv_download() {
-        let address = "70.34.250.199:3306";
+        let address = "70.34.250.199:3004";
         let username = "admin";
         let password = "admin";
         let e = kv_download(address, username, password, "test_key").unwrap();
