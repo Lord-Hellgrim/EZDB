@@ -1,10 +1,10 @@
 use std::{fmt::{self, Display, Debug}, io::Write};
 
-use crate::logger::get_current_time;
-
 use smartstring::{SmartString, LazyCompact};
 
 use rayon::prelude::*;
+
+use crate::networking_utilities::get_current_time;
 
 pub type KeyString = SmartString<LazyCompact>;
 
@@ -859,38 +859,16 @@ mod tests {
 
     #[test]
     fn test_columntable_combine_unsorted_csv() {
-        let mut i = 0;
-        let mut printer = String::from("vnr,i-p;heiti,text;magn,int;lengd,float\n");
-        let mut printer2 = String::from("vnr,i-p;heiti,text;magn,int;lengd,float\n");
-        let mut printer22 = String::new();
-        loop {
-            if i > 50 {
-                break;
-            }
-            let random_number: i64 = rand::thread_rng().gen();
-            let random_float: f64 = rand::thread_rng().gen();
-            let random_key: u32 = rand::thread_rng().gen();
-            let random_key2: u32 = rand::thread_rng().gen();
-            let mut random_string = String::new();
-            for _ in 0..8 {
-                random_string.push(rand::thread_rng().gen_range(97..122) as u8 as char);
-            }
-            printer.push_str(&format!("{random_key};{random_string};{random_number};{random_float}\n"));
-            printer2.push_str(&format!("{random_key2};{random_string};{random_number};{random_float}\n"));
-            printer22.push_str(&format!("{i};{random_string};{random_number};{random_float}\n"));
-            
-            i+= 1;
-        }
+        let unsorted1 = std::fs::read_to_string("test_csv_from_google_sheets_unsorted.csv").unwrap();
+        let unsorted2 = std::fs::read_to_string("test_csv_from_google_sheets2_unsorted.csv").unwrap();
+        let sorted_combined = std::fs::read_to_string("test_csv_from_google_sheets_combined_sorted.csv").unwrap();
 
-        let mut printer3 = String::new();
-        printer3.push_str(&printer);
-        printer3.push_str(&printer22);
-        // // println!("{}", printer3);
-
-        let mut a = ColumnTable::from_csv_string(&printer, "a", "test").unwrap();
-        let b = ColumnTable::from_csv_string(&printer2, "b", "test").unwrap();
+        let mut a = ColumnTable::from_csv_string(&unsorted1, "a", "test").unwrap();
+        let b = ColumnTable::from_csv_string(&unsorted2, "b", "test").unwrap();
+        let c = ColumnTable::from_csv_string(&sorted_combined, "c", "test").unwrap();
         a.update(&b).unwrap();
-        let c = ColumnTable::from_csv_string(&printer3, "c", "test").unwrap();
+        let mut file = std::fs::File::create("combined.csv").unwrap();
+        file.write_all(a.to_string().as_bytes());
 
         assert_eq!(a.to_string(), c.to_string());
 

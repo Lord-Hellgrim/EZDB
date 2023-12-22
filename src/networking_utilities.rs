@@ -188,6 +188,18 @@ impl Connection {
 }
 
 
+
+pub fn get_current_time() -> u64 {
+
+    let x = std::time::SystemTime::now()
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    x
+
+}
+
 #[inline(always)]
 pub fn rdtsc() -> u64 {
     let lo: u32;

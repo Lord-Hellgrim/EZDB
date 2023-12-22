@@ -1,10 +1,14 @@
 use std::{sync::{Arc, Mutex}, collections::HashMap, io::Write};
 
-use crate::{networking_utilities::*, db_structure::{ColumnTable, Value}, logger::get_current_time, auth::User};
+use crate::{networking_utilities::*, db_structure::{ColumnTable, Value}, auth::User};
 
 use smartstring::{SmartString, LazyCompact};
 
 pub type KeyString = SmartString<LazyCompact>;
+
+
+
+
 
 pub fn handle_download_request(mut connection: &mut Connection, name: &str, global_tables: Arc<Mutex<HashMap<KeyString, ColumnTable>>>) -> Result<(), ServerError> {
     
