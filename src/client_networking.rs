@@ -179,7 +179,8 @@ mod tests {
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";
-        let e = upload_table(address, username, password, "good_csv", &csv).unwrap();
+        let e = upload_table(address, username, password, "good_csv", &csv);
+        assert!(e.is_ok());
     }
 
     #[test]
@@ -188,10 +189,12 @@ mod tests {
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";
-        let e = upload_table(address, username, password, "good_csv", &csv).unwrap();
+        let e = upload_table(address, username, password, "good_csv", &csv);
+        assert!(e.is_ok());
         println!("About to check second table");
         std::thread::sleep(std::time::Duration::from_secs(2));
-        let d = upload_table(address, username, password, "good_csv", &csv).unwrap();
+        let d = upload_table(address, username, password, "good_csv", &csv);
+        assert!(d.is_ok());
     }
 
     #[test]
@@ -200,11 +203,12 @@ mod tests {
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";
-        let a = upload_table(address, username, password, "good_csv", &csv).unwrap();
+        let a = upload_table(address, username, password, "good_csv", &csv);
+        assert!(a.is_ok());
         println!("About to check second table");
         std::thread::sleep(std::time::Duration::from_secs(2));
-        for i in 0..100 {
-            download_table(address, username, password, "good_csv");
+        for _ in 0..100 {
+            download_table(address, username, password, "good_csv").unwrap();
         }
         
     }
@@ -216,7 +220,6 @@ mod tests {
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";
-        let mut connection = Connection::connect(address, username, password).unwrap();        
         let e = upload_table(address, username, password, "bad_csv", &csv);
         assert!(e.is_err());
         
@@ -231,7 +234,6 @@ mod tests {
         println!("Receiving\n############################");
         let username = "admin";
         let password = "admin";
-        let mut connection = Connection::connect(address, username, password).unwrap();        
         let table = download_table(address, username, password, name).unwrap();
         println!("{:?}", table);
         let good_table = ColumnTable::from_csv_string(&std::fs::read_to_string("good_csv.txt").unwrap(), "good_table", "test").unwrap();
@@ -260,7 +262,6 @@ mod tests {
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";
-        let mut connection = Connection::connect(address, username, password).unwrap();        
         let e = upload_table(address, username, password, "large_csv", &csv);
         
         //delete the large_csv
@@ -291,7 +292,8 @@ mod tests {
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";
-        let e = kv_upload(address, username, password, "test_key", value).unwrap();   
+        let e = kv_upload(address, username, password, "test_key", value);
+        assert!(e.is_ok());   
     
     }
 

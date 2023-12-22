@@ -1,9 +1,7 @@
-use std::{fmt::{self, Display, Debug}, collections::BTreeMap, io::Write, num::ParseIntError};
+use std::{fmt::{self, Display, Debug}, io::Write};
 
 use crate::logger::get_current_time;
-use crate::networking_utilities::*;
 
-use aes_gcm::Key;
 use smartstring::{SmartString, LazyCompact};
 
 use rayon::prelude::*;
@@ -386,7 +384,7 @@ impl ColumnTable {
 
         let minlen = std::cmp::min(self.table.len(), other_table.table.len());
 
-        let mut record_vec: Vec<u8>;
+        let record_vec: Vec<u8>;
         match &mut self.table[self_primary_key_index] {
             DbVec::Ints { name: _, col } => {
                 match &other_table.table[self_primary_key_index] {
@@ -460,35 +458,23 @@ impl ColumnTable {
 
         let len = self.len();
 
-        let outer_instant = std::time::Instant::now();
         let mut indexer: Vec<usize> = (0..len).collect();
         
         let primary_index = self.get_primary_key_col_index();
 
-        let mut vec = &mut self.table[primary_index];
+        let vec = &mut self.table[primary_index];
         match vec {
             DbVec::Ints { name: _, col } => {
-                let instant = std::time::Instant::now();
                 indexer.sort_unstable_by_key(|&i|col[i] );
-                let time = instant.elapsed().as_millis();
-                // // println!("time to sort indexer with int PK: {} millis", time);
             },
             DbVec::Texts { name: _, col } => {
-                let instant = std::time::Instant::now();
                 indexer.sort_unstable_by_key(|&i|&col[i] );
-                let time = instant.elapsed().as_millis();
-                // // println!("time to sort indexer with text PK: {} millis", time);
             },
             DbVec::Floats { name: _, col: _ } => {
                 unreachable!("There should never be a float primary key");
             },
         }
-        let outer_time = outer_instant.elapsed().as_millis();
-        // // println!("total indexer sorting time: {} millis", outer_time);
 
-
-
-        let instant = std::time::Instant::now();
         self.table.par_iter_mut().for_each(|vec| {
             match vec {
             DbVec::Floats { name: _, col } => {
@@ -502,10 +488,6 @@ impl ColumnTable {
             },
             }
         });
-
-        let time = instant.elapsed().as_millis();
-        // // println!("time to rearrange columns: {} millis", time);
-
     }
 
     pub fn query_list(&self, mut key_list: Vec<&str>) -> Result<String, StrictError> {
@@ -517,7 +499,7 @@ impl ColumnTable {
         for item in key_list {
             match &self.table[primary_index] {
                 DbVec::Floats { name: _, col: _ } => return Err(StrictError::FloatPrimaryKey),
-                DbVec::Ints { name, col } => {
+                DbVec::Ints { name: _, col } => {
                     let key: i64;
                     match item.parse::<i64>() {
                         Ok(num) => key = num,
@@ -530,7 +512,7 @@ impl ColumnTable {
                     } 
                     indexes.push(index);
                 },
-                DbVec::Texts { name, col } => {
+                DbVec::Texts { name: _, col } => {
                     let index: usize;
                     match col.binary_search(&KeyString::from(item)) {
                         Ok(num) => index = num,
@@ -545,9 +527,9 @@ impl ColumnTable {
         for index in indexes {
             for v in &self.table {
                 match v {
-                    DbVec::Floats { name, col } => printer.push_str(&col[index].to_string()),
-                    DbVec::Ints { name, col } => printer.push_str(&col[index].to_string()),
-                    DbVec::Texts { name, col } => printer.push_str(&col[index]),
+                    DbVec::Floats { name: _, col } => printer.push_str(&col[index].to_string()),
+                    DbVec::Ints { name: _, col } => printer.push_str(&col[index].to_string()),
+                    DbVec::Texts { name: _, col } => printer.push_str(&col[index]),
                 }
                 printer.push(';');
             }
@@ -575,7 +557,7 @@ impl ColumnTable {
         let mut indexes: [usize;2] = [0,0];
         match &self.table[primary_index] {
             DbVec::Floats { name: _, col: _ } => return Err(StrictError::FloatPrimaryKey),
-            DbVec::Ints { name, col } => {
+            DbVec::Ints { name: _, col } => {
                 let key: i64;
                 match range.0.parse::<i64>() {
                     Ok(num) => key = num,
@@ -602,7 +584,7 @@ impl ColumnTable {
                 }
 
             },
-            DbVec::Texts { name, col } => {
+            DbVec::Texts { name: _, col } => {
                 let index: usize = col.partition_point(|n| n < &KeyString::from(range.0));
                 indexes[0] = index;
 
@@ -626,9 +608,9 @@ impl ColumnTable {
         while i <= indexes[1] {
             for v in &self.table {
                 match v {
-                    DbVec::Floats { name, col } => printer.push_str(&col[i].to_string()),
-                    DbVec::Ints { name, col } => printer.push_str(&col[i].to_string()),
-                    DbVec::Texts { name, col } => printer.push_str(&col[i]),
+                    DbVec::Floats { name: _, col } => printer.push_str(&col[i].to_string()),
+                    DbVec::Ints { name: _, col } => printer.push_str(&col[i].to_string()),
+                    DbVec::Texts { name: _, col } => printer.push_str(&col[i]),
                 }
                 printer.push(';');
             }
@@ -663,8 +645,14 @@ impl ColumnTable {
             Err(e) => return Err(StrictError::Io(e.kind())),
         };
 
-        table_file.write_all(table.as_bytes());
-        meta_file.write_all(metadata.as_bytes());
+        match table_file.write_all(table.as_bytes()) {
+            Ok(_) => (),
+            Err(e) => println!("Error while writing to disk. Error was:\n{}", e),
+        };
+        match meta_file.write_all(metadata.as_bytes()) {
+            Ok(_) => (),
+            Err(e) => println!("Error while writing to disk. Error was:\n{}", e),
+        };
 
 
         Ok(())
@@ -800,8 +788,14 @@ impl Value {
             Err(e) => return Err(StrictError::Io(e.kind())),
         };
 
-        value_file.write_all(&self.body);
-        meta_file.write_all(metadata.as_bytes());
+        match value_file.write_all(&self.body) {
+            Ok(_) => (),
+            Err(e) => println!("Error while writing to disk. Error was:\n{}", e),
+        };
+        match meta_file.write_all(metadata.as_bytes()) {
+            Ok(_) => (),
+            Err(e) => println!("Error while writing to disk. Error was:\n{}", e),
+        };
 
         Ok(())
 
@@ -815,51 +809,6 @@ mod tests {
     use rand::Rng;
 
     use super::*;
-
-    
-
-    #[test]
-    fn test_columntable() {
-
-        let mut i = 0;
-        let mut printer = String::from("vnr,text-p;heiti,text;magn,int;lengd,float\n");
-        let mut printer2 = String::from("vnr,text-p;heiti,text;magn,int;lengd,float\n");
-        loop {
-            if i > 50 {
-                break;
-            }
-            let random_number: i64 = rand::thread_rng().gen();
-            let random_float: f64 = rand::thread_rng().gen();
-            let random_key: u32 = rand::thread_rng().gen();
-            let random_key2: u32 = rand::thread_rng().gen();
-            let mut random_string = String::new();
-            for _ in 0..8 {
-                random_string.push(rand::thread_rng().gen_range(97..122) as u8 as char);
-            }
-            printer.push_str(&format!("b{random_key};{random_string};{random_number};{random_float}\n"));
-            printer2.push_str(&format!("a{random_key};{random_string};{random_number};{random_float}\n"));
-            
-            i+= 1;
-        }
-        let mut file = std::fs::File::create("large.csv").unwrap();
-        file.write_all(printer.as_bytes()).unwrap();
-        let mut file = std::fs::File::create("large2.csv").unwrap();
-        file.write_all(printer2.as_bytes()).unwrap();
-
-
-        let csv = std::fs::read_to_string("large.csv").unwrap();
-        let csv2 = std::fs::read_to_string("large2.csv").unwrap();
-        let instant = std::time::Instant::now();
-        // let mut t: ColumnTable = ColumnTable::from_csv_string(&csv, "init").unwrap();
-        let mut t = ColumnTable::from_csv_string(&csv, "test", "test").unwrap();
-        let el = instant.elapsed().as_millis();
-        // println!("TIME to parse! {}", el);
-        
-        let r = ColumnTable::from_csv_string(&csv2, "test", "test").unwrap();
-        t.update(&r);
-        // println!("t: {}", t.to_string());
-
-    }
 
     #[test]
     fn test_columntable_from_to_string() {
@@ -882,8 +831,6 @@ mod tests {
             }
             let random_number: i64 = rand::thread_rng().gen();
             let random_float: f64 = rand::thread_rng().gen();
-            let random_key: u32 = rand::thread_rng().gen();
-            let random_key2: u32 = rand::thread_rng().gen();
             let mut random_string = String::new();
             for _ in 0..8 {
                 random_string.push(rand::thread_rng().gen_range(97..122) as u8 as char);
@@ -902,12 +849,53 @@ mod tests {
 
         let mut a = ColumnTable::from_csv_string(&printer, "a", "test").unwrap();
         let b = ColumnTable::from_csv_string(&printer2, "b", "test").unwrap();
-        a.update(&b);
+        a.update(&b).unwrap();
         let c = ColumnTable::from_csv_string(&printer3, "c", "test").unwrap();
 
         assert_eq!(a.to_string(), c.to_string());
 
     }
+
+
+    #[test]
+    fn test_columntable_combine_unsorted_csv() {
+        let mut i = 0;
+        let mut printer = String::from("vnr,i-p;heiti,text;magn,int;lengd,float\n");
+        let mut printer2 = String::from("vnr,i-p;heiti,text;magn,int;lengd,float\n");
+        let mut printer22 = String::new();
+        loop {
+            if i > 50 {
+                break;
+            }
+            let random_number: i64 = rand::thread_rng().gen();
+            let random_float: f64 = rand::thread_rng().gen();
+            let random_key: u32 = rand::thread_rng().gen();
+            let random_key2: u32 = rand::thread_rng().gen();
+            let mut random_string = String::new();
+            for _ in 0..8 {
+                random_string.push(rand::thread_rng().gen_range(97..122) as u8 as char);
+            }
+            printer.push_str(&format!("{random_key};{random_string};{random_number};{random_float}\n"));
+            printer2.push_str(&format!("{random_key2};{random_string};{random_number};{random_float}\n"));
+            printer22.push_str(&format!("{i};{random_string};{random_number};{random_float}\n"));
+            
+            i+= 1;
+        }
+
+        let mut printer3 = String::new();
+        printer3.push_str(&printer);
+        printer3.push_str(&printer22);
+        // // println!("{}", printer3);
+
+        let mut a = ColumnTable::from_csv_string(&printer, "a", "test").unwrap();
+        let b = ColumnTable::from_csv_string(&printer2, "b", "test").unwrap();
+        a.update(&b).unwrap();
+        let c = ColumnTable::from_csv_string(&printer3, "c", "test").unwrap();
+
+        assert_eq!(a.to_string(), c.to_string());
+
+    }
+
 
     #[test]
     fn test_columntable_query_list() {

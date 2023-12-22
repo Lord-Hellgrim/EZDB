@@ -1,5 +1,4 @@
 use std::arch::asm;
-use std::collections::HashMap;
 use std::io::{Write, Read};
 use std::net::TcpStream;
 use std::num::ParseIntError;
@@ -11,7 +10,7 @@ use aes_gcm::aead;
 use num_bigint::BigUint;
 
 use crate::aes_temp_crypto::{encrypt_aes256, decrypt_aes256};
-use crate::auth::{AuthenticationError, User};
+use crate::auth::AuthenticationError;
 use crate::db_structure::StrictError;
 use crate::diffie_hellman::*;
 
@@ -176,7 +175,7 @@ impl Connection {
         stream.write_all(&encrypted_data_block)?;
         stream.flush()?;
 
-        let mut user = username.to_owned();
+        let user = username.to_owned();
         Ok(
             Connection {
                 stream: stream,
@@ -218,7 +217,7 @@ pub fn time_print(s: &str, cycles: u64) {
     .unwrap()
     .join(".");  // separator
 
-    // println!("{}: {}\n\tApproximately {} milliseconds", s, num, millis);
+    println!("{}: {}\n\tApproximately {} milliseconds", s, num, millis);
 }
 
 
@@ -422,10 +421,10 @@ pub fn receive_data(connection: &mut Connection) -> Result<(Vec<u8>, usize), Ser
     
     let (ciphertext, nonce) = (&data[0..data.len()-12], &data[data.len()-12..]);
     // println!("About to decrypt");
-    let instant = std::time::Instant::now();
+    // let instant = std::time::Instant::now();
 
     let csv = decrypt_aes256(&ciphertext, &connection.aes_key, &nonce)?;
-    let elapsed = instant.elapsed().as_millis();
+    // let elapsed = instant.elapsed().as_millis();
     // println!("Finished decrypting in: {} milliseconds", elapsed);
 
     Ok((csv, total_read))

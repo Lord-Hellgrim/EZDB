@@ -11,7 +11,7 @@ use smartstring::{SmartString, LazyCompact};
 pub type KeyString = SmartString<LazyCompact>;
 
 use crate::aes_temp_crypto::decrypt_aes256;
-use crate::auth::{User, AuthenticationError, Permission, user_has_permission};
+use crate::auth::{User, AuthenticationError, user_has_permission};
 use crate::diffie_hellman::{DiffieHellman, blake3_hash, shared_secret};
 use crate::networking_utilities::*;
 use crate::db_structure::{ColumnTable, StrictError, Value};
@@ -171,7 +171,10 @@ pub fn server(address: &str) -> Result<(), ServerError> {
             Ok(f) => f,
             Err(e) => return Err(ServerError::Strict(StrictError::Io(e.kind()))),
         };
-        user_file.write_all(&temp.as_bytes());
+        match user_file.write_all(&temp.as_bytes()) {
+            Ok(_) => (),
+            Err(_) => panic!("failed to create config file. Server cannot run"),
+        };
         for line in temp.lines() {
             if line.as_bytes()[0] == '#' as u8 {
                 continue
@@ -183,7 +186,7 @@ pub fn server(address: &str) -> Result<(), ServerError> {
 
     dbg!(&users);
     
-    let mut users = Arc::new(Mutex::new(users));
+    let users = Arc::new(Mutex::new(users));
 
     // #################################### END STARTUP SEQUENCE ###############################################
 
@@ -241,7 +244,7 @@ pub fn server(address: &str) -> Result<(), ServerError> {
         
         let thread_global_tables = global_tables.clone();
         let thread_global_kv_table = global_kv_table.clone();
-        let mut thread_users = Arc::clone(&users);
+        let thread_users = Arc::clone(&users);
         let thread_public_key = server_public_key.clone();
         let thread_private_key = server_private_key.clone();
         
@@ -251,7 +254,7 @@ pub fn server(address: &str) -> Result<(), ServerError> {
 
             // ################## ESTABLISHING ENCRYPTED CONNECTION ##########################################################################################################
             match stream.write(&thread_public_key) {
-                Ok(n) => (),
+                Ok(_) => (),
                 Err(e) => {
                     println!("failed to write server public key because: {}", e);
                     return
@@ -261,7 +264,7 @@ pub fn server(address: &str) -> Result<(), ServerError> {
             let mut buffer: [u8; 256] = [0; 256];
             
             match stream.read_exact(&mut buffer){
-                Ok(n) => (),
+                Ok(_) => (),
                 Err(e) => {
                     println!("failed to read client public key because: {}", e);
                     return
@@ -276,7 +279,7 @@ pub fn server(address: &str) -> Result<(), ServerError> {
             let mut auth_buffer = [0u8; 1052];
             println!("About to read auth string");
             match stream.read_exact(&mut auth_buffer) {
-                Ok(n) => (),
+                Ok(_) => (),
                 Err(e) => {
                     println!("failed to read auth_string because: {}", e);
                     return
@@ -325,13 +328,6 @@ pub fn server(address: &str) -> Result<(), ServerError> {
                     return
                 }
                 
-                let peer_addr = match stream.peer_addr() {
-                    Ok(addr) => addr,
-                    Err(e) => {
-                        println!("failed to get peer_addr because: {}", e);
-                        return
-                    }
-                };
                 connection = Connection {
                     stream: stream, 
                     user: username.to_owned(), 
@@ -352,7 +348,7 @@ pub fn server(address: &str) -> Result<(), ServerError> {
                 match connection.stream.read(&mut buffer) {
                     Ok(n) => instruction_size = n,
                     Err(e) => {
-                        println!("There was an io error during a large read");
+                        println!("There was an io error during a large read.\nError:\t{e}");
                         return
                     },
                 };
@@ -460,7 +456,7 @@ pub fn server(address: &str) -> Result<(), ServerError> {
                 
                 Err(e) => {
                     match connection.stream.write(&e.to_string().as_bytes()){
-                        Ok(n) => (),
+                        Ok(_) => (),
                         Err(e) => {
                             println!("failed to write error message because: {}", e);
                             return
@@ -475,19 +471,7 @@ pub fn server(address: &str) -> Result<(), ServerError> {
             //####################### END OF HANDLING REQUESTS #############################################################################################################
         });
 
-    ()
+        ()
 
+    }
 }
-
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // #[test]
-    // fn test_listener() {
-    //     let global: HashMap<String, ColumnTable> = HashMap::new();
-    //     let arc_global = Arc::new(Mutex::new(global));
-    //     server("127.0.0.1:3004", arc_global.clone()).unwrap();
-    // }
-}}
