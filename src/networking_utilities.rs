@@ -160,19 +160,19 @@ impl Connection {
         let mut auth_buffer = [0u8; 1024];
         auth_buffer[0..username.len()].copy_from_slice(username.as_bytes());
         auth_buffer[512..512+password.len()].copy_from_slice(password.as_bytes());
-        println!("auth_buffer: {:x?}", auth_buffer);
+        // println!("auth_buffer: {:x?}", auth_buffer);
         
         let (encrypted_data, data_nonce) = encrypt_aes256(&auth_buffer, &aes_key);
-    
+        println!("data_nonce: {:x?}", data_nonce);
+        // The reason for the +28 in the length checker is that it accounts for the length of the nonce (IV) and the authentication tag
+        // in the aes-gcm encryption. The nonce is 12 bytes and the auth tag is 16 bytes
         let mut encrypted_data_block = Vec::with_capacity(encrypted_data.len() + 28);
         encrypted_data_block.extend_from_slice(&encrypted_data);
         encrypted_data_block.extend_from_slice(&data_nonce);
-        println!("Encrypted auth string: {:x?}", encrypted_data_block);
-        println!("Encrypted auth string.len(): {}", encrypted_data_block.len());
+        // println!("Encrypted auth string: {:x?}", encrypted_data_block);
+        // println!("Encrypted auth string.len(): {}", encrypted_data_block.len());
         
-        println!("Sending data...");
-        // The reason for the +28 in the length checker is that it accounts for the length of the nonce (IV) and the authentication tag
-        // in the aes-gcm encryption. The nonce is 12 bytes and the auth tag is 16 bytes
+        // println!("Sending data...");
         stream.write_all(&encrypted_data_block)?;
         stream.flush()?;
 
@@ -218,103 +218,11 @@ pub fn time_print(s: &str, cycles: u64) {
     .unwrap()
     .join(".");  // separator
 
-    println!("{}: {}\n\tApproximately {} milliseconds", s, num, millis);
+    // println!("{}: {}\n\tApproximately {} milliseconds", s, num, millis);
 }
 
 
-#[cfg(any(target_feature="sse", target_feature="avx", target_feature="avx2"))]
-pub fn fast_split<'a>(s: &'a str, c: u8) -> Vec<&'a str> {
-    use std::arch::x86_64::{_mm_loadu_si128, __m128i, _mm_set1_epi8, _mm_cmpeq_epi8, _mm_movemask_epi8,};
 
-    let s = s.as_bytes();
-
-    const MULTIPLY_DEBRUIJN_BIT_POSITION: [u8; 32] = [
-    0, 1, 28, 2, 29, 14, 24, 3, 30, 22, 20, 15, 25, 17, 4, 8,
-    31, 27, 13, 23, 21, 19, 16, 7, 26, 12, 18, 6, 11, 5, 10, 9
-    ];
-
-    let target = unsafe { _mm_set1_epi8(c as i8) };
-    
-    let mut i = 0;
-    let mut slices = Vec::with_capacity(count_char(s, c)+10);
-    let mut start = 0;
-    let mut end = 0;
-
-    if s.len() > 16 {
-        while i < s.len()/16 {
-            let block = unsafe {_mm_loadu_si128(s[i..i+16].as_ptr() as *const __m128i) };
-            let cmp = unsafe { _mm_cmpeq_epi8(block, target) };
-            let mut result = unsafe { _mm_movemask_epi8(cmp) };
-            while result != 0 {
-                end = i + MULTIPLY_DEBRUIJN_BIT_POSITION[(((result & result.wrapping_neg()) as u32).wrapping_mul(0x077CB531) >> 27) as usize] as usize;
-
-                slices.push(str::from_utf8(&s[start..end]).expect("Should return utf8 since it's a slice of a utf8 str"));
-                start = end + 1;
-                result &= result - 1;
-            }
-            i += 16;
-        }
-    }
-
-    while i < s.len() {
-        if s[i] == c {
-            slices.push(str::from_utf8(&s[start..i]).expect("Should return utf8 since it's a slice of a utf8 str"));
-            start = i + 1;
-        }
-        
-        i += 1;
-    }
-
-    slices.push(str::from_utf8(&s[start..]).expect("Should return utf8 since it's a slice of a utf8 str"));
-
-    slices
-}
-
-
-#[cfg(any(target_feature="sse", target_feature="avx", target_feature="avx2"))]
-pub fn count_char(s: &[u8], c: u8) -> usize {
-    use std::arch::x86_64::{_mm_loadu_si128, __m128i, _mm_set1_epi8, _mm_cmpeq_epi8, _mm_movemask_epi8,};
-
-    let target = unsafe { _mm_set1_epi8(c as i8) };
-    
-    let mut i = 0;
-    let mut count = 0;
-
-    if s.len() > 16 {
-        while i < s.len()/16 {
-            let block = unsafe {_mm_loadu_si128(s[i..i+16].as_ptr() as *const __m128i) };
-            let cmp = unsafe { _mm_cmpeq_epi8(block, target) };
-            let result = unsafe { _mm_movemask_epi8(cmp) };
-            count += result.count_ones();
-            i += 16;
-        }
-    }
-
-    while i < s.len() {
-        if s[i] == c {
-            count += 1;
-        }
-        
-        i += 1;
-    }
-
-    count as usize
-}
-
-#[cfg(not(target_feature="sse"))]
-pub fn count_char(s: &[u8], c: u8) -> usize {
-
-    let mut i = 0;
-    let mut count = 0;
-    while i < s.len() {
-        if s[i] == c {
-            count += 1;
-        }
-        
-        i += 1;
-    }
-    count
-}
 
 
 //Removes the trailing 0 bytes from a str created from a byte buffer
@@ -367,7 +275,7 @@ pub fn encode_hex(bytes: &[u8]) -> String {
 }
 
 pub fn decode_hex(s: &str) -> Result<Vec<u8>, ParseIntError> {
-    println!("s.len(): {}", s.len());
+    // println!("s.len(): {}", s.len());
     (0..s.len())
         .step_by(2)
         .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
@@ -403,27 +311,27 @@ pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut C
     let instruction_string = format!("{instruction}");
     let (encrypted_instructions, nonce) = encrypt_aes256(&instruction_string.as_bytes(), &connection.aes_key);
 
-    // println!("encrypted instructions: {:x?}", encrypted_instructions);
-    // println!("nonce: {:x?}", nonce);
+    // // println!("encrypted instructions: {:x?}", encrypted_instructions);
+    // // println!("nonce: {:x?}", nonce);
 
     let mut encrypted_data_block = Vec::with_capacity(encrypted_instructions.len() + 28);
     encrypted_data_block.extend_from_slice(&encrypted_instructions);
     encrypted_data_block.extend_from_slice(&nonce);
 
-    // println!("encrypted instructions.len(): {}", encrypted_instructions.len());
+    // // println!("encrypted instructions.len(): {}", encrypted_instructions.len());
     match connection.stream.write(&encrypted_data_block) {
         Ok(n) => println!("Wrote request as {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e));},
     };
     
     let mut buffer: [u8;INSTRUCTION_BUFFER] = [0;INSTRUCTION_BUFFER];
-    println!("Waiting for response from server");
+    // println!("Waiting for response from server");
     connection.stream.set_read_timeout(Some(Duration::from_secs(5)))?;
     connection.stream.read(&mut buffer)?;
 
-    println!("About to parse response from server");
+    // println!("About to parse response from server");
     let response = bytes_to_str(&buffer)?;
-    println!("response: {}", response);
+    // println!("response: {}", response);
 
     Ok(response.to_owned())
     
@@ -449,7 +357,7 @@ pub fn parse_response(response: &str, username: &str, password: &[u8], table_nam
 
 pub fn data_send_and_confirm(connection: &mut Connection, data: &[u8]) -> Result<String, ServerError> {
 
-    // println!("data: {:x?}", data);
+    // // println!("data: {:x?}", data);
 
     let (encrypted_data, data_nonce) = encrypt_aes256(data, &connection.aes_key);
     
@@ -458,18 +366,18 @@ pub fn data_send_and_confirm(connection: &mut Connection, data: &[u8]) -> Result
     encrypted_data_block.extend_from_slice(&data_nonce);
     
     
-    println!("Sending data...");
+    // println!("Sending data...");
     // The reason for the +28 in the length checker is that it accounts for the length of the nonce (IV) and the authentication tag
     // in the aes-gcm encryption. The nonce is 12 bytes and the auth tag is 16 bytes
     connection.stream.write_all(&(data.len() + 28).to_le_bytes())?;
     connection.stream.write_all(&encrypted_data_block)?;
     connection.stream.flush()?;
-    println!("data sent");
-    println!("Waiting for confirmation from client");
+    // println!("data sent");
+    // println!("Waiting for confirmation from client");
     let mut buffer: [u8;INSTRUCTION_BUFFER] = [0;INSTRUCTION_BUFFER];
     match connection.stream.read(&mut buffer) {
         Ok(_) => {
-            println!("Confirmation '{}' received", bytes_to_str(&buffer)?);
+            // println!("Confirmation '{}' received", bytes_to_str(&buffer)?);
         },
         Err(_) => println!("Did not confirm transmission with peer"),
     }
@@ -483,7 +391,7 @@ pub fn data_send_and_confirm(connection: &mut Connection, data: &[u8]) -> Result
 
 pub fn receive_data(connection: &mut Connection) -> Result<(Vec<u8>, usize), ServerError> {
 
-    println!("Allocating size and data buffer");
+    // println!("Allocating size and data buffer");
     
     let mut size_buffer: [u8; 8] = [0; 8];
     connection.stream.read_exact(&mut size_buffer)?;
@@ -493,7 +401,7 @@ pub fn receive_data(connection: &mut Connection) -> Result<(Vec<u8>, usize), Ser
         return Err(ServerError::OversizedData)
     }
     
-    println!("Expected data length: {}", data_len);
+    // println!("Expected data length: {}", data_len);
     
     let mut data = Vec::with_capacity(data_len);
     let mut buffer = [0; DATA_BUFFER];
@@ -509,16 +417,16 @@ pub fn receive_data(connection: &mut Connection) -> Result<(Vec<u8>, usize), Ser
         total_read += bytes_received;
     }
     
-    println!("Successfully read {} bytes", total_read);
-    // println!("Data: {:x?}", data);
+    // println!("Successfully read {} bytes", total_read);
+    // // println!("Data: {:x?}", data);
     
     let (ciphertext, nonce) = (&data[0..data.len()-12], &data[data.len()-12..]);
-    println!("About to decrypt");
+    // println!("About to decrypt");
     let instant = std::time::Instant::now();
 
     let csv = decrypt_aes256(&ciphertext, &connection.aes_key, &nonce)?;
     let elapsed = instant.elapsed().as_millis();
-    println!("Finished decrypting in: {} milliseconds", elapsed);
+    // println!("Finished decrypting in: {} milliseconds", elapsed);
 
     Ok((csv, total_read))
 }
@@ -530,46 +438,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_count_char() {
-        let mut i = 0;
-        let mut printer = String::from("vnr;heiti;magn\n");
-        loop {
-            if i > 1_000_000 {
-                break;
-            }
-            printer.push_str(&format!("i{};product name;569\n", i));
-            i+= 1;
-        }
-
-        let split = count_char(&printer.as_bytes(), "\n".as_bytes()[0]);
-        println!("char_count: {}", split);
-    }
-
-
-    #[test]
-    fn test_fast_split() {
-        let mut i = 0;
-        let mut printer = String::from("vnr;heiti;magn\n");
-        loop {
-            if i > 1_000_000 {
-                break;
-            }
-            printer.push_str(&format!("i{};product name;569\n", i));
-            i+= 1;
-        }
-        
-        let split = fast_split(&printer, "\n".as_bytes()[0]);
-        
-        println!("fast_split: split.len(): {}", split.len());
-        println!("split.len(): {}", printer.split('\n').collect::<Vec<&str>>().len());
-        assert_eq!(split.len(), printer.split('\n').collect::<Vec<&str>>().len());
-
-    }
-
-    #[test]
     fn test_bytes_to_str() {
-        let bytes = [0,0,0,0,0,75,75,75,0,0,0,0,0];
-        println!("{:?}", bytes_to_str(&bytes).unwrap().as_bytes());
+        let bytes = [0,0,0,0,0,49,50,51,0,0,0,0,0];
+        let x = bytes_to_str(&bytes).unwrap();
+        assert_eq!("123", x);
     }
 
 
