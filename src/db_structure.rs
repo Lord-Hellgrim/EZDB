@@ -25,6 +25,7 @@ pub enum StrictError {
     Parse(usize),
     TooManyPrimaryKeys,
     WrongKey,
+    NonUniquePrimaryKey(usize),
 }
 
 impl fmt::Display for StrictError {
@@ -43,7 +44,7 @@ impl fmt::Display for StrictError {
             StrictError::Parse(i) => write!(f, "Item in line {i} cannot be parsed"),
             StrictError::TooManyPrimaryKeys => write!(f, "There can only be one primary key column"),
             StrictError::WrongKey => write!(f, "The type of the primary key is wrong"),
-
+            StrictError::NonUniquePrimaryKey(i) => write!(f, "The primary key at position {i} in the sorted table is repeated"),
         }
     }
 }
@@ -229,8 +230,8 @@ impl ColumnTable {
                     "F-p" | "Float-p" | "float-p" | "f-p" => return Err(StrictError::FloatPrimaryKey),
                     _ => return Err(StrictError::WrongType),
                 }
-                header.push(header_item);
             }
+            header.push(header_item);
         }
 
         if !primary_key_set {
@@ -309,6 +310,34 @@ impl ColumnTable {
             
             result.push(db_vec);
             i += 1;
+        }
+
+        let mut primary_key_index = 0;
+        for (index, item) in header.iter().enumerate() {
+            if item.primary_key {
+                primary_key_index = index;
+            }
+        };
+        match &result[primary_key_index] {
+            DbVec::Ints { name: _, col } => {
+                let mut i = 1;
+                while i < col.len() {
+                    if col[i] == col[i-1] {
+                        return Err(StrictError::NonUniquePrimaryKey(i))
+                    }
+                    i += 1;
+                }
+            },
+            DbVec::Texts { name: _, col } => {
+                let mut i = 1;
+                while i < col.len() {
+                    if col[i] == col[i-1] {
+                        return Err(StrictError::NonUniquePrimaryKey(i))
+                    }
+                    i += 1;
+                }
+            },
+            DbVec::Floats { name: _, col: _ } => unreachable!("Should never have a float primary key"),
         }
 
         let mut output = ColumnTable { 
@@ -906,4 +935,6 @@ mod tests {
 
         assert_eq!(x, "113035;undirlegg;200\n113050;annad undirlegg;500")
     }
+
+
 }
