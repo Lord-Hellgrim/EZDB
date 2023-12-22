@@ -194,12 +194,14 @@ impl ColumnTable {
         let first_line: Vec<&str> = s.split('\n').next().expect("confirmed to exist because of earlier check").split(';').collect();
         for item in first_line {
             let temp: Vec<&str> = item.split(',').collect();
-            if temp.len() < 2 {
+            let mut header_item = HeaderItem::new();
+            if temp.len() < 1 {
                 return Err(StrictError::MissingType)
+            } else if temp.len() == 1{
+                header_item.kind = DbType::Text;
             } else if temp.len() > 2 {
                 return Err(StrictError::TooManyHeaderFields)
             } else {
-                let mut header_item = HeaderItem::new();
                 header_item.name = KeyString::from(temp[0].trim());
                 let t = temp[1].trim();
                 match t {

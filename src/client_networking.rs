@@ -244,7 +244,7 @@ mod tests {
 
         // create the large_csv
         let mut i = 0;
-        let mut printer = String::from("vnr,t-p;heiti,t;magn,i\n");
+        let mut printer = String::from("vnr;heiti;magn\n");
         loop {
             if i > 1_000_000 {
                 break;
