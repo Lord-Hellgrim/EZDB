@@ -394,7 +394,7 @@ pub fn data_send_and_confirm(connection: &mut Connection, data: &[u8]) -> Result
     }
     
     let confirmation = bytes_to_str(&buffer).unwrap_or("corrupt data");
-
+    println!("confirmation: {}", confirmation);
     Ok(confirmation.to_owned())
 
 }
