@@ -47,6 +47,7 @@ pub fn handle_upload_request(mut connection: &mut Connection, name: &str, global
 
     let (csv, total_read) = receive_data(&mut connection)?;
 
+    println!("total read after receive_data() call: {}", total_read);
     // Here we create a ColumnTable from the csv and supplied name
     println!("About to check for strictness");
     let instant = std::time::Instant::now();
