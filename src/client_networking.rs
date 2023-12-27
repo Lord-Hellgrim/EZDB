@@ -44,7 +44,7 @@ pub fn upload_table(address: &str, username: &str, password: &str, table_name: &
         Ok(_) => confirmation = data_send_and_confirm(&mut connection, csv.as_bytes())?,
         Err(e) => return Err(e),
     }
-
+    println!("confirmation: {}", confirmation);
     // The reason for the +28 in the length checker is that it accounts for the length of the nonce (IV) and the authentication tag
     // in the aes-gcm encryption. The nonce is 12 bytes and the auth tag is 16 bytes
     let data_len = (csv.len() + 28).to_string();
