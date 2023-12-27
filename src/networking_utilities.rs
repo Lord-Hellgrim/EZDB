@@ -388,7 +388,7 @@ pub fn data_send_and_confirm(connection: &mut Connection, data: &[u8]) -> Result
     let mut buffer: [u8;INSTRUCTION_BUFFER] = [0;INSTRUCTION_BUFFER];
     match connection.stream.read(&mut buffer) {
         Ok(_) => {
-            // println!("Confirmation '{}' received", bytes_to_str(&buffer)?);
+            println!("Confirmation '{}' received", bytes_to_str(&buffer)?);
         },
         Err(_) => println!("Did not confirm transmission with peer"),
     }
