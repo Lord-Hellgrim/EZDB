@@ -262,11 +262,8 @@ mod tests {
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";
-        let e = upload_table(address, username, password, "large_csv", &csv);
+        let e = upload_table(address, username, password, "large_csv", &csv).unwrap();
         
-        //delete the large_csv
-        // remove_file("large.csv").unwrap();
-        assert!(e.is_ok());
     }
 
 

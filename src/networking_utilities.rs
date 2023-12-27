@@ -426,6 +426,7 @@ pub fn receive_data(connection: &mut Connection) -> Result<(Vec<u8>, usize), Ser
         }
         data.extend_from_slice(&buffer[..bytes_received]);
         total_read += bytes_received;
+        println!("Total read: {}", total_read);
     }
     
     // println!("Successfully read {} bytes", total_read);
