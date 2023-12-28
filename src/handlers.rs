@@ -11,7 +11,6 @@ pub type KeyString = SmartString<LazyCompact>;
 
 
 pub fn handle_download_request(mut connection: &mut Connection, name: &str, global_tables: Arc<Mutex<HashMap<KeyString, ColumnTable>>>) -> Result<(), ServerError> {
-    
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e));},
@@ -20,7 +19,7 @@ pub fn handle_download_request(mut connection: &mut Connection, name: &str, glob
     let mut mutex_binding = global_tables.lock().unwrap();
     let requested_table = mutex_binding.get_mut(name).expect("Instruction parser should have verified table");
     let requested_csv = requested_table.to_string();
-    println!("Requested_csv: {}", requested_csv);
+    println!("Requested_csv.len(): {}", requested_csv.len());
 
     let response = data_send_and_confirm(&mut connection, requested_csv.as_bytes())?;
 
@@ -44,6 +43,8 @@ pub fn handle_upload_request(mut connection: &mut Connection, name: &str, global
         Ok(n) => println!("Wrote OK as {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e));},
     };
+    connection.stream.flush()?;
+
 
     let (csv, total_read) = receive_data(&mut connection)?;
 
@@ -89,6 +90,8 @@ pub fn handle_update_request(mut connection: &mut Connection, name: &str, global
         Ok(n) => println!("Wrote {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e));},
     };
+    connection.stream.flush()?;
+
 
     let (csv, total_read) = receive_data(&mut connection)?;
 
@@ -115,6 +118,8 @@ pub fn handle_query_request(mut connection: &mut Connection, name: &str, query: 
         Ok(n) => println!("Wrote {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e));},
     };
+    connection.stream.flush()?;
+
 
     
     let mutex_binding = global_tables.lock().unwrap();
@@ -163,6 +168,8 @@ pub fn handle_kv_upload(mut connection: &mut Connection, name: &str, global_kv_t
         Ok(n) => println!("Wrote OK as {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e));},
     };
+    connection.stream.flush()?;
+
 
     let (value, total_read) = receive_data(&mut connection)?;
     println!("value: {:?}", value);
@@ -195,6 +202,8 @@ pub fn handle_kv_update(mut connection: &mut Connection, name: &str, global_kv_t
         Ok(n) => println!("Wrote OK as {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e));},
     };
+    connection.stream.flush()?;
+
 
     let (value, total_read) = receive_data(&mut connection)?;
 
@@ -223,6 +232,8 @@ pub fn handle_kv_download(mut connection: &mut Connection, name: &str, global_kv
         Ok(n) => println!("Wrote {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e));},
     };
+    connection.stream.flush()?;
+
 
     let mut mutex_binding = global_kv_table.lock().unwrap();
     let requested_value = mutex_binding.get_mut(name).expect("Instruction parser should have verified table");
