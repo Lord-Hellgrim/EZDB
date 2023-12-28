@@ -311,8 +311,7 @@ mod tests {
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";
-        let e = kv_upload(address, username, password, "test_upload", value);
-        assert!(e.is_ok());   
+        let e = kv_upload(address, username, password, "test_upload", value).unwrap();   
     
     }
 
