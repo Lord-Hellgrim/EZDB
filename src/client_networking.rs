@@ -140,7 +140,6 @@ pub fn kv_download(address: &str, username: &str, password: &str, key: &str) -> 
 
     let mut connection = Connection::connect(address, username, password)?;
 
-        
     let response = instruction_send_and_confirm(Instruction::KvDownload(key.to_owned()), &mut connection)?;
 
     let value: Vec<u8>;
@@ -157,7 +156,30 @@ pub fn kv_download(address: &str, username: &str, password: &str, key: &str) -> 
     };
 
     Ok(value)
+}
 
+pub fn kv_update(address: &str, username: &str, password: &str, key: &str, value: &[u8]) -> Result<(), ServerError> {
+    let mut connection = Connection::connect(address, username, password)?;
+
+    let response = instruction_send_and_confirm(Instruction::KvUpdate(key.to_owned()), &mut connection)?;
+
+    let confirmation: String;
+
+    println!("upload_value - parsing response");
+    match parse_response(&response, &connection.user, password.as_bytes(), key) {
+        Ok(_) => confirmation = data_send_and_confirm(&mut connection, value)?,
+        Err(e) => return Err(e),
+    }
+    println!("value uploaded successfully");
+
+    // The reason for the +28 in the length checker is that it accounts for the length of the nonce (IV) and the authentication tag
+    // in the aes-gcm encryption. The nonce is 12 bytes and the auth tag is 16 bytes
+    let data_len = (value.len() + 28).to_string();
+    if confirmation == data_len {
+        return Ok(());
+    } else {
+        return Err(ServerError::Confirmation(confirmation));
+    }
 }
 
 
@@ -289,17 +311,32 @@ mod tests {
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";
-        let e = kv_upload(address, username, password, "test_key", value);
+        let e = kv_upload(address, username, password, "test_upload", value);
         assert!(e.is_ok());   
     
     }
 
     #[test]
     fn test_kv_download() {
+        let value: &[u8] = &[1,2,3,4,5,6,7,8,9];
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";
-        let e = kv_download(address, username, password, "test_key").unwrap();
+        kv_upload(address, username, password, "test_download", value);
+        let e = kv_download(address, username, password, "test_download").unwrap();
+        println!("value: {:x?}", e);
+    }
+
+    #[test]
+    fn test_kv_update() {
+        let value: &[u8] = &[1,2,3,4,5,6,7,8,9];
+        let address = "127.0.0.1:3004";
+        let username = "admin";
+        let password = "admin";
+        kv_upload(address, username, password, "test_update", value);
+        let value: &[u8] = &[9,8,7,6,5,4,3,2,1];
+        kv_update(address, username, password, "test_update", value);
+        let e = kv_download(address, username, password, "test_update").unwrap();
         println!("value: {:x?}", e);
     }
 
