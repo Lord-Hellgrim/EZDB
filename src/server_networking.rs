@@ -422,7 +422,7 @@ pub fn server(address: &str) -> Result<(), ServerError> {
                         match handle_kv_upload(&mut connection, &table_name, thread_global_kv_table.clone()) {
                             Ok(_) => {
                                 println!("Operation finished!");
-                                println!("kv result: {:x?}", check_global_kv.lock().unwrap().get("test_key").unwrap().body);
+                                println!("kv result: {:x?}", check_global_kv.lock().unwrap().get(&KeyString::from(table_name)).unwrap().body);
                             },
                             Err(e) => {
                                 println!("Operation failed because: {}", e);

@@ -322,7 +322,9 @@ mod tests {
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";
+        println!("About to upload");
         kv_upload(address, username, password, "test_download", value);
+        println!("About to download");
         let e = kv_download(address, username, password, "test_download").unwrap();
         println!("value: {:x?}", e);
     }
