@@ -174,6 +174,7 @@ impl Connection {
         // println!("Sending data...");
         stream.write_all(&encrypted_data_block)?;
         stream.flush()?;
+        stream.set_read_timeout(Some(Duration::from_secs(10)));
 
         let user = username.to_owned();
         Ok(
@@ -337,7 +338,6 @@ pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut C
     
     let mut buffer: [u8;INSTRUCTION_BUFFER] = [0;INSTRUCTION_BUFFER];
     // println!("Waiting for response from server");
-    connection.stream.set_read_timeout(Some(Duration::from_secs(5)))?;
     connection.stream.read(&mut buffer)?;
 
     // println!("About to parse response from server");
