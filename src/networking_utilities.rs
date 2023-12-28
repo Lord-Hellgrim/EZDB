@@ -382,10 +382,11 @@ pub fn data_send_and_confirm(connection: &mut Connection, data: &[u8]) -> Result
     // in the aes-gcm encryption. The nonce is 12 bytes and the auth tag is 16 bytes
     connection.stream.write_all(&(data.len() + 28).to_le_bytes())?;
     connection.stream.write_all(&encrypted_data_block)?;
-    // connection.stream.flush()?;
+    connection.stream.flush()?;
     // println!("data sent");
-    // println!("Waiting for confirmation from client");
+    println!("Waiting for confirmation from peer");
     std::thread::sleep(Duration::from_secs(2));
+    println!("finished sleeping");
     let mut buffer: [u8;INSTRUCTION_BUFFER] = [0;INSTRUCTION_BUFFER];
     match connection.stream.read(&mut buffer) {
         Ok(_) => {
