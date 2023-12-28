@@ -335,13 +335,15 @@ pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut C
         Ok(n) => println!("Wrote request as {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e));},
     };
+    connection.stream.flush()?;
     
-    let mut buffer: [u8;INSTRUCTION_BUFFER] = [0;INSTRUCTION_BUFFER];
+    let mut buffer: [u8;2] = [0;2];
     // println!("Waiting for response from server");
-    connection.stream.read(&mut buffer)?;
-
+    connection.stream.read_exact(&mut buffer)?;
+    println!("INSTRUCTION_BUFFER: {:x?}", buffer);
     // println!("About to parse response from server");
     let response = bytes_to_str(&buffer)?;
+    println!("reponse: {}", response);
     // println!("response: {}", response);
 
     Ok(response.to_owned())
@@ -375,14 +377,14 @@ pub fn data_send_and_confirm(connection: &mut Connection, data: &[u8]) -> Result
     let mut encrypted_data_block = Vec::with_capacity(data.len() + 28);
     encrypted_data_block.extend_from_slice(&encrypted_data);
     encrypted_data_block.extend_from_slice(&data_nonce);
-    
-    
+
+    println!("encrypted data: {:x?}", encrypted_data_block);
     // println!("Sending data...");
     // The reason for the +28 in the length checker is that it accounts for the length of the nonce (IV) and the authentication tag
     // in the aes-gcm encryption. The nonce is 12 bytes and the auth tag is 16 bytes
     connection.stream.write_all(&(data.len() + 28).to_le_bytes())?;
     connection.stream.write_all(&encrypted_data_block)?;
-    connection.stream.flush()?;
+    
     // println!("data sent");
     let mut buffer: [u8;INSTRUCTION_BUFFER] = [0;INSTRUCTION_BUFFER];
     match connection.stream.read(&mut buffer) {
@@ -400,8 +402,6 @@ pub fn data_send_and_confirm(connection: &mut Connection, data: &[u8]) -> Result
 
 pub fn receive_data(connection: &mut Connection) -> Result<(Vec<u8>, usize), ServerError> {
 
-    // println!("Allocating size and data buffer");
-    
     let mut size_buffer: [u8; 8] = [0; 8];
     connection.stream.read_exact(&mut size_buffer)?;
 
@@ -409,8 +409,6 @@ pub fn receive_data(connection: &mut Connection) -> Result<(Vec<u8>, usize), Ser
     if data_len > MAX_DATA_LEN {
         return Err(ServerError::OversizedData)
     }
-    
-    // println!("Expected data length: {}", data_len);
     
     let mut data = Vec::with_capacity(data_len);
     let mut buffer = [0; DATA_BUFFER];
@@ -427,17 +425,8 @@ pub fn receive_data(connection: &mut Connection) -> Result<(Vec<u8>, usize), Ser
         println!("Total read: {}", total_read);
     }
     
-    // println!("Successfully read {} bytes", total_read);
-    // // println!("Data: {:x?}", data);
-    
     let (ciphertext, nonce) = (&data[0..data.len()-12], &data[data.len()-12..]);
-    // println!("About to decrypt");
-    // let instant = std::time::Instant::now();
-
     let csv = decrypt_aes256(&ciphertext, &connection.aes_key, &nonce)?;
-    // let elapsed = instant.elapsed().as_millis();
-    // println!("Finished decrypting in: {} milliseconds", elapsed);
-
     Ok((csv, total_read))
 }
 

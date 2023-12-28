@@ -9,25 +9,24 @@ pub fn download_table(address: &str, username: &str, password: &str, table_name:
 
     let mut connection = Connection::connect(address, username, password)?;
 
-        
     let response = instruction_send_and_confirm(Instruction::Download(table_name.to_owned()), &mut connection)?;
-
+    println!("Instruction successfully sent");
     let csv: Vec<u8>;
+    println!("response: {}", response);
     
     match parse_response(&response, &connection.user, password.as_bytes(), table_name) {
         Ok(_) => (csv, _) = receive_data(&mut connection)?,
         Err(e) => return Err(e),
     }
-
+    println!("received: {}", bytes_to_str(&csv)?);
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote 'OK' as {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e));}
     };
+    connection.stream.flush()?;
 
     Ok(bytes_to_str(&csv)?.to_owned())
-
-
 }
 
 
@@ -232,7 +231,6 @@ mod tests {
         for _ in 0..100 {
             download_table(address, username, password, "good_csv").unwrap();
         }
-        
     }
 
 
@@ -250,7 +248,7 @@ mod tests {
     #[test]
     fn test_receive_csv() {
         println!("Sending...\n##########################");
-        test_send_good_csv();
+        // test_send_good_csv();
         let name = "good_csv";
         let address = "127.0.0.1:3004";
         println!("Receiving\n############################");
@@ -260,7 +258,6 @@ mod tests {
         println!("{:?}", table);
         let good_table = ColumnTable::from_csv_string(&std::fs::read_to_string("good_csv.txt").unwrap(), "good_table", "test").unwrap();
         assert_eq!(table, good_table.to_string());
-
     }
 
     #[test]

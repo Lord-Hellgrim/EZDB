@@ -29,6 +29,7 @@ pub fn parse_instruction(instructions: &[u8], users: Arc<Mutex<HashMap<KeyString
     let plaintext = decrypt_aes256(&ciphertext, aes_key, &nonce)?;
 
     let instruction = bytes_to_str(&plaintext)?;
+    println!("instruction: {}", instruction);
 
 
     let instruction_block: Vec<&str> = instruction.split('|').collect();
@@ -125,29 +126,51 @@ pub fn parse_instruction(instructions: &[u8], users: Arc<Mutex<HashMap<KeyString
 }
 
 
+pub struct Server {
+    public_key: Vec<u8>,
+    private_key: BigUint,
+    listener: TcpListener,
+    tables: Arc<Mutex<HashMap<KeyString, ColumnTable>>>,
+    kv_list: Arc<Mutex<HashMap<KeyString, Value>>>,
+    users: HashMap<KeyString, User>,
+}
+
+impl Server {
+    pub fn init(address: &str) -> Result<Server, ServerError> {
+        println!("Starting server...\n###########################");
+        let server_dh = DiffieHellman::new();
+        let server_public_key = server_dh.public_key().to_bytes_le();
+        let server_private_key = server_dh.private_key;
+        
+        println!("Binding to address: {address}");
+        let l = match TcpListener::bind(address) {
+            Ok(value) => value,
+            Err(e) => {return Err(ServerError::Io(e));},
+        };
+
+        let global_tables: Arc<Mutex<HashMap<KeyString, ColumnTable>>> = Arc::new(Mutex::new(HashMap::new()));
+        let global_kv_table: Arc<Mutex<HashMap<KeyString, Value>>> = Arc::new(Mutex::new(HashMap::new()));
+        let mut users: HashMap<KeyString, User> = HashMap::new();
+
+        Ok(
+            Server {
+                public_key: server_public_key,
+                private_key: server_private_key,
+                listener: l,
+                tables: global_tables,
+                kv_list: global_kv_table,
+                users: users,
+            }
+        )
+    }
+}
 
 
 pub fn server(address: &str) -> Result<(), ServerError> {
     // #################################### STARTUP SEQUENCE #############################################
     
-    println!("Starting server...\n###########################");
-    println!("Binding to address: {address}");
-    
-    let server_dh = DiffieHellman::new();
-    let server_public_key = Arc::new(server_dh.public_key().to_bytes_le());
-    let server_private_key = Arc::new(server_dh.private_key);
-    
-    let l = match TcpListener::bind(address) {
-        Ok(value) => value,
-        Err(e) => {return Err(ServerError::Io(e));},
-    };
-    
-    
     println!("Reading users config into memory");
-    
-    let global_tables: Arc<Mutex<HashMap<KeyString, ColumnTable>>> = Arc::new(Mutex::new(HashMap::new()));
-    let global_kv_table: Arc<Mutex<HashMap<KeyString, Value>>> = Arc::new(Mutex::new(HashMap::new()));
-    let mut users: HashMap<KeyString, User> = HashMap::new();
+    let mut server = Server::init(address)?;
     
     if std::path::Path::new("EZconfig").is_dir() {
         println!("config exists");
@@ -157,7 +180,7 @@ pub fn server(address: &str) -> Result<(), ServerError> {
                 continue
             }
             let temp_user: User = ron::from_str(line).unwrap();
-            users.insert(temp_user.username.clone(), temp_user);
+            server.users.insert(temp_user.username.clone(), temp_user);
         }
     } else {
         println!("config does not exist");
@@ -180,22 +203,22 @@ pub fn server(address: &str) -> Result<(), ServerError> {
                 continue
             }
             let temp_user: User = ron::from_str(line).unwrap();
-            users.insert(temp_user.username.clone(), temp_user);
+            server.users.insert(temp_user.username.clone(), temp_user);
         }
     } 
 
-    dbg!(&users);
+    dbg!(&server.users);
     
-    let users = Arc::new(Mutex::new(users));
+    let users = Arc::new(Mutex::new(server.users));
 
     // #################################### END STARTUP SEQUENCE ###############################################
 
 
     // #################################### DATA SAVING AND LOADING LOOP ###################################################
 
-    let data_saving_global_data = global_tables.clone();
+    let data_saving_global_data = server.tables.clone();
     let data_saving_users = Arc::clone(&users);
-    let data_saving_kv = global_kv_table.clone();
+    let data_saving_kv = server.kv_list.clone();
     std::thread::spawn(move || {
         loop {
             std::thread::sleep(std::time::Duration::from_secs(10));
@@ -236,17 +259,17 @@ pub fn server(address: &str) -> Result<(), ServerError> {
     /* This is the main loop of the function. Here we accept incoming connections and process them */
     loop {
         // Reading instructions
-        let (mut stream, client_address) = match l.accept() {
+        let (mut stream, client_address) = match server.listener.accept() {
             Ok((n,m)) => (n, m),
             Err(e) => {return Err(ServerError::Io(e));},
         };
         println!("Accepted connection from: {}", client_address);        
         
-        let thread_global_tables = global_tables.clone();
-        let thread_global_kv_table = global_kv_table.clone();
+        let thread_global_tables = server.tables.clone();
+        let thread_global_kv_table = server.kv_list.clone();
         let thread_users = Arc::clone(&users);
-        let thread_public_key = server_public_key.clone();
-        let thread_private_key = server_private_key.clone();
+        let thread_public_key = server.public_key.clone();
+        let thread_private_key = server.private_key.clone();
         
 
         // Spawn a thread to handle establishing connections
@@ -356,7 +379,6 @@ pub fn server(address: &str) -> Result<(), ServerError> {
             
             // println!("Instruction buffer[0..50]: {:x?}", &buffer[0..50]);
             let instructions = &buffer[0..instruction_size];
-            
             println!("Parsing instructions...");
             match parse_instruction(instructions, thread_users.clone(), thread_global_tables.clone(), thread_global_kv_table.clone(), &connection.aes_key) {
                 Ok(i) => match i {
@@ -455,6 +477,7 @@ pub fn server(address: &str) -> Result<(), ServerError> {
                 },
                 
                 Err(e) => {
+                    println!("WE'RE HAVING AN ERROR!!!");
                     match connection.stream.write(&e.to_string().as_bytes()){
                         Ok(_) => (),
                         Err(e) => {
