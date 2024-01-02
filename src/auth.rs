@@ -4,9 +4,9 @@ use serde::{Serialize, Deserialize};
 
 use smartstring::{SmartString, LazyCompact};
 
-pub type KeyString = SmartString<LazyCompact>;
+use crate::networking_utilities::blake3_hash;
 
-use crate::diffie_hellman::blake3_hash;
+pub type KeyString = SmartString<LazyCompact>;
 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -135,32 +135,16 @@ pub fn user_has_permission(table_name: &str, action: &str, username: &str, users
 
     match permission {
         Permission::Upload => {
-            if user.can_upload {
-                return true
-            } else {
-                return false
-            }
+            user.can_upload
         },
         Permission::Download => {
-            if user.can_download.contains(&table_name.to_owned()) {
-                return true
-            } else {
-                return false
-            }
+            user.can_download.contains(&table_name.to_owned())
         },
         Permission::Update => {
-            if user.can_update.contains(&table_name.to_owned()) {
-                return true
-            } else {
-                return false
-            }
+            user.can_update.contains(&table_name.to_owned())
         },
         Permission::Query => {
-            if user.can_query.contains(&table_name.to_owned()) {
-                return true
-            } else {
-                return false
-            }
+            user.can_query.contains(&table_name.to_owned())
         },
     }
 }

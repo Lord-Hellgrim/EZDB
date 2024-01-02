@@ -8,9 +8,9 @@ use crate::networking_utilities::ServerError;
 
 pub fn encrypt_aes256(s: &[u8], key: &[u8]) -> (Vec<u8>, [u8;12]) {
 
-    let key = Key::<Aes256Gcm>::from_slice(&key);
+    let key = Key::<Aes256Gcm>::from_slice(key);
 
-    let cipher = Aes256Gcm::new(&key);
+    let cipher = Aes256Gcm::new(key);
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng); // 96-bits; unique per message
     let ciphertext = cipher.encrypt(&nonce, s).unwrap(); // safe because we generate the nonce here
     (ciphertext, nonce.into())
@@ -19,9 +19,9 @@ pub fn encrypt_aes256(s: &[u8], key: &[u8]) -> (Vec<u8>, [u8;12]) {
 
 pub fn decrypt_aes256(s: &[u8], key: &[u8], nonce: &[u8] ) -> Result<Vec<u8>, ServerError> {
     // TODO Add clause to handle the case where the nonce is not 12 bytes
-    let key = Key::<Aes256Gcm>::from_slice(&key);
+    let key = Key::<Aes256Gcm>::from_slice(key);
     
-    let cipher = Aes256Gcm::new(&key);
+    let cipher = Aes256Gcm::new(key);
     let nonce = GenericArray::clone_from_slice(nonce); // 96-bits; unique per message
     let plaintext = cipher.decrypt(&nonce, s)?;
     Ok(plaintext)

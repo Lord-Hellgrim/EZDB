@@ -9,5 +9,4 @@ pub mod networking_utilities;
 pub mod auth;
 // pub mod aes;
 pub mod aes_temp_crypto;
-pub mod diffie_hellman;
 pub mod handlers;

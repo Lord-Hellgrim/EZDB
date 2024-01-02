@@ -18,8 +18,9 @@ fn main() -> Result<(), networking_utilities::ServerError> {
     }
 
     unsafe { p() };
+    let server = server_networking::Server::init("127.0.0.1:3004").unwrap();
 
-    server_networking::server("127.0.0.1:3004")?;
+    server_networking::run_server(server)?;
 
     Ok(())
 }

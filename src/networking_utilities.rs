@@ -6,13 +6,12 @@ use std::str::{self, Utf8Error};
 use std::time::Duration;
 use std::{usize, fmt};
 
+use x25519_dalek::{EphemeralSecret, PublicKey};
 use aes_gcm::aead;
-use num_bigint::BigUint;
 
 use crate::aes_temp_crypto::{encrypt_aes256, decrypt_aes256};
 use crate::auth::AuthenticationError;
 use crate::db_structure::StrictError;
-use crate::diffie_hellman::*;
 
 
 pub const INSTRUCTION_BUFFER: usize = 1024;
@@ -103,6 +102,8 @@ pub enum Instruction {
     KvUpload(String),
     KvUpdate(String),
     KvDownload(String),
+    MetaListTables,
+    MetaListKeyValues,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -145,16 +146,16 @@ impl Connection {
             return Err(ServerError::Authentication(AuthenticationError::TooLong))
         }
 
-        let client_dh = DiffieHellman::new();
+        let client_private_key = EphemeralSecret::random();
+        let client_public_key = PublicKey::from(&client_private_key);
 
         let mut stream = TcpStream::connect(address)?;
-        let mut key_buffer: [u8; 256] = [0u8;256];
-        stream.read(&mut key_buffer)?;
-        let server_public_key = BigUint::from_bytes_le(&key_buffer);
-        let client_public_key = client_dh.public_key().to_bytes_le();
-        stream.write(&client_public_key)?;
-        let shared_secret = client_dh.shared_secret(&server_public_key);
-        let aes_key = blake3_hash(&shared_secret.to_bytes_le());
+        let mut key_buffer: [u8; 32] = [0u8;32];
+        stream.read_exact(&mut key_buffer)?;
+        let server_public_key = PublicKey::from(key_buffer);
+        stream.write_all(client_public_key.as_bytes())?;
+        let shared_secret = client_private_key.diffie_hellman(&server_public_key);
+        let aes_key = blake3_hash(&shared_secret.to_bytes());
 
         let mut auth_buffer = [0u8; 1024];
         auth_buffer[0..username.len()].copy_from_slice(username.as_bytes());
@@ -174,7 +175,7 @@ impl Connection {
         // println!("Sending data...");
         stream.write_all(&encrypted_data_block)?;
         stream.flush()?;
-        stream.set_read_timeout(Some(Duration::from_secs(10)));
+        stream.set_read_timeout(Some(Duration::from_secs(10)))?;
 
         let user = username.to_owned();
         Ok(
@@ -189,16 +190,19 @@ impl Connection {
 }
 
 
+pub fn blake3_hash(s: &[u8]) -> Vec<u8> {
+
+    blake3::hash(s).as_bytes().to_vec()
+
+}
+
 
 pub fn get_current_time() -> u64 {
 
-    let x = std::time::SystemTime::now()
+    std::time::SystemTime::now()
         .duration_since(std::time::SystemTime::UNIX_EPOCH)
         .unwrap()
-        .as_secs();
-
-    x
-
+        .as_secs()
 }
 
 #[inline(always)]
@@ -249,6 +253,10 @@ pub fn bytes_to_str(bytes: &[u8]) -> Result<&str, Utf8Error> {
         }
         index += 1;
         start += 1;
+    }
+
+    if bytes.is_empty() {
+        return Ok("")
     }
 
     if start >= bytes.len()-1 {
@@ -318,10 +326,12 @@ pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut C
         Instruction::KvUpload(table_name) => format!("KvUpload|{}|blank|{}", table_name, connection.user),
         Instruction::KvUpdate(table_name) => format!("KvUpdate|{}|blank|{}", table_name, connection.user),
         Instruction::KvDownload(table_name) => format!("KvDownload|{}|blank|{}", table_name, connection.user),
+        Instruction::MetaListTables => format!("MetaListTables|blank|blank|{}", connection.user),
+        Instruction::MetaListKeyValues => format!("MetaListKeyValues|blank|blank|{}", connection.user),
+
     };
 
-    let instruction_string = format!("{instruction}");
-    let (encrypted_instructions, nonce) = encrypt_aes256(&instruction_string.as_bytes(), &connection.aes_key);
+    let (encrypted_instructions, nonce) = encrypt_aes256(&instruction.as_bytes(), &connection.aes_key);
 
     // // println!("encrypted instructions: {:x?}", encrypted_instructions);
     // // println!("nonce: {:x?}", nonce);
@@ -340,7 +350,7 @@ pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut C
     let mut buffer: [u8;2] = [0;2];
     // println!("Waiting for response from server");
     connection.stream.read_exact(&mut buffer)?;
-    println!("INSTRUCTION_BUFFER: {:x?}", buffer);
+    // println!("INSTRUCTION_BUFFER: {:x?}", buffer);
     // println!("About to parse response from server");
     let response = bytes_to_str(&buffer)?;
     println!("reponse: {}", response);
@@ -378,12 +388,15 @@ pub fn data_send_and_confirm(connection: &mut Connection, data: &[u8]) -> Result
     encrypted_data_block.extend_from_slice(&encrypted_data);
     encrypted_data_block.extend_from_slice(&data_nonce);
 
-    println!("encrypted data: {:x?}", encrypted_data_block);
+    // println!("encrypted data: {:x?}", encrypted_data_block);
     // println!("Sending data...");
     // The reason for the +28 in the length checker is that it accounts for the length of the nonce (IV) and the authentication tag
     // in the aes-gcm encryption. The nonce is 12 bytes and the auth tag is 16 bytes
-    connection.stream.write_all(&(data.len() + 28).to_le_bytes())?;
-    connection.stream.write_all(&encrypted_data_block)?;
+    let mut block = Vec::from(&(data.len() + 28).to_le_bytes());
+    block.extend_from_slice(&encrypted_data_block);
+    connection.stream.write_all(&block)?;
+    // connection.stream.write_all(&(data.len() + 28).to_le_bytes())?;
+    // connection.stream.write_all(&encrypted_data_block)?;
     
     // println!("data sent");
     let mut buffer: [u8;INSTRUCTION_BUFFER] = [0;INSTRUCTION_BUFFER];
@@ -426,7 +439,7 @@ pub fn receive_data(connection: &mut Connection) -> Result<(Vec<u8>, usize), Ser
     }
     
     let (ciphertext, nonce) = (&data[0..data.len()-12], &data[data.len()-12..]);
-    let csv = decrypt_aes256(&ciphertext, &connection.aes_key, &nonce)?;
+    let csv = decrypt_aes256(&ciphertext, &connection.aes_key, nonce)?;
     Ok((csv, total_read))
 }
 

@@ -21,13 +21,13 @@ pub fn handle_download_request(mut connection: &mut Connection, name: &str, glob
     let requested_csv = requested_table.to_string();
     println!("Requested_csv.len(): {}", requested_csv.len());
 
-    let response = data_send_and_confirm(&mut connection, requested_csv.as_bytes())?;
+    let response = data_send_and_confirm(connection, requested_csv.as_bytes())?;
 
     if response == "OK" {
         requested_table.metadata.last_access = get_current_time();
 
         requested_table.metadata.times_accessed += 1;
-        println!("metadata: {}", requested_table.metadata.to_string());
+        println!("metadata: {}", requested_table.metadata);
 
         return Ok(())
     } else {
@@ -46,7 +46,7 @@ pub fn handle_upload_request(mut connection: &mut Connection, name: &str, global
     connection.stream.flush()?;
 
 
-    let (csv, total_read) = receive_data(&mut connection)?;
+    let (csv, total_read) = receive_data(connection)?;
 
     // Here we create a ColumnTable from the csv and supplied name
     println!("About to check for strictness");
@@ -93,7 +93,7 @@ pub fn handle_update_request(mut connection: &mut Connection, name: &str, global
     connection.stream.flush()?;
 
 
-    let (csv, total_read) = receive_data(&mut connection)?;
+    let (csv, total_read) = receive_data(connection)?;
 
     let mut mutex_binding = global_tables.lock().unwrap();
 
@@ -101,10 +101,10 @@ pub fn handle_update_request(mut connection: &mut Connection, name: &str, global
     
     match requested_table.update_from_csv(bytes_to_str(&csv)?) {
         Ok(_) => {
-            connection.stream.write(total_read.to_string().as_bytes())?;
+            connection.stream.write_all(total_read.to_string().as_bytes())?;
         },
         Err(e) => {
-            connection.stream.write(e.to_string().as_bytes())?;
+            connection.stream.write_all(e.to_string().as_bytes())?;
             return Err(ServerError::Strict(e));
         },
     };
@@ -124,14 +124,14 @@ pub fn handle_query_request(mut connection: &mut Connection, name: &str, query: 
     
     let mutex_binding = global_tables.lock().unwrap();
     let requested_table = mutex_binding.get(name).expect("Instruction parser should have verified table");
-    let requested_csv: String;
     // PARSE INSTRUCTION
-    let query_type;
+    let query_type: &str;
     match query.find("..") {
         Some(_) => query_type = "range",
         None => query_type = "list"
     };
-
+    
+    let requested_csv: String;
     if query_type == "range" {
         let parsed_query: Vec<&str> = query.split("..").collect();
         requested_csv = requested_table.query_range((parsed_query[0], parsed_query[1]))?;
@@ -140,7 +140,7 @@ pub fn handle_query_request(mut connection: &mut Connection, name: &str, query: 
         requested_csv = requested_table.query_list(parsed_query)?;
     }
 
-    let response = data_send_and_confirm(&mut connection, requested_csv.as_bytes())?;
+    let response = data_send_and_confirm(connection, requested_csv.as_bytes())?;
     
     if response == "OK" {
         return Ok("OK".to_owned())
@@ -171,8 +171,8 @@ pub fn handle_kv_upload(mut connection: &mut Connection, name: &str, global_kv_t
     connection.stream.flush()?;
 
 
-    let (value, total_read) = receive_data(&mut connection)?;
-    println!("value: {:?}", value);
+    let (value, total_read) = receive_data(connection)?;
+    // println!("value: {:?}", value);
 
     // Here we create a ColumnTable from the csv and supplied name
     println!("About to check for strictness");
@@ -205,7 +205,7 @@ pub fn handle_kv_update(mut connection: &mut Connection, name: &str, global_kv_t
     connection.stream.flush()?;
 
 
-    let (value, total_read) = receive_data(&mut connection)?;
+    let (value, total_read) = receive_data(connection)?;
 
     // Here we create a ColumnTable from the csv and supplied name
     println!("About to check for strictness");
@@ -238,9 +238,9 @@ pub fn handle_kv_download(mut connection: &mut Connection, name: &str, global_kv
     let mut mutex_binding = global_kv_table.lock().unwrap();
     let requested_value = mutex_binding.get_mut(name).expect("Instruction parser should have verified table");
 
-    println!("Requested_value: {:x?}", requested_value.body);
+    // println!("Requested_value: {:x?}", requested_value.body);
 
-    let response = data_send_and_confirm(&mut connection, &requested_value.body)?;
+    let response = data_send_and_confirm(connection, &requested_value.body)?;
 
     if response == "OK" {
         requested_value.metadata.last_access = get_current_time();
@@ -248,6 +248,96 @@ pub fn handle_kv_download(mut connection: &mut Connection, name: &str, global_kv
         requested_value.metadata.times_accessed += 1;
         println!("metadata: {}", requested_value.metadata.to_string());
 
+        return Ok(())
+    } else {
+        return Err(ServerError::Confirmation(response))
+    }
+
+}
+
+pub fn handle_meta_list_tables(mut connection: &mut Connection, global_tables: Arc<Mutex<HashMap<KeyString, ColumnTable>>>) -> Result<(), ServerError> {
+
+    match connection.stream.write("OK".as_bytes()) {
+        Ok(n) => println!("Wrote {n} bytes"),
+        Err(e) => {return Err(ServerError::Io(e));},
+    };
+    connection.stream.flush()?;
+
+    let mutex_binding = global_tables.lock().unwrap();
+    let mut memory_table_names: Vec<&KeyString> = mutex_binding.keys().collect();
+
+    let mut disk_table_names = Vec::new();
+    for file in std::fs::read_dir("C:\\Users\\Hallg\\Desktop\\code\\rust\\EZDB\\EZconfig\\raw_tables").unwrap() {
+        match file {
+            Ok(f) => disk_table_names.push(KeyString::from(f.file_name().into_string().unwrap())),
+            Err(e) => println!("error while reading directory entries: {e}"),
+        }
+    }
+
+    for item in disk_table_names.iter() {
+        memory_table_names.push(item);
+    }
+
+    memory_table_names.sort();
+    memory_table_names.dedup();
+
+    let mut printer = String::new();
+    for table_name in memory_table_names {
+        printer.push_str(table_name);
+        printer.push('\n');
+    }
+
+
+    println!("tables_list: {}", printer);
+
+    let response = data_send_and_confirm(connection, printer.as_bytes())?;
+
+    if response == "OK" {
+        return Ok(())
+    } else {
+        return Err(ServerError::Confirmation(response))
+    }
+
+}
+
+pub fn handle_meta_list_key_values(mut connection: &mut Connection, global_kv_table: Arc<Mutex<HashMap<KeyString, Value>>>) -> Result<(), ServerError> {
+
+    match connection.stream.write("OK".as_bytes()) {
+        Ok(n) => println!("Wrote {n} bytes"),
+        Err(e) => {return Err(ServerError::Io(e));},
+    };
+    connection.stream.flush()?;
+
+    let mutex_binding = global_kv_table.lock().unwrap();
+
+    let mut memory_table_names: Vec<&KeyString> = mutex_binding.keys().collect();
+
+    let mut disk_table_names = Vec::new();
+    for file in std::fs::read_dir("C:\\Users\\Hallg\\Desktop\\code\\rust\\EZDB\\EZconfig\\key_value").unwrap() {
+        match file {
+            Ok(f) => disk_table_names.push(KeyString::from(f.file_name().into_string().unwrap())),
+            Err(e) => println!("error while reading directory entries: {e}"),
+        }
+    }
+
+    for item in disk_table_names.iter() {
+        memory_table_names.push(item);
+    }
+
+    memory_table_names.sort();
+    memory_table_names.dedup();
+
+    let mut printer = String::new();
+    for key in memory_table_names {
+        printer.push_str(key);
+        printer.push('\n');
+    }
+
+    println!("tables_list: {}", printer);
+
+    let response = data_send_and_confirm(connection, printer.as_bytes())?;
+
+    if response == "OK" {
         return Ok(())
     } else {
         return Err(ServerError::Confirmation(response))

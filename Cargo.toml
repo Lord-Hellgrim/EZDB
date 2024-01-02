@@ -15,12 +15,13 @@ readme = "README.md"
 aes-gcm = "0.10.2"
 blake3 = "1.5.0"
 fnv = "1.0.7"
-num-bigint = { version = "0.4.4", features = ["rand"] }
+# num-bigint = { version = "0.4.4", features = ["rand"] }
 rand = "0.8.5"
 rayon = "1.8.0"
 ron = "0.8.1"
 serde = { version = "1.0.192", features = ["derive", "alloc"] }
 smartstring = { version = "1.0.1", features = ["serde"] }
+x25519-dalek = {version = "2.0.0", features = ["getrandom", "static_secrets"]}
 
 
 [dev-dependencies]

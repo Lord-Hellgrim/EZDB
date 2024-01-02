@@ -175,8 +175,7 @@ impl StrictTable {
                 continue;
             }
             let mut temp = Vec::with_capacity(header.len());
-            for col in row.split(";") {
-                if col.len() == 0 { continue }
+            for col in row.split(';') {
                 if col.len() == 0 { 
                     temp.push(DbEntry::Empty);
                 }
@@ -463,22 +462,22 @@ impl Display for ColumnTable {
                     DbVec::Floats { name: _, col } => {
                         // println!("float: col.len(): {}", col.len());
                         printer.push_str(&col[i].to_string());
-                        printer.push_str(";");
+                        printer.push(';');
                     },
                     DbVec::Ints { name: _, col } => {
                         // println!("int: col.len(): {}", col.len());
                         printer.push_str(&col[i].to_string());
-                        printer.push_str(";");
+                        printer.push(';');
                     },
                     DbVec::Texts { name: _, col } => {
                         // println!("text: col.len(): {}", col.len());
                         printer.push_str(&col[i]);
-                        printer.push_str(";");
+                        printer.push(';');
                     },
                 }
             }
             printer.pop();
-            printer.push_str("\n");
+            printer.push('\n');
         }
         printer.pop();
 
@@ -489,7 +488,7 @@ impl Display for ColumnTable {
 impl ColumnTable {
     pub fn from_csv_string(s: &str, table_name: &str, created_by: &str) -> Result<ColumnTable, StrictError> {
 
-        if s.len() < 1 {
+        if s.is_empty() {
             return Err(StrictError::Empty)
         }
 
@@ -500,7 +499,7 @@ impl ColumnTable {
         for item in first_line {
             let temp: Vec<&str> = item.split(',').collect();
             let mut header_item = HeaderItem::new();
-            if temp.len() < 1 {
+            if temp.is_empty() {
                 return Err(StrictError::MissingType)
             } else if temp.len() == 1{
                 header_item.kind = DbType::Text;
@@ -553,14 +552,12 @@ impl ColumnTable {
                 line_index += 1;
                 continue
             }
-            let mut row_index = 0;
-            for cell in line.split(';') {
+            for (row_index,cell) in line.split(';').enumerate() {
                 if line_index == 1 {
                     data.push(Vec::from([cell]));
                 } else {
                     data[row_index].push(cell);
                 }
-                row_index += 1;
 
             }
             line_index += 1;
@@ -864,9 +861,8 @@ impl ColumnTable {
         match &self.table[primary_index] {
             DbVec::Floats { name: _, col: _ } => return Err(StrictError::FloatPrimaryKey),
             DbVec::Ints { name: _, col } => {
-                let key: i64;
-                match range.0.parse::<i64>() {
-                    Ok(num) => key = num,
+                let key = match range.0.parse::<i64>() {
+                    Ok(num) => num,
                     Err(_) => return Err(StrictError::Empty),
                 };
                 let index: usize = col.partition_point(|n| n < &key);
@@ -875,9 +871,8 @@ impl ColumnTable {
                 if range.1 == "" {
                     indexes[1] = col.len();
                 } else {
-                    let key2: i64;
-                    match range.1.parse::<i64>() {
-                        Ok(num) => key2 = num,
+                    let key2 = match range.1.parse::<i64>() {
+                        Ok(num) => num,
                         Err(_) => return Err(StrictError::WrongKey),
                     };
                     // // println!("key2: {}", key2);
@@ -941,12 +936,12 @@ impl ColumnTable {
         let table = &self.to_string();
 
 
-        let mut table_file = match std::fs::File::create(&format!("{}raw_tables/{}",path, file_name)) {
+        let mut table_file = match std::fs::File::create(format!("{}raw_tables/{}",path, file_name)) {
             Ok(f) => f,
             Err(e) => return Err(StrictError::Io(e.kind())),
         };
 
-        let mut meta_file = match std::fs::File::create(&format!("{}raw_tables-metadata/{}",path, file_name)) {
+        let mut meta_file = match std::fs::File::create(format!("{}raw_tables-metadata/{}",path, file_name)) {
             Ok(f) => f,
             Err(e) => return Err(StrictError::Io(e.kind())),
         };
@@ -968,7 +963,7 @@ impl ColumnTable {
 }
 
 #[inline]
-fn rearrange_by_index<T: Clone>(col: &mut Vec<T>, indexer: &Vec<usize>) {
+fn rearrange_by_index<T: Clone>(col: &mut Vec<T>, indexer: &[usize]) {
 
     let mut temp = Vec::with_capacity(col.len());
     for i in 0..col.len() {
@@ -978,7 +973,7 @@ fn rearrange_by_index<T: Clone>(col: &mut Vec<T>, indexer: &Vec<usize>) {
 
 } 
 
-fn merge_sorted<T: Ord + Clone + Display + Debug>(one: &Vec<T>, two: &Vec<T>) -> (Vec<T>, Vec<u8>) {
+fn merge_sorted<T: Ord + Clone + Display + Debug>(one: &[T], two: &[T]) -> (Vec<T>, Vec<u8>) {
     let mut new_vec: Vec<T> = Vec::with_capacity(one.len() + two.len());
     let mut record_vec: Vec<u8> = Vec::with_capacity(one.len() + two.len());
     let mut one_pointer = 0;
@@ -987,22 +982,41 @@ fn merge_sorted<T: Ord + Clone + Display + Debug>(one: &Vec<T>, two: &Vec<T>) ->
     // println!("RUNNING merge_sorted()!!!--------------------------------");
     loop {
         // println!("one[{one_pointer}]: {}\t\ttwo[{two_pointer}]: {}", one[one_pointer], two[two_pointer]);
-        if one[one_pointer] < two[two_pointer] {
-            new_vec.push(one[one_pointer].clone());
-            record_vec.push(1);
-            one_pointer += 1;
-        } else if one[one_pointer] > two[two_pointer] {
-            new_vec.push(two[two_pointer].clone());
-            record_vec.push(2);
-            two_pointer += 1;
-        } else if one[one_pointer] == two[two_pointer]{
-            new_vec.push(two[two_pointer].clone());
-            record_vec.push(3);
-            two_pointer += 1;
-            one_pointer += 1;
-        } else {
-            unreachable!();
+
+        match one[one_pointer].cmp(&two[two_pointer]) {
+            std::cmp::Ordering::Less => {
+                new_vec.push(one[one_pointer].clone());
+                record_vec.push(1);
+                one_pointer += 1;
+            },
+            std::cmp::Ordering::Equal => {
+                new_vec.push(two[two_pointer].clone());
+                record_vec.push(3);
+                two_pointer += 1;
+                one_pointer += 1;
+            },
+            std::cmp::Ordering::Greater => {
+                new_vec.push(two[two_pointer].clone());
+                record_vec.push(2);
+                two_pointer += 1;
+            }
         }
+        // if one[one_pointer] < two[two_pointer] {
+        //     new_vec.push(one[one_pointer].clone());
+        //     record_vec.push(1);
+        //     one_pointer += 1;
+        // } else if one[one_pointer] > two[two_pointer] {
+        //     new_vec.push(two[two_pointer].clone());
+        //     record_vec.push(2);
+        //     two_pointer += 1;
+        // } else if one[one_pointer] == two[two_pointer]{
+        //     new_vec.push(two[two_pointer].clone());
+        //     record_vec.push(3);
+        //     two_pointer += 1;
+        //     one_pointer += 1;
+        // } else {
+        //     unreachable!();
+        // }
         if one_pointer >= one.len() {
             new_vec.extend_from_slice(&two[two_pointer..two.len()]);
             while two_pointer < two.len() {
@@ -1028,7 +1042,7 @@ fn merge_sorted<T: Ord + Clone + Display + Debug>(one: &Vec<T>, two: &Vec<T>) ->
     (new_vec, record_vec)
 }
 
-fn merge_in_order<T: Clone + Display>(one: &Vec<T>, two: &Vec<T>, record_vec: &Vec<u8>) -> Vec<T> {
+fn merge_in_order<T: Clone + Display>(one: &[T], two: &[T], record_vec: &[u8]) -> Vec<T> {
     let mut new_vec = Vec::with_capacity(one.len() + two.len());
     let mut one_pointer = 0;
     let mut two_pointer = 0;

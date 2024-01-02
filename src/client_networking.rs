@@ -11,9 +11,9 @@ pub fn download_table(address: &str, username: &str, password: &str, table_name:
 
     let response = instruction_send_and_confirm(Instruction::Download(table_name.to_owned()), &mut connection)?;
     println!("Instruction successfully sent");
-    let csv: Vec<u8>;
     println!("response: {}", response);
     
+    let csv: Vec<u8>;
     match parse_response(&response, &connection.user, password.as_bytes(), table_name) {
         Ok(_) => (csv, _) = receive_data(&mut connection)?,
         Err(e) => return Err(e),
@@ -36,13 +36,11 @@ pub fn upload_table(address: &str, username: &str, password: &str, table_name: &
 
     let response = instruction_send_and_confirm(Instruction::Upload(table_name.to_owned()), &mut connection)?;
 
-    let confirmation: String;
-
     println!("upload_table - parsing response");
-    match parse_response(&response, &connection.user, password.as_bytes(), table_name) {
-        Ok(_) => confirmation = data_send_and_confirm(&mut connection, csv.as_bytes())?,
+    let confirmation: String = match parse_response(&response, &connection.user, password.as_bytes(), table_name) {
+        Ok(_) => data_send_and_confirm(&mut connection, csv.as_bytes())?,
         Err(e) => return Err(e),
-    }
+    };
     println!("confirmation: {}", confirmation);
     // The reason for the +28 in the length checker is that it accounts for the length of the nonce (IV) and the authentication tag
     // in the aes-gcm encryption. The nonce is 12 bytes and the auth tag is 16 bytes
@@ -62,12 +60,10 @@ pub fn update_table(address: &str, username: &str, password: &str, table_name: &
 
     let response = instruction_send_and_confirm(Instruction::Update(table_name.to_owned()), &mut connection)?;
 
-    let confirmation: String;
-
-    match parse_response(&response, &connection.user, password.as_bytes(), table_name) {
-        Ok(_) => confirmation = data_send_and_confirm(&mut connection, csv.as_bytes())?,
+    let confirmation: String = match parse_response(&response, &connection.user, password.as_bytes(), table_name) {
+        Ok(_) => data_send_and_confirm(&mut connection, csv.as_bytes())?,
         Err(e) => return Err(e),
-    }
+    };
 
     // The reason for the +28 in the length checker is that it accounts for the length of the nonce (IV) and the authentication tag
     // in the aes-gcm encryption. The nonce is 12 bytes and the auth tag is 16 bytes
@@ -116,13 +112,11 @@ pub fn kv_upload(address: &str, username: &str, password: &str, key: &str, value
 
     let response = instruction_send_and_confirm(Instruction::KvUpload(key.to_owned()), &mut connection)?;
 
-    let confirmation: String;
-
     println!("upload_value - parsing response");
-    match parse_response(&response, &connection.user, password.as_bytes(), key) {
-        Ok(_) => confirmation = data_send_and_confirm(&mut connection, value)?,
+    let confirmation: String = match parse_response(&response, &connection.user, password.as_bytes(), key) {
+        Ok(_) => data_send_and_confirm(&mut connection, value)?,
         Err(e) => return Err(e),
-    }
+    };
     println!("value uploaded successfully");
 
     // The reason for the +28 in the length checker is that it accounts for the length of the nonce (IV) and the authentication tag
@@ -179,6 +173,52 @@ pub fn kv_update(address: &str, username: &str, password: &str, key: &str, value
     } else {
         return Err(ServerError::Confirmation(confirmation));
     }
+}
+
+pub fn meta_list_tables(address: &str, username: &str, password: &str) -> Result<String, ServerError> {
+    let mut connection = Connection::connect(address, username, password)?;
+
+    let response = instruction_send_and_confirm(Instruction::MetaListTables, &mut connection)?;
+
+    let value: Vec<u8>;
+    
+    match parse_response(&response, &connection.user, password.as_bytes(), "") {
+        Ok(_) => (value, _) = receive_data(&mut connection)?,
+        Err(e) => return Err(e),
+    }
+    println!("value downloaded successfully");
+
+    match connection.stream.write("OK".as_bytes()) {
+        Ok(n) => println!("Wrote 'OK' as {n} bytes"),
+        Err(e) => {return Err(ServerError::Io(e));}
+    };
+
+    let table_list = bytes_to_str(&value)?;
+
+    Ok(table_list.to_owned())
+}
+
+pub fn meta_list_key_values(address: &str, username: &str, password: &str) -> Result<String, ServerError> {
+    let mut connection = Connection::connect(address, username, password)?;
+
+    let response = instruction_send_and_confirm(Instruction::MetaListKeyValues, &mut connection)?;
+
+    let value: Vec<u8>;
+    
+    match parse_response(&response, &connection.user, password.as_bytes(), "") {
+        Ok(_) => (value, _) = receive_data(&mut connection)?,
+        Err(e) => return Err(e),
+    }
+    println!("value downloaded successfully");
+
+    match connection.stream.write("OK".as_bytes()) {
+        Ok(n) => println!("Wrote 'OK' as {n} bytes"),
+        Err(e) => {return Err(ServerError::Io(e));}
+    };
+
+    let table_list = bytes_to_str(&value)?;
+
+    Ok(table_list.to_owned())
 }
 
 
@@ -336,6 +376,30 @@ mod tests {
         kv_update(address, username, password, "test_update", value);
         let e = kv_download(address, username, password, "test_update").unwrap();
         println!("value: {:x?}", e);
+    }
+
+    #[test]
+    fn test_list_tables() {
+        let address = "127.0.0.1:3004";
+        let username = "admin";
+        let password = "admin";
+        // test_send_good_csv();
+        // test_send_large_csv();
+        // std::thread::sleep(Duration::from_secs(3));
+        let tables = meta_list_tables(address, username, password).unwrap();
+        println!("tables: \n{}", tables);
+    }
+
+    #[test]
+    fn test_list_key_values() {
+        let address = "127.0.0.1:3004";
+        let username = "admin";
+        let password = "admin";
+        // test_send_good_csv();
+        // test_send_large_csv();
+        // std::thread::sleep(Duration::from_secs(3));
+        let tables = meta_list_key_values(address, username, password).unwrap();
+        println!("tables: \n{}", tables);
     }
 
 }

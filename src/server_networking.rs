@@ -4,15 +4,13 @@ use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::str::{self};
 
-use num_bigint::BigUint;
-
 use smartstring::{SmartString, LazyCompact};
+use x25519_dalek::{StaticSecret, PublicKey};
 
 pub type KeyString = SmartString<LazyCompact>;
 
 use crate::aes_temp_crypto::decrypt_aes256;
 use crate::auth::{User, AuthenticationError, user_has_permission};
-use crate::diffie_hellman::{DiffieHellman, blake3_hash, shared_secret};
 use crate::networking_utilities::*;
 use crate::db_structure::{ColumnTable, StrictError, Value};
 use crate::handlers::*;
@@ -26,7 +24,7 @@ pub fn parse_instruction(instructions: &[u8], users: Arc<Mutex<HashMap<KeyString
     let ciphertext = &instructions[0..instructions.len()-12];
     let nonce = &instructions[instructions.len()-12..];
 
-    let plaintext = decrypt_aes256(&ciphertext, aes_key, &nonce)?;
+    let plaintext = decrypt_aes256(ciphertext, aes_key, nonce)?;
 
     let instruction = bytes_to_str(&plaintext)?;
     println!("instruction: {}", instruction);
@@ -82,7 +80,7 @@ pub fn parse_instruction(instructions: &[u8], users: Arc<Mutex<HashMap<KeyString
                 if raw_table_exists {
                     println!("Loading table from disk");
                     let mut temp = global_tables.lock().unwrap();
-                    let disk_table = std::fs::read_to_string(&format!("{}/raw_tables/{}", CONFIG_FOLDER, table_name))?;
+                    let disk_table = std::fs::read_to_string(format!("{}/raw_tables/{}", CONFIG_FOLDER, table_name))?;
                     let disk_table = ColumnTable::from_csv_string(&disk_table, table_name, "temp")?;
                     temp.insert(KeyString::from(table_name), disk_table);
                     Ok(Instruction::Download(table_name.to_owned()))
@@ -121,14 +119,20 @@ pub fn parse_instruction(instructions: &[u8], users: Arc<Mutex<HashMap<KeyString
                 Ok(Instruction::KvDownload(table_name.to_owned()))
             }
         },
+        "MetaListTables" => {
+            Ok(Instruction::MetaListTables)
+        },
+        "MetaListKeyValues" => {
+            Ok(Instruction::MetaListKeyValues)
+        },
         _ => {return Err(ServerError::Instruction(InstructionError::Invalid(action.to_owned())));},
     }
 }
 
 
 pub struct Server {
-    public_key: Vec<u8>,
-    private_key: BigUint,
+    public_key: PublicKey,
+    private_key: StaticSecret,
     listener: TcpListener,
     tables: Arc<Mutex<HashMap<KeyString, ColumnTable>>>,
     kv_list: Arc<Mutex<HashMap<KeyString, Value>>>,
@@ -138,9 +142,8 @@ pub struct Server {
 impl Server {
     pub fn init(address: &str) -> Result<Server, ServerError> {
         println!("Starting server...\n###########################");
-        let server_dh = DiffieHellman::new();
-        let server_public_key = server_dh.public_key().to_bytes_le();
-        let server_private_key = server_dh.private_key;
+        let server_private_key = StaticSecret::random();
+        let server_public_key = PublicKey::from(&server_private_key);
         
         println!("Binding to address: {address}");
         let l = match TcpListener::bind(address) {
@@ -150,7 +153,7 @@ impl Server {
 
         let global_tables: Arc<Mutex<HashMap<KeyString, ColumnTable>>> = Arc::new(Mutex::new(HashMap::new()));
         let global_kv_table: Arc<Mutex<HashMap<KeyString, Value>>> = Arc::new(Mutex::new(HashMap::new()));
-        let mut users: HashMap<KeyString, User> = HashMap::new();
+        let users: HashMap<KeyString, User> = HashMap::new();
 
         Ok(
             Server {
@@ -166,17 +169,15 @@ impl Server {
 }
 
 
-pub fn server(address: &str) -> Result<(), ServerError> {
+pub fn run_server(mut server: Server) -> Result<(), ServerError> {
     // #################################### STARTUP SEQUENCE #############################################
     
     println!("Reading users config into memory");
-    let mut server = Server::init(address)?;
-    
     if std::path::Path::new("EZconfig").is_dir() {
         println!("config exists");
         let temp = std::fs::read_to_string(&format!("{CONFIG_FOLDER}.users"))?;
         for line in temp.lines() {
-            if line.as_bytes()[0] == '#' as u8 {
+            if line.as_bytes()[0] == b'#' {
                 continue
             }
             let temp_user: User = ron::from_str(line).unwrap();
@@ -194,12 +195,12 @@ pub fn server(address: &str) -> Result<(), ServerError> {
             Ok(f) => f,
             Err(e) => return Err(ServerError::Strict(StrictError::Io(e.kind()))),
         };
-        match user_file.write_all(&temp.as_bytes()) {
+        match user_file.write_all(temp.as_bytes()) {
             Ok(_) => (),
             Err(_) => panic!("failed to create config file. Server cannot run"),
         };
         for line in temp.lines() {
-            if line.as_bytes()[0] == '#' as u8 {
+            if line.as_bytes()[0] == b'#' {
                 continue
             }
             let temp_user: User = ron::from_str(line).unwrap();
@@ -235,7 +236,7 @@ pub fn server(address: &str) -> Result<(), ServerError> {
                 let mut printer = String::new();
                 for (_, user) in user_lock.iter() {
                     printer.push_str(&ron::to_string(&user).unwrap());
-                    printer.push_str("\n");
+                    printer.push('\n');
                 }
                 printer.pop();
             }
@@ -268,7 +269,7 @@ pub fn server(address: &str) -> Result<(), ServerError> {
         let thread_global_tables = server.tables.clone();
         let thread_global_kv_table = server.kv_list.clone();
         let thread_users = Arc::clone(&users);
-        let thread_public_key = server.public_key.clone();
+        let thread_public_key = server.public_key;
         let thread_private_key = server.private_key.clone();
         
 
@@ -276,7 +277,7 @@ pub fn server(address: &str) -> Result<(), ServerError> {
         std::thread::spawn(move || {
 
             // ################## ESTABLISHING ENCRYPTED CONNECTION ##########################################################################################################
-            match stream.write(&thread_public_key) {
+            match stream.write(thread_public_key.as_bytes()) {
                 Ok(_) => (),
                 Err(e) => {
                     println!("failed to write server public key because: {}", e);
@@ -284,7 +285,7 @@ pub fn server(address: &str) -> Result<(), ServerError> {
                 }
             }
             println!("About to get crypto");
-            let mut buffer: [u8; 256] = [0; 256];
+            let mut buffer: [u8; 32] = [0; 32];
             
             match stream.read_exact(&mut buffer){
                 Ok(_) => (),
@@ -294,10 +295,10 @@ pub fn server(address: &str) -> Result<(), ServerError> {
                 }
             }
             
-            let client_public_key = BigUint::from_bytes_le(&buffer);
+            let client_public_key = PublicKey::from(buffer);
             
-            let shared_secret = shared_secret(&client_public_key, &thread_private_key);
-            let aes_key = blake3_hash(&shared_secret.to_bytes_le());
+            let shared_secret = thread_private_key.diffie_hellman(&client_public_key);
+            let aes_key = blake3_hash(shared_secret.as_bytes());
 
             let mut auth_buffer = [0u8; 1052];
             println!("About to read auth string");
@@ -332,7 +333,7 @@ pub fn server(address: &str) -> Result<(), ServerError> {
             println!("password: {:?}", password);
 
             // println!("username: {}\npassword: {:x?}", username, password);
-            let password = blake3_hash(&bytes_to_str(password).unwrap().as_bytes());
+            let password = blake3_hash(bytes_to_str(password).unwrap().as_bytes());
             println!("password: {:?}", password);
             // println!("password_hash: {:x?}", password);
             println!("About to verify username and password");
@@ -390,7 +391,6 @@ pub fn server(address: &str) -> Result<(), ServerError> {
                             },
                             Err(e) => {
                                 println!("Operation failed because: {}", e);
-                                return
                             }
                         }
                     },
@@ -401,7 +401,6 @@ pub fn server(address: &str) -> Result<(), ServerError> {
                             },
                             Err(e) => {
                                 println!("Operation failed because: {}", e);
-                                return
                             }
                         }
                     },
@@ -412,7 +411,6 @@ pub fn server(address: &str) -> Result<(), ServerError> {
                             },
                             Err(e) => {
                                 println!("Operation failed because: {}", e);
-                                return
                             },
                         }
                     },
@@ -423,7 +421,6 @@ pub fn server(address: &str) -> Result<(), ServerError> {
                             },
                             Err(e) => {
                                 println!("Operation failed because: {}", e);
-                                return
                             },
                         }
                     },
@@ -434,7 +431,6 @@ pub fn server(address: &str) -> Result<(), ServerError> {
                             },
                             Err(e) => {
                                 println!("Operation failed because: {}", e);
-                                return
                             },
                         }
                         
@@ -448,7 +444,6 @@ pub fn server(address: &str) -> Result<(), ServerError> {
                             },
                             Err(e) => {
                                 println!("Operation failed because: {}", e);
-                                return
                             },
                         }
                     },
@@ -459,7 +454,6 @@ pub fn server(address: &str) -> Result<(), ServerError> {
                             },
                             Err(e) => {
                                 println!("Operation failed because: {}", e);
-                                return
                             },
                         }
                     },
@@ -470,31 +464,49 @@ pub fn server(address: &str) -> Result<(), ServerError> {
                             },
                             Err(e) => {
                                 println!("Operation failed because: {}", e);
-                                return
                             },
                         }
                     },
+                    Instruction::MetaListTables => {
+                        match handle_meta_list_tables(&mut connection, thread_global_tables.clone()) {
+                            Ok(_) => {
+                                println!("Operation finished");
+                            },
+                            Err(e) => {
+                                println!("Operation failed because: {}", e);
+                            }
+                        }
+                    }
+                    Instruction::MetaListKeyValues => {
+                        match handle_meta_list_key_values(&mut connection, thread_global_kv_table.clone()) {
+                            Ok(_) => {
+                                println!("Operation finished");
+                            },
+                            Err(e) => {
+                                println!("Operation failed because: {}", e);
+                            }
+                        }
+                    }
                 },
                 
                 Err(e) => {
                     println!("WE'RE HAVING AN ERROR!!!");
-                    match connection.stream.write(&e.to_string().as_bytes()){
+                    match connection.stream.write(e.to_string().as_bytes()){
                         Ok(_) => (),
                         Err(e) => {
                             println!("failed to write error message because: {}", e);
-                            return
                         }
                     }
                     println!("Thread finished on error: {e}");
-                    return
                 },
                 
             };
 
             //####################### END OF HANDLING REQUESTS #############################################################################################################
         });
-
-        ()
+        // END OF SERVER FUNCTION
 
     }
 }
+
+
