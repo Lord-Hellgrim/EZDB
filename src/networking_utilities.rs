@@ -383,7 +383,7 @@ pub fn data_send_and_confirm(connection: &mut Connection, data: &[u8]) -> Result
     // // println!("data: {:x?}", data);
 
     let (encrypted_data, data_nonce) = encrypt_aes256(data, &connection.aes_key);
-    
+
     let mut encrypted_data_block = Vec::with_capacity(data.len() + 28);
     encrypted_data_block.extend_from_slice(&encrypted_data);
     encrypted_data_block.extend_from_slice(&data_nonce);

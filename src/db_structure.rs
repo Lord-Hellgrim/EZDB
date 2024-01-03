@@ -2,8 +2,6 @@ use std::{fmt::{self, Display, Debug}, io::Write, collections::BTreeMap};
 
 use smartstring::{SmartString, LazyCompact};
 
-use rayon::prelude::*;
-
 use crate::networking_utilities::get_current_time;
 
 pub type KeyString = SmartString<LazyCompact>;
@@ -778,7 +776,7 @@ impl ColumnTable {
             },
         }
 
-        self.table.par_iter_mut().for_each(|vec| {
+        self.table.iter_mut().for_each(|vec| {
             match vec {
             DbVec::Floats { name: _, col } => {
                 rearrange_by_index(col, &indexer);

@@ -33,7 +33,7 @@ fn my_benchmark(c: &mut Criterion) {
     // c.bench_function("concurrent downloads (small csv)", |b| b.iter( || test_concurrent_connections()));
     let mut group = c.benchmark_group("smaller sample");
     group.bench_function("ColumnTable::from_csv_string, 1.000.000 random lines", |b| b.iter(|| ColumnTable::from_csv_string(&bench_csv, "bench_test", "criterion")));
-    group.bench_function("StrictTable::from_csv_string, 1.000.000 random lines", |b| b.iter(|| StrictTable::from_csv_string(&bench_csv, "bench_test")));
+    // group.bench_function("StrictTable::from_csv_string, 1.000.000 random lines", |b| b.iter(|| StrictTable::from_csv_string(&bench_csv, "bench_test")));
     
     // let address = "127.0.0.1:3004";
     // let username = "admin";
