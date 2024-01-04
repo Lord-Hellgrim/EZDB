@@ -239,7 +239,7 @@ mod tests {
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";
-        let table = download_table(address, username, password, name).unwrap();
+        let table = download_table(address, username, password, name);
         println!("{:?}", table);
     }
 
