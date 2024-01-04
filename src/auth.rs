@@ -160,10 +160,10 @@ pub enum AuthenticationError {
 impl fmt::Display for AuthenticationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            AuthenticationError::WrongUser(_) => write!(f, "Username is incorrect"),
-            AuthenticationError::WrongPassword(_) => write!(f, "Password is incorrect"),
-            AuthenticationError::TooLong => write!(f, "Neither password or username can be more than 512 bytes"),
-            AuthenticationError::Permission => write!(f, "You do not have permission for this action"),
+            AuthenticationError::WrongUser(_) => write!(f, "IU"),
+            AuthenticationError::WrongPassword(_) => write!(f, "IP"),
+            AuthenticationError::TooLong => write!(f, "LA"),
+            AuthenticationError::Permission => write!(f, "NP"),
         }
     }
 }

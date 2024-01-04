@@ -365,11 +365,11 @@ pub fn parse_response(response: &str, username: &str, password: &[u8], table_nam
 
     if response == "OK" {
         return Ok(())
-    } else if response == "Username is incorrect" {
+    } else if response == "IU" {
         return Err(ServerError::Authentication(AuthenticationError::WrongUser(username.to_owned())));
-    } else if response == "Password is incorrect" {
+    } else if response == "IP" {
         return Err(ServerError::Authentication(AuthenticationError::WrongPassword(password.to_owned())));
-    } else if response.starts_with("No such table as:") {
+    } else if response == ("NT") {
         return Err(ServerError::Instruction(InstructionError::InvalidTable(format!("No such table as {}", table_name))));
     } else {
         panic!("Need to handle error: {}", response);

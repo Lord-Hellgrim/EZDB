@@ -233,6 +233,15 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn test_no_such_table() {
+        let name = "good_csv";
+        let address = "127.0.0.1:3004";
+        let username = "admin";
+        let password = "admin";
+        let table = download_table(address, username, password, name).unwrap();
+        println!("{:?}", table);
+    }
 
     #[test]
     fn test_send_good_csv() {
