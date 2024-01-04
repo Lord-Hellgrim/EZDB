@@ -490,7 +490,7 @@ pub fn run_server(mut server: Server) -> Result<(), ServerError> {
                 },
                 
                 Err(e) => {
-                    println!("WE'RE HAVING AN ERROR!!!");
+                    println!("Failed to serve request because: {e}");
                     match connection.stream.write(e.to_string().as_bytes()){
                         Ok(_) => (),
                         Err(e) => {
