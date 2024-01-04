@@ -9,27 +9,27 @@ Future features, in order, are planned as:
  - Encrypted connections --- fully encrypted with AES256 and diffie-hellman key exchange!
  - Command Line Interface --- no code yet
  - Graphical interface --- no code yet
- - Scaling solutions for larger datasets and more queries --- small baseline multithreading, nowhere near ready
+ - Scaling solutions for larger datasets and more queries --- Spawns a thread per request. Scales ok but not great. Untested.
 
 This is not meant to be a replacement for Postgres or other SQL monsters, just a easy little database for co-ordinating
 data in a small application.
 
 ## How to read
 
-Ths repository currently contains two packages mixed together, a server binary that will run a database server, and a client
-library that will enable client side communication with the server. As of right now they are both bundled together since they
-share a lot of dependencies that may be extracted into a separate EZDB_core package.
+Ths repository currently contains two packages mixed together, a server binary that runs a database server, and a client
+library that enables client side communication with the server. Cargo adding EZDB to your project will include both packages.
 
 The server binary part is mostly defined by "server_networking.rs", "db_structure.rs", and "auth.rs". The client library is mostly
-defined by "client_networking.rs". Both make heavy use of "networking_utilities.rs". Encryption is implemented in "aes_temp_crypt.rs"
-(so called because I am planning to implement my own version and not depend on "aes-gcm") and "diffie_hellman.rs". 
+defined by "client_networking.rs". Both make heavy use of "networking_utilities.rs". Encryption is implemented in "aes_temp_crypto.rs"
+(so called because I am planning to implement my own version and not depend on "aes-gcm", see aes.rs for progress there) and "diffie_hellman.rs". 
 "logger.rs" will handle logging once that's implemented. The various .txt files in the root directory are for testing purposes 
 and should probably be in their own separate folder. 
 
-_The main data structure of EZDB (currently, planning schemaless tables in future) is the StrictTable (db_structure.rs), which is
-essentially a BtreeMap with some tacked on metadata and identifiers and some methods for creating it to ensure it maintains the
-schema. All of the rest of the code is for sending, receiving, updating, querying, securing, and encrypting StrictTable
-structs._ This portion is undergoing severe revision. Main data structure will now be a column based struct, which is currently about 10x faster.
+EZDB has two main capabilities, storage and handling of tables with a strict schema and arbitrary key-value storage. The value can be
+any blob of bytes (it just stores a &[u8]). Currently there are limited queries available on the schema tables. I am planning on making
+more queries but I am not planning on implementing a SQL parser or any other scripting language for writing queries. All queries will
+be simple non-async rust functions. If you want async functionality I may implement an async wrapper at some point but generally I 
+don't like async.
 
 To understand the codebase, it is probably best to start with "db_structure.rs" which is where the main data structure is defined.
 Once you have a handle on that you can move on to "client_networking.rs" and "server_networking.rs" which have to be read together
