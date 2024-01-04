@@ -361,16 +361,16 @@ pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut C
 }
 
 
-pub fn parse_response(response: &str, username: &str, password: &[u8], table_name: &str) -> String {
+pub fn parse_response(response: &str, username: &str, password: &[u8], table_name: &str) -> Result<(), ServerError> {
 
     if response == "OK" {
-        return "OK".to_owned()
+        return Ok(())
     } else if response == "IU" {
-        return format!("Username: {username} is invalid");
+        return Err(ServerError::Authentication(AuthenticationError::WrongUser(username.to_owned())));
     } else if response == "IP" {
-        return format!("Password is invalid");
+        return Err(ServerError::Authentication(AuthenticationError::WrongPassword(password.to_owned())));
     } else if response == ("NT") {
-        return format!("No such table as {}", table_name);
+        return Err(ServerError::Instruction(InstructionError::InvalidTable(format!("No such table as {}", table_name))));
     } else {
         panic!("Need to handle error: {}", response);
     }

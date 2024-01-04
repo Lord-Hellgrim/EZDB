@@ -1,11 +1,94 @@
+use std::fmt;
 use std::io::Write;
-use std::str::{self};
+use std::num::ParseIntError;
+use std::str::{self, Utf8Error};
+
+use aes_gcm::aead;
 
 use crate::auth::AuthenticationError;
+use crate::db_structure::StrictError;
 use crate::networking_utilities::*;
 
 
-pub fn download_table(address: &str, username: &str, password: &str, table_name: &str) -> Result<String, ServerError> {
+pub enum ClientError {
+    InvalidTableName(String),
+    InvalidKey(String),
+    InvalidUsername(String),
+    InvalidPassword(String),
+    ConnectionError,
+    Confirmation(String),
+    Utf8(Utf8Error),
+    Io(std::io::Error),
+    Strict(StrictError),
+    Crypto(aead::Error),
+    ParseInt(ParseIntError),
+    OversizedData,
+
+    Unknown,
+}
+
+
+
+impl fmt::Display for ClientError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ClientError::InvalidPassword(password) => 
+            ClientError::Utf8(e) => write!(f, "Encontered invalid utf-8: {}", e),
+            ClientError::Io(e) => write!(f, "Encountered an IO error: {}", e),
+            ClientError::Confirmation(e) => write!(f, "Received corrupt confirmation {:?}", e),
+            ClientError::Strict(e) => write!(f, "{}", e),
+            ClientError::Crypto(e) => write!(f, "There has been a crypto error. Most likely the nonce was incorrect. The error is: {}", e),
+            ClientError::ParseInt(e) => write!(f, "There has been a problem parsing an integer, presumably while sending a data_len. The error signature is: {}", e),
+            ClientError::OversizedData => write!(f, "Sent data is too long. Maximum data size is {MAX_DATA_LEN}"),
+        }
+    }
+}
+
+impl From<std::io::Error> for ClientError {
+    fn from(e: std::io::Error) -> Self {
+        ClientError::Io(e)
+    }
+}
+
+impl From<Utf8Error> for ClientError {
+    fn from(e: Utf8Error) -> Self {
+        ClientError::Utf8(e)
+    }
+}
+
+impl From<InstructionError> for ClientError {
+    fn from(e: InstructionError) -> Self {
+        ClientError::Instruction(e)
+    }
+}
+
+impl From<AuthenticationError> for ClientError {
+    fn from(e: AuthenticationError) -> Self {
+        ClientError::Authentication(e)
+    }
+}
+
+impl From<StrictError> for ClientError {
+    fn from(e: StrictError) -> Self {
+        ClientError::Strict(e)
+    }
+}
+
+impl From<aead::Error> for ClientError {
+    fn from(e: aead::Error) -> Self {
+        ClientError::Crypto(e)
+    }
+}
+
+impl From<ParseIntError> for ClientError {
+    fn from(e: ParseIntError) -> Self {
+        ClientError::ParseInt(e)
+    }
+}
+
+
+
+pub fn download_table(address: &str, username: &str, password: &str, table_name: &str) -> Result<String, ClientError> {
 
     let mut connection = Connection::connect(address, username, password)?;
 
@@ -22,7 +105,7 @@ pub fn download_table(address: &str, username: &str, password: &str, table_name:
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote 'OK' as {n} bytes"),
-        Err(e) => {return Err(ServerError::Io(e));}
+        Err(e) => {return Err(ClientError::Io(e));}
     };
     connection.stream.flush()?;
 
@@ -30,7 +113,7 @@ pub fn download_table(address: &str, username: &str, password: &str, table_name:
 }
 
 
-pub fn upload_table(address: &str, username: &str, password: &str, table_name: &str, csv: &String) -> Result<String, ServerError> {
+pub fn upload_table(address: &str, username: &str, password: &str, table_name: &str, csv: &String) -> Result<String, ClientError> {
 
     let mut connection = Connection::connect(address, username, password)?;
 
@@ -48,13 +131,13 @@ pub fn upload_table(address: &str, username: &str, password: &str, table_name: &
     if confirmation == data_len {
         return Ok("OK".to_owned());
     } else {
-        return Err(ServerError::Confirmation(confirmation));
+        return Err(ClientError::Confirmation(confirmation));
     }
 
 }
 
 
-pub fn update_table(address: &str, username: &str, password: &str, table_name: &str, csv: &str) -> Result<String, ServerError> {
+pub fn update_table(address: &str, username: &str, password: &str, table_name: &str, csv: &str) -> Result<String, ClientError> {
 
     let mut connection = Connection::connect(address, username, password)?;
 
@@ -73,13 +156,13 @@ pub fn update_table(address: &str, username: &str, password: &str, table_name: &
         return Ok("OK".to_owned());
     } else {
         println!("Confirmation from server: {}", confirmation);
-        return Err(ServerError::Confirmation(confirmation));
+        return Err(ClientError::Confirmation(confirmation));
     }
 
 }
 
 
-pub fn query_table(address: &str, username: &str, password: &str, table_name: &str, query: &str) -> Result<String, ServerError> {
+pub fn query_table(address: &str, username: &str, password: &str, table_name: &str, query: &str) -> Result<String, ClientError> {
     
     let mut connection = Connection::connect(address, username, password)?;
 
@@ -92,21 +175,21 @@ pub fn query_table(address: &str, username: &str, password: &str, table_name: &s
         //########## SUCCESS BRANCH #################################
         "OK" => (csv, _) = receive_data(&mut connection)?,
         //###########################################################
-        "Username is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongUser(connection.user))),
-        "Password is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongPassword(password.as_bytes().to_owned()))),
+        "Username is incorrect" => return Err(ClientError::Authentication(AuthenticationError::WrongUser(connection.user))),
+        "Password is incorrect" => return Err(ClientError::Authentication(AuthenticationError::WrongPassword(password.as_bytes().to_owned()))),
         e => panic!("Need to handle error: {}", e),
     };
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote 'OK' as {n} bytes"),
-        Err(e) => {return Err(ServerError::Io(e));}
+        Err(e) => {return Err(ClientError::Io(e));}
     };
 
     Ok(bytes_to_str(&csv)?.to_owned())
 }
 
 
-pub fn kv_upload(address: &str, username: &str, password: &str, key: &str, value: &[u8]) -> Result<(), ServerError> {
+pub fn kv_upload(address: &str, username: &str, password: &str, key: &str, value: &[u8]) -> Result<(), ClientError> {
 
     let mut connection = Connection::connect(address, username, password)?;
 
@@ -125,11 +208,11 @@ pub fn kv_upload(address: &str, username: &str, password: &str, key: &str, value
     if confirmation == data_len {
         return Ok(());
     } else {
-        return Err(ServerError::Confirmation(confirmation));
+        return Err(ClientError::Confirmation(confirmation));
     }
 }
 
-pub fn kv_download(address: &str, username: &str, password: &str, key: &str) -> Result<Vec<u8>, ServerError> {
+pub fn kv_download(address: &str, username: &str, password: &str, key: &str) -> Result<Vec<u8>, ClientError> {
 
     let mut connection = Connection::connect(address, username, password)?;
 
@@ -145,13 +228,13 @@ pub fn kv_download(address: &str, username: &str, password: &str, key: &str) -> 
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote 'OK' as {n} bytes"),
-        Err(e) => {return Err(ServerError::Io(e));}
+        Err(e) => {return Err(ClientError::Io(e));}
     };
 
     Ok(value)
 }
 
-pub fn kv_update(address: &str, username: &str, password: &str, key: &str, value: &[u8]) -> Result<(), ServerError> {
+pub fn kv_update(address: &str, username: &str, password: &str, key: &str, value: &[u8]) -> Result<(), ClientError> {
     let mut connection = Connection::connect(address, username, password)?;
 
     let response = instruction_send_and_confirm(Instruction::KvUpdate(key.to_owned()), &mut connection)?;
@@ -171,11 +254,11 @@ pub fn kv_update(address: &str, username: &str, password: &str, key: &str, value
     if confirmation == data_len {
         return Ok(());
     } else {
-        return Err(ServerError::Confirmation(confirmation));
+        return Err(ClientError::Confirmation(confirmation));
     }
 }
 
-pub fn meta_list_tables(address: &str, username: &str, password: &str) -> Result<String, ServerError> {
+pub fn meta_list_tables(address: &str, username: &str, password: &str) -> Result<String, ClientError> {
     let mut connection = Connection::connect(address, username, password)?;
 
     let response = instruction_send_and_confirm(Instruction::MetaListTables, &mut connection)?;
@@ -190,7 +273,7 @@ pub fn meta_list_tables(address: &str, username: &str, password: &str) -> Result
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote 'OK' as {n} bytes"),
-        Err(e) => {return Err(ServerError::Io(e));}
+        Err(e) => {return Err(ClientError::Io(e));}
     };
 
     let table_list = bytes_to_str(&value)?;
@@ -198,7 +281,7 @@ pub fn meta_list_tables(address: &str, username: &str, password: &str) -> Result
     Ok(table_list.to_owned())
 }
 
-pub fn meta_list_key_values(address: &str, username: &str, password: &str) -> Result<String, ServerError> {
+pub fn meta_list_key_values(address: &str, username: &str, password: &str) -> Result<String, ClientError> {
     let mut connection = Connection::connect(address, username, password)?;
 
     let response = instruction_send_and_confirm(Instruction::MetaListKeyValues, &mut connection)?;
@@ -213,7 +296,7 @@ pub fn meta_list_key_values(address: &str, username: &str, password: &str) -> Re
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote 'OK' as {n} bytes"),
-        Err(e) => {return Err(ServerError::Io(e));}
+        Err(e) => {return Err(ClientError::Io(e));}
     };
 
     let table_list = bytes_to_str(&value)?;
@@ -239,7 +322,7 @@ mod tests {
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";
-        let table = download_table(address, username, password, name);
+        let table = download_table(address, username, password, name).unwrap();
         println!("{:?}", table);
     }
 
