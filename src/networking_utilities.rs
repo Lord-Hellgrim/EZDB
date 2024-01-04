@@ -121,7 +121,7 @@ impl fmt::Display for InstructionError {
             InstructionError::Invalid(instruction) => write!(f, "The instruction:\n\n\t{instruction}\n\nis invalid. See documentation for valid buffer\n\n"),
             InstructionError::TooLong => write!(f, "Your instruction is too long. Maximum instruction length is: {INSTRUCTION_BUFFER}\n\n"),
             InstructionError::Utf8(e) => write!(f, "Invalid utf-8: {e}"),
-            InstructionError::InvalidTable(s) => write!(f, "No such table as: {}", s),
+            InstructionError::InvalidTable(s) => write!(f, "NT"),
         }
     }
 }
