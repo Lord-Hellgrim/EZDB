@@ -148,7 +148,7 @@ impl Server {
         println!("Binding to address: {address}");
         let l = match TcpListener::bind(address) {
             Ok(value) => value,
-            Err(e) => {return Err(ServerError::Io(e));},
+            Err(e) => {return Err(ServerError::Io(e.kind()));},
         };
 
         let global_tables: Arc<Mutex<HashMap<KeyString, ColumnTable>>> = Arc::new(Mutex::new(HashMap::new()));
@@ -262,7 +262,7 @@ pub fn run_server(mut server: Server) -> Result<(), ServerError> {
         // Reading instructions
         let (mut stream, client_address) = match server.listener.accept() {
             Ok((n,m)) => (n, m),
-            Err(e) => {return Err(ServerError::Io(e));},
+            Err(e) => {return Err(ServerError::Io(e.kind()));},
         };
         println!("Accepted connection from: {}", client_address);        
         

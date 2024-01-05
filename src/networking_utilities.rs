@@ -1,5 +1,5 @@
 use std::arch::asm;
-use std::io::{Write, Read};
+use std::io::{Write, Read, ErrorKind};
 use std::net::TcpStream;
 use std::num::ParseIntError;
 use std::str::{self, Utf8Error};
@@ -24,13 +24,14 @@ pub const MAX_DATA_LEN: usize = u32::MAX as usize;
 #[derive(Debug)]
 pub enum ServerError {
     Utf8(Utf8Error),
-    Io(std::io::Error),
+    Io(ErrorKind),
     Instruction(InstructionError),
     Confirmation(String),
     Authentication(AuthenticationError),
     Strict(StrictError),
     Crypto(aead::Error),
     ParseInt(ParseIntError),
+    ParseResponse(String),
     OversizedData,
 }
 
@@ -46,13 +47,14 @@ impl fmt::Display for ServerError {
             ServerError::Crypto(e) => write!(f, "There has been a crypto error. Most likely the nonce was incorrect. The error is: {}", e),
             ServerError::ParseInt(e) => write!(f, "There has been a problem parsing an integer, presumably while sending a data_len. The error signature is: {}", e),
             ServerError::OversizedData => write!(f, "Sent data is too long. Maximum data size is {MAX_DATA_LEN}"),
+            ServerError::ParseResponse(e) => write!(f, "{}", e),
         }
     }
 }
 
 impl From<std::io::Error> for ServerError {
     fn from(e: std::io::Error) -> Self {
-        ServerError::Io(e)
+        ServerError::Io(e.kind())
     }
 }
 
@@ -343,7 +345,7 @@ pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut C
     // // println!("encrypted instructions.len(): {}", encrypted_instructions.len());
     match connection.stream.write(&encrypted_data_block) {
         Ok(n) => println!("Wrote request as {n} bytes"),
-        Err(e) => {return Err(ServerError::Io(e));},
+        Err(e) => {return Err(ServerError::Io(e.kind()));},
     };
     connection.stream.flush()?;
     
@@ -366,11 +368,11 @@ pub fn parse_response(response: &str, username: &str, password: &[u8], table_nam
     if response == "OK" {
         return Ok(())
     } else if response == "IU" {
-        return Err(ServerError::Authentication(AuthenticationError::WrongUser(username.to_owned())));
+        return Err(ServerError::ParseResponse(format!("Username: {}, is invalid", username)));
     } else if response == "IP" {
-        return Err(ServerError::Authentication(AuthenticationError::WrongPassword(password.to_owned())));
+        return Err(ServerError::ParseResponse(format!("Password is invalid")));
     } else if response == ("NT") {
-        return Err(ServerError::Instruction(InstructionError::InvalidTable(format!("No such table as {}", table_name))));
+        return Err((ServerError::ParseResponse(format!("No such table as {}", table_name))));
     } else {
         panic!("Need to handle error: {}", response);
     }

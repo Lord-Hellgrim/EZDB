@@ -13,7 +13,7 @@ pub type KeyString = SmartString<LazyCompact>;
 pub fn handle_download_request(mut connection: &mut Connection, name: &str, global_tables: Arc<Mutex<HashMap<KeyString, ColumnTable>>>) -> Result<(), ServerError> {
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
-        Err(e) => {return Err(ServerError::Io(e));},
+        Err(e) => {return Err(ServerError::Io(e.kind()));},
     };
 
     let mut mutex_binding = global_tables.lock().unwrap();
@@ -41,7 +41,7 @@ pub fn handle_upload_request(mut connection: &mut Connection, name: &str, global
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote OK as {n} bytes"),
-        Err(e) => {return Err(ServerError::Io(e));},
+        Err(e) => {return Err(ServerError::Io(e.kind()));},
     };
     connection.stream.flush()?;
 
@@ -60,7 +60,7 @@ pub fn handle_upload_request(mut connection: &mut Connection, name: &str, global
                     println!("Time to check strictness: {}", instant.elapsed().as_millis());
                     println!("Confirmed correctness with client");
                 },
-                Err(e) => {return Err(ServerError::Io(e));},
+                Err(e) => {return Err(ServerError::Io(e.kind()));},
             };
 
             println!("Appending to global");
@@ -75,7 +75,7 @@ pub fn handle_upload_request(mut connection: &mut Connection, name: &str, global
         },
         Err(e) => match connection.stream.write(e.to_string().as_bytes()){
             Ok(_) => println!("Informed client of unstrictness"),
-            Err(e) => {return Err(ServerError::Io(e));},
+            Err(e) => {return Err(ServerError::Io(e.kind()));},
         },
     };
     
@@ -88,7 +88,7 @@ pub fn handle_update_request(mut connection: &mut Connection, name: &str, global
     
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
-        Err(e) => {return Err(ServerError::Io(e));},
+        Err(e) => {return Err(ServerError::Io(e.kind()));},
     };
     connection.stream.flush()?;
 
@@ -116,7 +116,7 @@ pub fn handle_update_request(mut connection: &mut Connection, name: &str, global
 pub fn handle_query_request(mut connection: &mut Connection, name: &str, query: &str, global_tables: Arc<Mutex<HashMap<KeyString, ColumnTable>>>) -> Result<String, ServerError> {
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
-        Err(e) => {return Err(ServerError::Io(e));},
+        Err(e) => {return Err(ServerError::Io(e.kind()));},
     };
     connection.stream.flush()?;
 
@@ -166,7 +166,7 @@ pub fn handle_kv_upload(mut connection: &mut Connection, name: &str, global_kv_t
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote OK as {n} bytes"),
-        Err(e) => {return Err(ServerError::Io(e));},
+        Err(e) => {return Err(ServerError::Io(e.kind()));},
     };
     connection.stream.flush()?;
 
@@ -180,7 +180,7 @@ pub fn handle_kv_upload(mut connection: &mut Connection, name: &str, global_kv_t
         Ok(_) => {
             println!("Confirmed correctness with client");
         },
-        Err(e) => {return Err(ServerError::Io(e));},
+        Err(e) => {return Err(ServerError::Io(e.kind()));},
     };
 
     println!("Appending to global");
@@ -200,7 +200,7 @@ pub fn handle_kv_update(mut connection: &mut Connection, name: &str, global_kv_t
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote OK as {n} bytes"),
-        Err(e) => {return Err(ServerError::Io(e));},
+        Err(e) => {return Err(ServerError::Io(e.kind()));},
     };
     connection.stream.flush()?;
 
@@ -213,7 +213,7 @@ pub fn handle_kv_update(mut connection: &mut Connection, name: &str, global_kv_t
         Ok(_) => {
             println!("Confirmed correctness with client");
         },
-        Err(e) => {return Err(ServerError::Io(e));},
+        Err(e) => {return Err(ServerError::Io(e.kind()));},
     };
 
     println!("Appending to global");
@@ -230,7 +230,7 @@ pub fn handle_kv_download(mut connection: &mut Connection, name: &str, global_kv
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
-        Err(e) => {return Err(ServerError::Io(e));},
+        Err(e) => {return Err(ServerError::Io(e.kind()));},
     };
     connection.stream.flush()?;
 
@@ -259,7 +259,7 @@ pub fn handle_meta_list_tables(mut connection: &mut Connection, global_tables: A
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
-        Err(e) => {return Err(ServerError::Io(e));},
+        Err(e) => {return Err(ServerError::Io(e.kind()));},
     };
     connection.stream.flush()?;
 
@@ -304,7 +304,7 @@ pub fn handle_meta_list_key_values(mut connection: &mut Connection, global_kv_ta
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
-        Err(e) => {return Err(ServerError::Io(e));},
+        Err(e) => {return Err(ServerError::Io(e.kind()));},
     };
     connection.stream.flush()?;
 
