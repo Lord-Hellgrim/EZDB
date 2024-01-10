@@ -227,7 +227,7 @@ pub fn run_server(mut server: Server) -> Result<(), ServerError> {
             {
                 let data = data_saving_global_data.lock().unwrap();
                 for (name, table) in data.iter() {
-                    match table.save_to_disk_raw(CONFIG_FOLDER) {
+                    match table.save_to_disk_csv(CONFIG_FOLDER) {
                         Ok(_) => (),
                         Err(e) => println!("Unable to save table {} because: {}", name, e),
                     };
