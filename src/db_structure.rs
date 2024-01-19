@@ -23,6 +23,7 @@ pub enum StrictError {
     TooManyPrimaryKeys,
     WrongKey,
     NonUniquePrimaryKey(usize),
+    BinaryRead(String),
 }
 
 impl fmt::Display for StrictError {
@@ -42,6 +43,7 @@ impl fmt::Display for StrictError {
             StrictError::TooManyPrimaryKeys => write!(f, "There can only be one primary key column"),
             StrictError::WrongKey => write!(f, "The type of the primary key is wrong"),
             StrictError::NonUniquePrimaryKey(i) => write!(f, "The primary key at position {i} in the sorted table is repeated"),
+            StrictError::BinaryRead(s) => write!(f, "{}", s),
         }
     }
 }
@@ -961,83 +963,74 @@ impl ColumnTable {
 
     #[cfg(target_feature="sse")]
     pub fn write_to_raw_binary(&self) -> Vec<u8> {
+        use std::mem::size_of;
 
-        let mut output: Vec<u8> = Vec::new();
-        let mut header = Vec::new();
 
+        let mut total_bytes = 0;
+        for item in &self.header {
+            total_bytes += item.name.as_bytes().len() + 6;
+        }
+        
+        let length = self.len();
+        println!("length: {}", length);
+        for item in &self.table {
+            match item {
+                DbVec::Texts(col) => {
+                    for thing in col {
+                        total_bytes += thing.as_bytes().len() + 1;
+                    }
+                },
+                _ => {
+                    total_bytes += length * 4 + 1;
+                }
+            };
+        }
+
+        let mut output: Vec<u8> = Vec::with_capacity(total_bytes);
+
+        let mut i = 0;
         for item in &self.header {
             let kind = match item.kind {
                 DbType::Int => b'i',
                 DbType::Float => b'f',
                 DbType::Text => b't',
             };
-            header.push(kind);
+            output.push(kind);
             let name = item.name.as_bytes();
-            header.extend_from_slice(name);
+            output.extend_from_slice(name);
             match item.primary_key {
-                true => header.push(0),
-                false => header.push(1),
+                true => output.push(1),
+                false => output.push(0),
             }
-            header.push(b';');
-        }
+            output.push(b';');
 
-        let mut body: Vec<u8> = Vec::new();
+            i += 1;
+        }
+        output.pop();
+        output.push(b'\n');
+        output.extend_from_slice(&(self.len() as u32).to_le_bytes());
+        output.push(b'\n');
 
         let mut i = 0;
-        for v in &self.table {
-            match &v {
+        for column in &self.table {
+            match &column {
                 DbVec::Floats(col) => {
-                    
-                    header.push(b'f');
-                    header.extend_from_slice(&(col.len() as u32).to_le_bytes());
-                    let name = self.header[i].name.as_bytes();
-                    header.extend_from_slice(name);
-                    match self.header[i].primary_key {
-                        true => header.push(0),
-                        false => header.push(1),
-                    }
-                    header.push(b';');
-
                     for item in col {
-                        body.extend_from_slice(&item.to_le_bytes());
-                    }    
+                        output.extend_from_slice(&item.to_le_bytes());
+                    }
                 },
-                DbVec::Ints(col) => {
-                    
-                    header.push(b'f');
-                    header.extend_from_slice(&(col.len() as u32).to_le_bytes());
-                    let name = self.header[i].name.as_bytes();
-                    header.extend_from_slice(name);
-                    match self.header[i].primary_key {
-                        true => header.push(0),
-                        false => header.push(1),
-                    }
-                    header.push(b';');
-
+                &DbVec::Ints(col) => {
                     for item in col {
-                        body.extend_from_slice(&item.to_le_bytes());
-                    }  
+                        output.extend_from_slice(&item.to_le_bytes());
+                    }
                 },
-                &DbVec::Texts(col) => {
-
-                    header.push(b'f');
-                    header.extend_from_slice(&(col.len() as u32).to_le_bytes());
-                    let name = self.header[i].name.as_bytes();
-                    header.extend_from_slice(name);
-                    match self.header[i].primary_key {
-                        true => header.push(0),
-                        false => header.push(1),
-                    }
-                    header.push(b';');
-                    
+                DbVec::Texts(col) => {
                     for item in col {
-                        body.extend_from_slice(&item.as_bytes());
-                        body.push(b';');
+                        output.extend_from_slice(&item.as_bytes());
+                        output.push(b';');
                     }
-                    body.pop();
                 },
             };
-            i += 1;
         }
 
         output
@@ -1045,11 +1038,120 @@ impl ColumnTable {
 
     pub fn read_raw_binary(binary: &[u8]) -> Result<ColumnTable, StrictError> {
 
+        let mut bin = binary.split(|n| n == &b'\n');
+        let bin_header = bin.next().unwrap();
+        let bin_length = bin.next().unwrap();
+        let bin_body: Vec<u8> = bin.flatten().map(|n| *n).collect();
 
-        Err(StrictError::Empty)
+        let mut l = [0u8;4];
+        let mut i = 0;
+        for item in bin_length {
+            l[i] = *item;
+            i += 1;
+        }
+        let bin_length = u32::from_le_bytes(l) as usize;
+
+        let mut header = Vec::new();
+
+        for item in bin_header.split(|n| n == &b';') {
+            let first = item.first().unwrap();
+            println!("first: {}", first);
+            let kind = match first {
+                b'i' => DbType::Int,
+                b'f' => DbType::Float,
+                b't' => DbType::Text,
+                x => unreachable!("the first byte of a header item should never be {:x?}", x),
+            };
+            let primary_key = match item.last().unwrap() {
+                0 => false,
+                1 => true,
+                x => unreachable!("The last byte of a header item should never be {:x?}", x),
+            };
+            let name = match std::str::from_utf8(&item[1..item.len()-1]) {
+                Ok(n) => n,
+                Err(e) => return Err(StrictError::BinaryRead("Utf8 error while parsing header item name".to_owned())),
+            };
+            let header_item = HeaderItem{
+                kind: kind,
+                name: KeyString::from(name),
+                primary_key: primary_key,
+            };
+
+            header.push(header_item);
+        }
+
+        dbg!(&header);
+
+        let mut table: Vec<DbVec> = Vec::with_capacity(header.len());
+
+        let mut total = 0;
+        let mut index = 0;
+        while index < header.len() {
+            match header[index].kind {
+                DbType::Int => {
+                    let blob = &bin_body[total..total+(bin_length*4)];
+                    let v: Vec<i32> = blob.chunks(4).map(|n| i32_from_le_slice(n)).collect();
+                    total += bin_length*4;
+                    index += 1;
+                    table.push(DbVec::Ints(v));
+                },
+                DbType::Float => {
+                    let blob = &bin_body[total..total+(bin_length*4)];
+                    let v: Vec<f32> = blob.chunks(4).map(|n| f32_from_le_slice(n)).collect();
+                    total += bin_length*4;
+                    index += 1;
+                    table.push(DbVec::Floats(v));
+
+                },
+                DbType::Text => {
+                    let mut pos = 0;
+                    let mut v = Vec::with_capacity(bin_length);
+                    let mut strbuf = Vec::new();
+                    while pos < bin_length {
+                        if bin_body[total] == b';' {
+                            match String::from_utf8(strbuf.clone()) {
+                                Ok(s) => v.push(KeyString::from(s)),
+                                Err(e) => return Err(StrictError::BinaryRead("Invalid utf-8 in text column".to_owned())),
+                            };
+                            strbuf.clear();
+                            pos += 1;
+                            total += 1;
+                            continue
+                        }
+                        
+                        strbuf.push(bin_body[total]);
+
+                        total += 1;    
+                    }
+                    table.push(DbVec::Texts(v));
+                    index += 1;
+                },
+            }
+        }
+
+        Ok(ColumnTable {
+            metadata: Metadata::new("test"),
+            name: KeyString::from("test"),
+            header: header,
+            table: table,
+        })
+        
     }
 
     
+}
+
+#[inline]
+fn i32_from_le_slice(slice: &[u8]) -> i32 {
+    
+    let mut l: [u8;4] = [slice[0], slice[1], slice[2], slice[3]];
+    i32::from_le_bytes(l)
+}
+
+#[inline]
+fn f32_from_le_slice(slice: &[u8]) -> f32 {   
+    let mut l: [u8;4] = [slice[0], slice[1], slice[2], slice[3]];
+    f32::from_le_bytes(l)
 }
 
 #[inline]
@@ -1310,6 +1412,18 @@ mod tests {
         let x = t.query_range(("113035", "113060")).unwrap();
 
         assert_eq!(x, "113035;undirlegg;200\n113050;annad undirlegg;500")
+    }
+
+    #[test]
+    fn test_raw_binary() {
+        // let input = "vnr,i-p;heiti,t;magn,i\n113035;undirlegg;200\n113050;annad undirlegg;500";
+        let input = std::fs::read_to_string("test_csv_from_google_sheets_combined_sorted.csv").unwrap();
+        let t = ColumnTable::from_csv_string(&input, "test", "test").unwrap();
+        let bint_t = t.write_to_raw_binary();
+        let translated_t = ColumnTable::read_raw_binary(&bint_t).unwrap();
+        let string_t = t.to_string();
+        let string_transl_t = translated_t.to_string();
+        assert_eq!(string_t, string_transl_t);
     }
 
 
