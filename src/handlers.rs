@@ -10,7 +10,7 @@ pub type KeyString = SmartString<LazyCompact>;
 
 
 
-pub fn handle_download_request(mut connection: &mut Connection, name: &str, global_tables: Arc<Mutex<HashMap<KeyString, ColumnTable>>>) -> Result<(), ServerError> {
+pub fn handle_download_request(connection: &mut Connection, name: &str, global_tables: Arc<Mutex<HashMap<KeyString, ColumnTable>>>) -> Result<(), ServerError> {
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e.kind()));},
@@ -37,7 +37,7 @@ pub fn handle_download_request(mut connection: &mut Connection, name: &str, glob
 }
 
 
-pub fn handle_upload_request(mut connection: &mut Connection, name: &str, global_tables: Arc<Mutex<HashMap<KeyString, ColumnTable>>>) -> Result<String, ServerError> {
+pub fn handle_upload_request(connection: &mut Connection, name: &str, global_tables: Arc<Mutex<HashMap<KeyString, ColumnTable>>>) -> Result<String, ServerError> {
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote OK as {n} bytes"),
@@ -84,7 +84,7 @@ pub fn handle_upload_request(mut connection: &mut Connection, name: &str, global
 }
     
     
-pub fn handle_update_request(mut connection: &mut Connection, name: &str, global_tables: Arc<Mutex<HashMap<KeyString, ColumnTable>>>) -> Result<String, ServerError> {
+pub fn handle_update_request(connection: &mut Connection, name: &str, global_tables: Arc<Mutex<HashMap<KeyString, ColumnTable>>>) -> Result<String, ServerError> {
     
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
@@ -113,7 +113,7 @@ pub fn handle_update_request(mut connection: &mut Connection, name: &str, global
 }
 
 
-pub fn handle_query_request(mut connection: &mut Connection, name: &str, query: &str, global_tables: Arc<Mutex<HashMap<KeyString, ColumnTable>>>) -> Result<String, ServerError> {
+pub fn handle_query_request(connection: &mut Connection, name: &str, query: &str, global_tables: Arc<Mutex<HashMap<KeyString, ColumnTable>>>) -> Result<String, ServerError> {
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e.kind()));},
@@ -162,7 +162,7 @@ pub fn handle_new_user_request(user_string: &str, users: Arc<Mutex<HashMap<KeySt
 
 }
 
-pub fn handle_kv_upload(mut connection: &mut Connection, name: &str, global_kv_table: Arc<Mutex<HashMap<KeyString, Value>>>) -> Result<(), ServerError> {
+pub fn handle_kv_upload(connection: &mut Connection, name: &str, global_kv_table: Arc<Mutex<HashMap<KeyString, Value>>>) -> Result<(), ServerError> {
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote OK as {n} bytes"),
@@ -196,7 +196,7 @@ pub fn handle_kv_upload(mut connection: &mut Connection, name: &str, global_kv_t
 
 }
 
-pub fn handle_kv_update(mut connection: &mut Connection, name: &str, global_kv_table: Arc<Mutex<HashMap<KeyString, Value>>>) -> Result<(), ServerError> {
+pub fn handle_kv_update(connection: &mut Connection, name: &str, global_kv_table: Arc<Mutex<HashMap<KeyString, Value>>>) -> Result<(), ServerError> {
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote OK as {n} bytes"),
@@ -226,7 +226,7 @@ pub fn handle_kv_update(mut connection: &mut Connection, name: &str, global_kv_t
     Ok(())
 }
 
-pub fn handle_kv_download(mut connection: &mut Connection, name: &str, global_kv_table: Arc<Mutex<HashMap<KeyString, Value>>>) -> Result<(), ServerError> {
+pub fn handle_kv_download(connection: &mut Connection, name: &str, global_kv_table: Arc<Mutex<HashMap<KeyString, Value>>>) -> Result<(), ServerError> {
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
@@ -255,7 +255,7 @@ pub fn handle_kv_download(mut connection: &mut Connection, name: &str, global_kv
 
 }
 
-pub fn handle_meta_list_tables(mut connection: &mut Connection, global_tables: Arc<Mutex<HashMap<KeyString, ColumnTable>>>) -> Result<(), ServerError> {
+pub fn handle_meta_list_tables(connection: &mut Connection, global_tables: Arc<Mutex<HashMap<KeyString, ColumnTable>>>) -> Result<(), ServerError> {
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
@@ -300,7 +300,7 @@ pub fn handle_meta_list_tables(mut connection: &mut Connection, global_tables: A
 
 }
 
-pub fn handle_meta_list_key_values(mut connection: &mut Connection, global_kv_table: Arc<Mutex<HashMap<KeyString, Value>>>) -> Result<(), ServerError> {
+pub fn handle_meta_list_key_values(connection: &mut Connection, global_kv_table: Arc<Mutex<HashMap<KeyString, Value>>>) -> Result<(), ServerError> {
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),

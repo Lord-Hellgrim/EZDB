@@ -123,7 +123,7 @@ impl fmt::Display for InstructionError {
             InstructionError::Invalid(instruction) => write!(f, "The instruction:\n\n\t{instruction}\n\nis invalid. See documentation for valid buffer\n\n"),
             InstructionError::TooLong => write!(f, "Your instruction is too long. Maximum instruction length is: {INSTRUCTION_BUFFER}\n\n"),
             InstructionError::Utf8(e) => write!(f, "Invalid utf-8: {e}"),
-            InstructionError::InvalidTable(s) => write!(f, "NT"),
+            InstructionError::InvalidTable(_) => write!(f, "NT"),
         }
     }
 }
@@ -372,7 +372,7 @@ pub fn parse_response(response: &str, username: &str, password: &[u8], table_nam
     } else if response == "IP" {
         return Err(ServerError::ParseResponse(format!("Password is invalid")));
     } else if response == ("NT") {
-        return Err((ServerError::ParseResponse(format!("No such table as {}", table_name))));
+        return Err(ServerError::ParseResponse(format!("No such table as {}", table_name)));
     } else {
         panic!("Need to handle error: {}", response);
     }

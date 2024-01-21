@@ -1,6 +1,5 @@
-use std::{fmt::{self, Display, Debug}, io::Write, collections::BTreeMap, env::join_paths};
+use std::{fmt::{self, Display, Debug}, io::Write};
 
-use ron::value::Float;
 use smartstring::{SmartString, LazyCompact};
 
 use crate::networking_utilities::get_current_time;
@@ -335,7 +334,7 @@ impl ColumnTable {
                     i += 1;
                 }
             },
-            DbVec::Floats(col) => unreachable!("Should never have a float primary key"),
+            DbVec::Floats(_) => unreachable!("Should never have a float primary key"),
         }
 
         let mut output = ColumnTable { 
@@ -402,7 +401,7 @@ impl ColumnTable {
                     _ => unreachable!("Should always have the same primary key column")
                 }
             },
-            DbVec::Floats(col) => unreachable!("Should never have a float primary key column"),
+            DbVec::Floats(_) => unreachable!("Should never have a float primary key column"),
         }
         for i in 0..minlen {
 
@@ -470,7 +469,7 @@ impl ColumnTable {
             DbVec::Texts(col) => {
                 indexer.sort_unstable_by_key(|&i|&col[i] );
             },
-            DbVec::Floats(col) => {
+            DbVec::Floats(_) => {
                 unreachable!("There should never be a float primary key");
             },
         }
@@ -498,7 +497,7 @@ impl ColumnTable {
         let mut indexes = Vec::new();
         for item in key_list {
             match &self.table[primary_index] {
-                DbVec::Floats(col) => return Err(StrictError::FloatPrimaryKey),
+                DbVec::Floats(_) => return Err(StrictError::FloatPrimaryKey),
                 DbVec::Ints(col) => {
                     let key: i32;
                     match item.parse::<i32>() {
@@ -556,7 +555,7 @@ impl ColumnTable {
 
         let mut indexes: [usize;2] = [0,0];
         match &self.table[primary_index] {
-            DbVec::Floats(col) => return Err(StrictError::FloatPrimaryKey),
+            DbVec::Floats(_) => return Err(StrictError::FloatPrimaryKey),
             DbVec::Ints(col) => {
                 let key = match range.0.parse::<i32>() {
                     Ok(num) => num,
@@ -658,8 +657,6 @@ impl ColumnTable {
 
     #[cfg(target_feature="sse")]
     pub fn write_to_raw_binary(&self) -> Vec<u8> {
-        use std::mem::size_of;
-
 
         let mut total_bytes = 0;
         for item in &self.header {
@@ -683,7 +680,6 @@ impl ColumnTable {
 
         let mut output: Vec<u8> = Vec::with_capacity(total_bytes);
 
-        let mut i = 0;
         for item in &self.header {
             let kind = match item.kind {
                 DbType::Int => b'i',
@@ -699,13 +695,11 @@ impl ColumnTable {
             }
             output.push(b';');
 
-            i += 1;
         }
         output.pop();
         output.push(b'\n');
         output.extend_from_slice(&(self.len() as u32).to_le_bytes());
 
-        let mut i = 0;
         for column in &self.table {
             match &column {
                 DbVec::Floats(col) => {
@@ -761,7 +755,7 @@ impl ColumnTable {
             };
             let name = match std::str::from_utf8(&item[1..item.len()-1]) {
                 Ok(n) => n,
-                Err(e) => return Err(StrictError::BinaryRead("Utf8 error while parsing header item name".to_owned())),
+                Err(e) => return Err(StrictError::BinaryRead(format!("Utf8 error while parsing header item name.\nError body: {}", e))),
             };
             let header_item = HeaderItem{
                 kind: kind,
@@ -808,7 +802,7 @@ impl ColumnTable {
                         if bin_body[total] == b';' {
                             match String::from_utf8(strbuf.clone()) {
                                 Ok(s) => v.push(KeyString::from(s)),
-                                Err(e) => return Err(StrictError::BinaryRead("Invalid utf-8 in text column".to_owned())),
+                                Err(e) => return Err(StrictError::BinaryRead(format!("Invalid utf-8 in text column.\nError body: {}", e))),
                             };
                             strbuf.clear();
                             pos += 1;
@@ -840,19 +834,19 @@ impl ColumnTable {
 
 #[inline]
 fn i32_from_le_slice(slice: &[u8]) -> i32 {
-    let mut l: [u8;4] = [slice[0], slice[1], slice[2], slice[3]];
+    let l: [u8;4] = [slice[0], slice[1], slice[2], slice[3]];
     i32::from_le_bytes(l)
 }
 
 #[inline]
 fn u32_from_le_slice(slice: &[u8]) -> u32 {
-    let mut l: [u8;4] = [slice[0], slice[1], slice[2], slice[3]];
+    let l: [u8;4] = [slice[0], slice[1], slice[2], slice[3]];
     u32::from_le_bytes(l)
 }
 
 #[inline]
 fn f32_from_le_slice(slice: &[u8]) -> f32 {   
-    let mut l: [u8;4] = [slice[0], slice[1], slice[2], slice[3]];
+    let l: [u8;4] = [slice[0], slice[1], slice[2], slice[3]];
     f32::from_le_bytes(l)
 }
 
