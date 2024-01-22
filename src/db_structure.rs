@@ -664,7 +664,7 @@ impl ColumnTable {
         }
         
         let length = self.len();
-        println!("length: {}", length);
+        // println!("length: {}", length);
         for item in &self.table {
             match item {
                 DbVec::Texts(col) => {
@@ -709,7 +709,7 @@ impl ColumnTable {
                 },
                 &DbVec::Ints(col) => {
                     for item in col {
-                        println!("item: {}", item);
+                        // println!("item: {}", item);
                         output.extend_from_slice(&item.to_le_bytes());
                     }
                 },
@@ -729,19 +729,18 @@ impl ColumnTable {
 
         let mut binter = binary.iter();
         let first_newline = binter.position(|n| *n == b'\n').unwrap();
-
         let bin_header = &binary[0..first_newline];
         let bin_length = &binary[first_newline + 1..first_newline + 5];
         let bin_body = &binary[first_newline + 5..];
 
         let bin_length = u32_from_le_slice(bin_length) as usize;
-        println!("bin_length: {}", bin_length);
+        // println!("bin_length: {}", bin_length);
 
         let mut header = Vec::new();
 
         for item in bin_header.split(|n| n == &b';') {
             let first = item.first().unwrap();
-            println!("first: {}", first);
+            // println!("first: {}", first);
             let kind = match first {
                 b'i' => DbType::Int,
                 b'f' => DbType::Float,
@@ -766,22 +765,22 @@ impl ColumnTable {
             header.push(header_item);
         }
 
-        dbg!(&header);
+        // dbg!(&header);
 
         let mut table: Vec<DbVec> = Vec::with_capacity(header.len());
 
         let mut total = 0;
         let mut index = 0;
         while index < header.len() {
-            println!("total: {}", total);
+            // println!("total: {}", total);
             match header[index].kind {
                 DbType::Int => {
                     let blob = &bin_body[total..total+(bin_length*4)];
                     // println!("blob: {:x?}", blob);
                     let v = blob.chunks(4).map(|n| i32_from_le_slice(n)).collect();
-                    for x in &v {
-                        println!("x: {}", x);
-                    }
+                    // for x in &v {
+                        // println!("x: {}", x);
+                    // }
                     total += bin_length*4;
                     index += 1;
                     table.push(DbVec::Ints(v));
@@ -862,7 +861,7 @@ fn rearrange_by_index<T: Clone>(col: &mut Vec<T>, indexer: &[usize]) {
 } 
 
 fn merge_sorted<T: Ord + Clone + Display + Debug>(one: &[T], two: &[T]) -> (Vec<T>, Vec<u8>) {
-    let mut new_vec: Vec<T> = Vec::with_capacity(one.len() + two.len());
+    let mut output: Vec<T> = Vec::with_capacity(one.len() + two.len());
     let mut record_vec: Vec<u8> = Vec::with_capacity(one.len() + two.len());
     let mut one_pointer = 0;
     let mut two_pointer = 0;
@@ -873,18 +872,18 @@ fn merge_sorted<T: Ord + Clone + Display + Debug>(one: &[T], two: &[T]) -> (Vec<
 
         match one[one_pointer].cmp(&two[two_pointer]) {
             std::cmp::Ordering::Less => {
-                new_vec.push(one[one_pointer].clone());
+                output.push(one[one_pointer].clone());
                 record_vec.push(1);
                 one_pointer += 1;
             },
             std::cmp::Ordering::Equal => {
-                new_vec.push(two[two_pointer].clone());
+                output.push(two[two_pointer].clone());
                 record_vec.push(3);
                 two_pointer += 1;
                 one_pointer += 1;
             },
             std::cmp::Ordering::Greater => {
-                new_vec.push(two[two_pointer].clone());
+                output.push(two[two_pointer].clone());
                 record_vec.push(2);
                 two_pointer += 1;
             }
@@ -906,14 +905,14 @@ fn merge_sorted<T: Ord + Clone + Display + Debug>(one: &[T], two: &[T]) -> (Vec<
         //     unreachable!();
         // }
         if one_pointer >= one.len() {
-            new_vec.extend_from_slice(&two[two_pointer..two.len()]);
+            output.extend_from_slice(&two[two_pointer..two.len()]);
             while two_pointer < two.len() {
                 record_vec.push(2);
                 two_pointer += 1;
             }
             break;
         } else if two_pointer >= two.len() {
-            new_vec.extend_from_slice(&one[one_pointer..one.len()]);
+            output.extend_from_slice(&one[one_pointer..one.len()]);
             while one_pointer < one.len() {
                 record_vec.push(1);
                 one_pointer += 1;
@@ -927,11 +926,11 @@ fn merge_sorted<T: Ord + Clone + Display + Debug>(one: &[T], two: &[T]) -> (Vec<
     // println!("merge_sorted() FINISHED !!!!!!######################################");
     // println!("\n\n");
 
-    (new_vec, record_vec)
+    (output, record_vec)
 }
 
 fn merge_in_order<T: Clone + Display>(one: &[T], two: &[T], record_vec: &[u8]) -> Vec<T> {
-    let mut new_vec = Vec::with_capacity(one.len() + two.len());
+    let mut output = Vec::with_capacity(one.len() + two.len());
     let mut one_pointer = 0;
     let mut two_pointer = 0;
     // // println!("record_vec.len(): {}", record_vec.len());
@@ -942,15 +941,15 @@ fn merge_in_order<T: Clone + Display>(one: &[T], two: &[T], record_vec: &[u8]) -
         // //println!("one_p: {}\tone[one_p]: {}\ntwo_p: {}\ttwo[two_p]: {}", one_pointer, one[one_pointer], two_pointer, two[two_pointer]);
         match index {
             1 => {
-                new_vec.push(one[one_pointer].clone());
+                output.push(one[one_pointer].clone());
                 one_pointer += 1;
             },
             2 => {
-                new_vec.push(two[two_pointer].clone());
+                output.push(two[two_pointer].clone());
                 two_pointer += 1;
             },
             3 => {
-                new_vec.push(two[two_pointer].clone());
+                output.push(two[two_pointer].clone());
                 one_pointer += 1;
                 two_pointer += 1;
             }
@@ -958,7 +957,7 @@ fn merge_in_order<T: Clone + Display>(one: &[T], two: &[T], record_vec: &[u8]) -
         }
     }
 
-    new_vec
+    output
 }
 
 
@@ -1013,6 +1012,7 @@ impl Value {
 
 #[cfg(test)]
 mod tests {
+    #![allow(unused)]
 
     use rand::Rng;
 
@@ -1116,8 +1116,11 @@ mod tests {
         let input = std::fs::read_to_string("test_csv_from_google_sheets_combined_sorted.csv").unwrap();
         let t = ColumnTable::from_csv_string(&input, "test", "test").unwrap();
         let bint_t = t.write_to_raw_binary();
-        let translated_t = ColumnTable::read_raw_binary(&bint_t).unwrap();
         let string_t = t.to_string();
+        println!("bin_t lent: {}", bint_t.len());
+        println!("string_t lent: {}", string_t.len());
+        let translated_t = ColumnTable::read_raw_binary(&bint_t).unwrap();
+        
         let string_transl_t = translated_t.to_string();
         assert_eq!(string_t, string_transl_t);
     }

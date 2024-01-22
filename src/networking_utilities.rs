@@ -363,7 +363,7 @@ pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut C
 }
 
 
-pub fn parse_response(response: &str, username: &str, password: &[u8], table_name: &str) -> Result<(), ServerError> {
+pub fn parse_response(response: &str, username: &str, table_name: &str) -> Result<(), ServerError> {
 
     if response == "OK" {
         return Ok(())

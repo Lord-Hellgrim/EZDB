@@ -28,6 +28,7 @@ pub fn decrypt_aes256(s: &[u8], key: &[u8], nonce: &[u8] ) -> Result<Vec<u8>, Se
 }
 
 mod tests {
+    #![allow(unused)]
 
     use super::*;
 

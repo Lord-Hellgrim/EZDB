@@ -5,6 +5,24 @@ use crate::auth::AuthenticationError;
 use crate::networking_utilities::*;
 
 
+//birgi,   vnr
+//Ísól; (0113035, 5060789, 0113000)
+
+//0113035: (Ísól, Parki, Byko)
+//0113000: (Ísól)
+
+//Ísól 0113035
+//Ísól 5060789
+
+// TODO
+// delete query
+// WHERE
+// bounds on queries
+// skila sorteruðum niðurstöðum
+// relational mapping (BCNF)
+
+
+
 pub fn download_table(address: &str, username: &str, password: &str, table_name: &str) -> Result<String, ServerError> {
 
     let mut connection = Connection::connect(address, username, password)?;
@@ -14,7 +32,7 @@ pub fn download_table(address: &str, username: &str, password: &str, table_name:
     println!("response: {}", response);
     
     let csv: Vec<u8>;
-    match parse_response(&response, &connection.user, password.as_bytes(), table_name) {
+    match parse_response(&response, &connection.user, table_name) {
         Ok(_) => (csv, _) = receive_data(&mut connection)?,
         Err(e) => return Err(e),
     }
@@ -37,7 +55,7 @@ pub fn upload_table(address: &str, username: &str, password: &str, table_name: &
     let response = instruction_send_and_confirm(Instruction::Upload(table_name.to_owned()), &mut connection)?;
 
     println!("upload_table - parsing response");
-    let confirmation: String = match parse_response(&response, &connection.user, password.as_bytes(), table_name) {
+    let confirmation: String = match parse_response(&response, &connection.user, table_name) {
         Ok(_) => data_send_and_confirm(&mut connection, csv.as_bytes())?,
         Err(e) => return Err(e),
     };
@@ -60,7 +78,7 @@ pub fn update_table(address: &str, username: &str, password: &str, table_name: &
 
     let response = instruction_send_and_confirm(Instruction::Update(table_name.to_owned()), &mut connection)?;
 
-    let confirmation: String = match parse_response(&response, &connection.user, password.as_bytes(), table_name) {
+    let confirmation: String = match parse_response(&response, &connection.user, table_name) {
         Ok(_) => data_send_and_confirm(&mut connection, csv.as_bytes())?,
         Err(e) => return Err(e),
     };
@@ -113,7 +131,7 @@ pub fn kv_upload(address: &str, username: &str, password: &str, key: &str, value
     let response = instruction_send_and_confirm(Instruction::KvUpload(key.to_owned()), &mut connection)?;
 
     println!("upload_value - parsing response");
-    let confirmation: String = match parse_response(&response, &connection.user, password.as_bytes(), key) {
+    let confirmation: String = match parse_response(&response, &connection.user, key) {
         Ok(_) => data_send_and_confirm(&mut connection, value)?,
         Err(e) => return Err(e),
     };
@@ -137,7 +155,7 @@ pub fn kv_download(address: &str, username: &str, password: &str, key: &str) -> 
 
     let value: Vec<u8>;
     
-    match parse_response(&response, &connection.user, password.as_bytes(), key) {
+    match parse_response(&response, &connection.user, key) {
         Ok(_) => (value, _) = receive_data(&mut connection)?,
         Err(e) => return Err(e),
     }
@@ -159,7 +177,7 @@ pub fn kv_update(address: &str, username: &str, password: &str, key: &str, value
     let confirmation: String;
 
     println!("upload_value - parsing response");
-    match parse_response(&response, &connection.user, password.as_bytes(), key) {
+    match parse_response(&response, &connection.user, key) {
         Ok(_) => confirmation = data_send_and_confirm(&mut connection, value)?,
         Err(e) => return Err(e),
     }
@@ -182,7 +200,7 @@ pub fn meta_list_tables(address: &str, username: &str, password: &str) -> Result
 
     let value: Vec<u8>;
     
-    match parse_response(&response, &connection.user, password.as_bytes(), "") {
+    match parse_response(&response, &connection.user, "") {
         Ok(_) => (value, _) = receive_data(&mut connection)?,
         Err(e) => return Err(e),
     }
@@ -205,7 +223,7 @@ pub fn meta_list_key_values(address: &str, username: &str, password: &str) -> Re
 
     let value: Vec<u8>;
     
-    match parse_response(&response, &connection.user, password.as_bytes(), "") {
+    match parse_response(&response, &connection.user, "") {
         Ok(_) => (value, _) = receive_data(&mut connection)?,
         Err(e) => return Err(e),
     }
@@ -226,7 +244,7 @@ pub fn meta_list_key_values(address: &str, username: &str, password: &str) -> Re
 
 #[cfg(test)]
 mod tests {
-    #[allow(unused)]
+    #![allow(unused)]
     use std::{path::Path, fs::remove_file};
 
     use crate::db_structure::ColumnTable;
