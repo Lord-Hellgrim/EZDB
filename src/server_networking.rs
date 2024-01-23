@@ -93,11 +93,38 @@ pub fn parse_instruction(instructions: &[u8], users: Arc<Mutex<HashMap<KeyString
         },
         "Updating" => {
             if !global_tables.lock().unwrap().contains_key(table_name) {
-                return Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())));
+                let raw_table_exists = std::path::Path::new(&format!("{}/raw_tables/{}", CONFIG_FOLDER, table_name)).exists();
+                if raw_table_exists {
+                    println!("Loading table from disk");
+                    let mut temp = global_tables.lock().unwrap();
+                    let disk_table = std::fs::read_to_string(format!("{}/raw_tables/{}", CONFIG_FOLDER, table_name))?;
+                    let disk_table = ColumnTable::from_csv_string(&disk_table, table_name, "temp")?;
+                    temp.insert(KeyString::from(table_name), disk_table);
+                    Ok(Instruction::Update(table_name.to_owned()))
+                } else {
+                    return Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())));
+                }
             } else {
                 Ok(Instruction::Update(table_name.to_owned()))
             }
         },
+        "Deleting" => {
+            if !global_tables.lock().unwrap().contains_key(table_name) {
+                let raw_table_exists = std::path::Path::new(&format!("{}/raw_tables/{}", CONFIG_FOLDER, table_name)).exists();
+                if raw_table_exists {
+                    println!("Loading table from disk");
+                    let mut temp = global_tables.lock().unwrap();
+                    let disk_table = std::fs::read_to_string(format!("{}/raw_tables/{}", CONFIG_FOLDER, table_name))?;
+                    let disk_table = ColumnTable::from_csv_string(&disk_table, table_name, "temp")?;
+                    temp.insert(KeyString::from(table_name), disk_table);
+                    Ok(Instruction::Download(table_name.to_owned()))
+                } else {
+                    return Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())));
+                }
+            } else {
+                Ok(Instruction::Delete(table_name.to_owned(), query.to_owned()))
+            }
+        }
         "KvUpload" => {
             if global_kv_table.lock().unwrap().contains_key(table_name) {
                 return Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' already exists. Use 'update' instead", table_name))));
@@ -416,6 +443,16 @@ pub fn run_server(mut server: Server) -> Result<(), ServerError> {
                     },
                     Instruction::Query(table_name, query) => {
                         match handle_query_request(&mut connection, &table_name, &query, thread_global_tables.clone()) {
+                            Ok(_) => {
+                                println!("Operation finished!");
+                            },
+                            Err(e) => {
+                                println!("Operation failed because: {}", e);
+                            },
+                        }
+                    },
+                    Instruction::Delete(table_name, query) => {
+                        match handle_delete_request(&mut connection, &table_name, &query, thread_global_tables.clone()) {
                             Ok(_) => {
                                 println!("Operation finished!");
                             },

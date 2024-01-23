@@ -151,6 +151,42 @@ pub fn handle_query_request(connection: &mut Connection, name: &str, query: &str
     }
 }
 
+pub fn handle_delete_request(connection: &mut Connection, name: &str, query: &str, global_tables: Arc<Mutex<HashMap<KeyString, ColumnTable>>>) -> Result<String, ServerError> {
+    match connection.stream.write("OK".as_bytes()) {
+        Ok(n) => println!("Wrote {n} bytes"),
+        Err(e) => {return Err(ServerError::Io(e.kind()));},
+    };
+    connection.stream.flush()?;
+
+
+    
+    let mutex_binding = global_tables.lock().unwrap();
+    let requested_table = mutex_binding.get(name).expect("Instruction parser should have verified table");
+    // PARSE INSTRUCTION
+    let query_type: &str;
+    match query.find("..") {
+        Some(_) => query_type = "range",
+        None => query_type = "list"
+    };
+    
+    let requested_csv: String;
+    if query_type == "range" {
+        let parsed_query: Vec<&str> = query.split("..").collect();
+        requested_csv = requested_table.query_range((parsed_query[0], parsed_query[1]))?;
+    } else {
+        let parsed_query = query.split(',').collect();
+        requested_csv = requested_table.query_list(parsed_query)?;
+    }
+
+    let response = data_send_and_confirm(connection, requested_csv.as_bytes())?;
+    
+    if response == "OK" {
+        return Ok("OK".to_owned())
+    } else {
+        return Err(ServerError::Confirmation(response))
+    }
+}
+
 
 pub fn handle_new_user_request(user_string: &str, users: Arc<Mutex<HashMap<KeyString, User>>>) -> Result<(), ServerError> {
 

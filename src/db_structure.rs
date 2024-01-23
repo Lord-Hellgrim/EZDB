@@ -349,7 +349,6 @@ impl ColumnTable {
         Ok(
             output
         )
-
     }
 
     pub fn update_from_csv(&mut self, input_csv: &str) -> Result<(), StrictError> {
@@ -437,11 +436,7 @@ impl ColumnTable {
                     }
                 },
             }
-
-
-
         }
-
         Ok(())
     }
 
@@ -521,7 +516,6 @@ impl ColumnTable {
                     } 
                     indexes.push(index);
                 }
-
             }
         }
 
@@ -626,6 +620,82 @@ impl ColumnTable {
         self.query_list(Vec::from([query]))
     }
 
+    pub fn delete_range(&self, range: (&str, &str)) -> Result<(), StrictError> {
+        let mut printer = String::new();
+
+        if range.1 < range.0 {
+            return Err(StrictError::Empty)
+        }
+
+        if range.0 == range.1 {
+            return self.delete(range.0);
+        }
+
+        let primary_index = self.get_primary_key_col_index();
+
+        let mut indexes: [usize;2] = [0,0];
+        match &self.table[primary_index] {
+            DbVec::Floats(_) => return Err(StrictError::FloatPrimaryKey),
+            DbVec::Ints(col) => {
+                let key = match range.0.parse::<i32>() {
+                    Ok(num) => num,
+                    Err(_) => return Err(StrictError::Empty),
+                };
+                let index: usize = col.partition_point(|n| n < &key);
+                indexes[0] = index;
+
+                if range.1 == "" {
+                    indexes[1] = col.len();
+                } else {
+                    let key2 = match range.1.parse::<i32>() {
+                        Ok(num) => num,
+                        Err(_) => return Err(StrictError::WrongKey),
+                    };
+                    // // println!("key2: {}", key2);
+                    let index: usize = col.partition_point(|n| n < &key2);
+                    if col[index] == key2 {
+                        indexes[1] = index;
+                    } else {
+                        indexes[1] = index - 1;
+                    }
+                }
+
+            },
+            DbVec::Texts(col) => {
+                let index: usize = col.partition_point(|n| n < &KeyString::from(range.0));
+                indexes[0] = index;
+
+                if range.1 == "" {
+                    indexes[1] = col.len();
+                }
+
+                let index: usize = col.partition_point(|n| n < &KeyString::from(range.1));
+
+                if col[index] == range.1 {
+                    indexes[1] = index;
+                } else {
+                    indexes[1] = index - 1;
+                }
+
+                indexes[1] = index;
+            }
+        }
+
+        let mut i = indexes[0];
+        while i <= indexes[1] {
+            for v in &self.table {
+                match v {
+                    DbVec::Floats(col) => printer.push_str(&col[i].to_string()),
+                    DbVec::Ints(col) => printer.push_str(&col[i].to_string()),
+                    DbVec::Texts(col) => printer.push_str(&col[i]),
+                }
+            }
+            i += 1;
+        }
+
+        Ok(())
+    }
+
     pub fn save_to_disk_csv(&self, path: &str) -> Result<(), StrictError> {
         let file_name = &self.name;
 
@@ -652,7 +722,6 @@ impl ColumnTable {
             Ok(_) => (),
             Err(e) => println!("Error while writing to disk. Error was:\n{}", e),
         };
-
 
         Ok(())
     }
@@ -723,7 +792,6 @@ impl ColumnTable {
                 },
             };
         }
-
         output
     }
 
@@ -826,11 +894,8 @@ impl ColumnTable {
             name: KeyString::from("test"),
             header: header,
             table: table,
-        })
-        
+        })   
     }
-
-    
 }
 
 #[inline]
@@ -853,13 +918,11 @@ fn f32_from_le_slice(slice: &[u8]) -> f32 {
 
 #[inline]
 fn rearrange_by_index<T: Clone>(col: &mut Vec<T>, indexer: &[usize]) {
-
     let mut temp = Vec::with_capacity(col.len());
     for i in 0..col.len() {
         temp.push(col[indexer[i]].clone());
     }
     *col = temp;
-
 } 
 
 fn merge_sorted<T: Ord + Clone + Display + Debug>(one: &[T], two: &[T]) -> (Vec<T>, Vec<u8>) {
@@ -958,12 +1021,8 @@ fn merge_in_order<T: Clone + Display>(one: &[T], two: &[T], record_vec: &[u8]) -
             _ => unreachable!("Should always be 1, 2, or 3"),
         }
     }
-
     output
 }
-
-
-
 
 
 #[derive(PartialEq, Clone, Debug)]
@@ -1007,7 +1066,6 @@ impl Value {
         };
 
         Ok(())
-
     }
 }
 
@@ -1026,7 +1084,6 @@ mod tests {
         let t = ColumnTable::from_csv_string(input, "test", "test").unwrap();
         // println!("t: {}", t.to_string());
         assert_eq!(input, t.to_string());
-
     }
 
     #[test]
@@ -1063,7 +1120,6 @@ mod tests {
         let c = ColumnTable::from_csv_string(&printer3, "c", "test").unwrap();
 
         assert_eq!(a.to_string(), c.to_string());
-
     }
 
 
@@ -1081,7 +1137,6 @@ mod tests {
         file.write_all(a.to_string().as_bytes());
 
         assert_eq!(a.to_string(), c.to_string());
-
     }
 
 
@@ -1126,6 +1181,4 @@ mod tests {
         let string_transl_t = translated_t.to_string();
         assert_eq!(string_t, string_transl_t);
     }
-
-
 }
