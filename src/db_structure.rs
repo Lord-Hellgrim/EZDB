@@ -681,19 +681,80 @@ impl ColumnTable {
             }
         }
 
-        let mut i = indexes[0];
-        while i <= indexes[1] {
-            for v in &self.table {
-                match v {
-                    DbVec::Floats(col) => printer.push_str(&col[i].to_string()),
-                    DbVec::Ints(col) => printer.push_str(&col[i].to_string()),
-                    DbVec::Texts(col) => printer.push_str(&col[i]),
-                }
-            }
-            i += 1;
+        for col in &self.table {
+            match col {
+                DbVec::Floats(mut v) => {
+                    v.drain(indexes[0]..indexes[1]);
+                },
+                DbVec::Ints(mut v) => {
+                    v.drain(indexes[0]..indexes[1]);
+                },
+                DbVec::Texts(mut v) => {
+                    v.drain(indexes[0]..indexes[1]);
+                },
+            };
         }
 
         Ok(())
+    }
+
+    pub fn delete_list(&self, mut key_list: Vec<&str>) -> Result<(), StrictError> {
+        let primary_index = self.get_primary_key_col_index();
+        key_list.sort();
+
+        let mut indexes = Vec::new();
+        for item in key_list {
+            match &self.table[primary_index] {
+                DbVec::Floats(_) => return Err(StrictError::FloatPrimaryKey),
+                DbVec::Ints(col) => {
+                    let key: i32;
+                    match item.parse::<i32>() {
+                        Ok(num) => key = num,
+                        Err(_) => continue,
+                    };
+                    let index: usize;
+                    match col.binary_search(&key) {
+                        Ok(num) => index = num,
+                        Err(_) => continue,
+                    } 
+                    indexes.push(index);
+                },
+                DbVec::Texts(col) => {
+                    let index: usize;
+                    match col.binary_search(&KeyString::from(item)) {
+                        Ok(num) => index = num,
+                        Err(_) => continue,
+                    } 
+                    indexes.push(index);
+                }
+            }
+        }
+
+        for col in &self.table {
+            match col {
+                DbVec::Floats(mut v) => {
+                    for index in indexes {
+                        v.remove(index);
+                    }
+                }
+                DbVec::Ints(mut v) => {
+                    for index in indexes {
+                        v.remove(index);
+                    }
+                }
+                DbVec::Texts(mut v) => {
+                    for index in indexes {
+                        v.remove(index);
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn delete(&self, query: &str) -> Result<(), StrictError> {
+        self.delete_list(Vec::from([query]))
     }
 
     pub fn save_to_disk_csv(&self, path: &str) -> Result<(), StrictError> {
