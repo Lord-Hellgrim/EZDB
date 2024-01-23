@@ -1,0 +1,4 @@
+vnr;heiti;magn
+18572054;flísalím;42
+0113035;undirlegg;200
+0113000;undirlegg2;100

@@ -4,6 +4,8 @@ use smartstring::{SmartString, LazyCompact};
 
 use crate::networking_utilities::get_current_time;
 
+use crate::PATH_SEP;
+
 pub type KeyString = SmartString<LazyCompact>;
 
 #[derive(Debug, PartialEq)]
@@ -271,7 +273,7 @@ impl ColumnTable {
                         let temp = match cell.parse::<f32>() {
                             Ok(x) => x,
                             Err(_) => {
-                                // println!("failed to parse: {}", cell);
+                                println!("failed to parse: {}", cell);
                                 return Err(StrictError::Parse(index))
                             },
                         };
@@ -287,7 +289,7 @@ impl ColumnTable {
                         let temp = match cell.parse::<i32>() {
                             Ok(x) => x,
                             Err(_) => {
-                                // println!("failed to parse: {}", cell);
+                                println!("failed to parse: {}", cell);
                                 return Err(StrictError::Parse(index))
                             },
                         };
@@ -1037,8 +1039,8 @@ mod tests {
             if i > 50 {
                 break;
             }
-            let random_number: i64 = rand::thread_rng().gen();
-            let random_float: f64 = rand::thread_rng().gen();
+            let random_number: i32 = rand::thread_rng().gen();
+            let random_float: f32 = rand::thread_rng().gen();
             let mut random_string = String::new();
             for _ in 0..8 {
                 random_string.push(rand::thread_rng().gen_range(97..122) as u8 as char);
@@ -1067,9 +1069,9 @@ mod tests {
 
     #[test]
     fn test_columntable_combine_unsorted_csv() {
-        let unsorted1 = std::fs::read_to_string("test_csv_from_google_sheets_unsorted.csv").unwrap();
-        let unsorted2 = std::fs::read_to_string("test_csv_from_google_sheets2_unsorted.csv").unwrap();
-        let sorted_combined = std::fs::read_to_string("test_csv_from_google_sheets_combined_sorted.csv").unwrap();
+        let unsorted1 = std::fs::read_to_string(format!("test_files{PATH_SEP}test_csv_from_google_sheets_unsorted.csv")).unwrap();
+        let unsorted2 = std::fs::read_to_string(format!("test_files{PATH_SEP}test_csv_from_google_sheets2_unsorted.csv")).unwrap();
+        let sorted_combined = std::fs::read_to_string(format!("test_files{PATH_SEP}test_csv_from_google_sheets_combined_sorted.csv")).unwrap();
 
         let mut a = ColumnTable::from_csv_string(&unsorted1, "a", "test").unwrap();
         let b = ColumnTable::from_csv_string(&unsorted2, "b", "test").unwrap();
@@ -1113,7 +1115,7 @@ mod tests {
     #[test]
     fn test_raw_binary() {
         // let input = "vnr,i-p;heiti,t;magn,i\n113035;undirlegg;200\n113050;annad undirlegg;500";
-        let input = std::fs::read_to_string("test_csv_from_google_sheets_combined_sorted.csv").unwrap();
+        let input = std::fs::read_to_string(format!("test_files{PATH_SEP}test_csv_from_google_sheets_combined_sorted.csv")).unwrap();
         let t = ColumnTable::from_csv_string(&input, "test", "test").unwrap();
         let bint_t = t.write_to_raw_binary();
         let string_t = t.to_string();

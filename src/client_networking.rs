@@ -3,16 +3,8 @@ use std::str::{self};
 
 use crate::auth::AuthenticationError;
 use crate::networking_utilities::*;
+use crate::PATH_SEP;
 
-
-//birgi,   vnr
-//Ísól; (0113035, 5060789, 0113000)
-
-//0113035: (Ísól, Parki, Byko)
-//0113000: (Ísól)
-
-//Ísól 0113035
-//Ísól 5060789
 
 // TODO
 // delete query
@@ -263,7 +255,7 @@ mod tests {
 
     #[test]
     fn test_send_good_csv() {
-        let csv = std::fs::read_to_string("good_csv.txt").unwrap();
+        let csv = std::fs::read_to_string(format!("test_files{PATH_SEP}good_csv.txt")).unwrap();
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";
@@ -273,7 +265,7 @@ mod tests {
 
     #[test]
     fn test_send_good_csv_twice() {
-        let csv = std::fs::read_to_string("good_csv.txt").unwrap();
+        let csv = std::fs::read_to_string(format!("test_files{PATH_SEP}good_csv.txt")).unwrap();
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";
@@ -287,7 +279,7 @@ mod tests {
 
     #[test]
     fn test_concurrent_connections() {
-        let csv = std::fs::read_to_string("good_csv.txt").unwrap();
+        let csv = std::fs::read_to_string(format!("test_files{PATH_SEP}good_csv.txt")).unwrap();
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";
@@ -303,7 +295,7 @@ mod tests {
 
     #[test]
     fn test_send_bad_csv() {
-        let csv = std::fs::read_to_string("bad_csv.txt").unwrap();
+        let csv = std::fs::read_to_string(format!("test_files{PATH_SEP}bad_csv.txt")).unwrap();
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";
@@ -323,7 +315,7 @@ mod tests {
         let password = "admin";
         let table = download_table(address, username, password, name).unwrap();
         println!("{:?}", table);
-        let good_table = ColumnTable::from_csv_string(&std::fs::read_to_string("good_csv.txt").unwrap(), "good_table", "test").unwrap();
+        let good_table = ColumnTable::from_csv_string(&std::fs::read_to_string(format!("test_files{PATH_SEP}good_csv.txt")).unwrap(), "good_table", "test").unwrap();
         assert_eq!(table, good_table.to_string());
     }
 
@@ -340,22 +332,17 @@ mod tests {
             printer.push_str(&format!("i{};product name;569\n", i));
             i+= 1;
         }
-        let mut file = std::fs::File::create("testlarge.csv").unwrap();
-        file.write_all(printer.as_bytes()).unwrap();
-
-
-        let csv = std::fs::read_to_string("testlarge.csv").unwrap();
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";
-        let e = upload_table(address, username, password, "large_csv", &csv).unwrap();
+        let e = upload_table(address, username, password, "large_csv", &printer).unwrap();
         
     }
 
 
     #[test]
     fn test_query_list() {
-        let csv = std::fs::read_to_string("good_csv.txt").unwrap();
+        let csv = std::fs::read_to_string(format!("test_files{PATH_SEP}good_csv.txt")).unwrap();
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";

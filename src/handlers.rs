@@ -3,8 +3,10 @@ use std::{sync::{Arc, Mutex}, collections::HashMap, io::Write};
 use crate::{networking_utilities::*, db_structure::{ColumnTable, Value}, auth::User};
 
 use smartstring::{SmartString, LazyCompact};
+use crate::PATH_SEP;
 
 pub type KeyString = SmartString<LazyCompact>;
+
 
 
 
@@ -267,7 +269,7 @@ pub fn handle_meta_list_tables(connection: &mut Connection, global_tables: Arc<M
     let mut memory_table_names: Vec<&KeyString> = mutex_binding.keys().collect();
 
     let mut disk_table_names = Vec::new();
-    for file in std::fs::read_dir("C:\\Users\\Hallg\\Desktop\\code\\rust\\EZDB\\EZconfig\\raw_tables").unwrap() {
+    for file in std::fs::read_dir(format!("EZconfig{PATH_SEP}raw_tables")).unwrap() {
         match file {
             Ok(f) => disk_table_names.push(KeyString::from(f.file_name().into_string().unwrap())),
             Err(e) => println!("error while reading directory entries: {e}"),
@@ -313,7 +315,7 @@ pub fn handle_meta_list_key_values(connection: &mut Connection, global_kv_table:
     let mut memory_table_names: Vec<&KeyString> = mutex_binding.keys().collect();
 
     let mut disk_table_names = Vec::new();
-    for file in std::fs::read_dir("C:\\Users\\Hallg\\Desktop\\code\\rust\\EZDB\\EZconfig\\key_value").unwrap() {
+    for file in std::fs::read_dir(format!("EZconfig{PATH_SEP}key_value")).unwrap() {
         match file {
             Ok(f) => disk_table_names.push(KeyString::from(f.file_name().into_string().unwrap())),
             Err(e) => println!("error while reading directory entries: {e}"),

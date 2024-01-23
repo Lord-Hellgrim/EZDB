@@ -1,4 +1,0 @@
-vnr,i-p;heiti,t;magn,i
-0113000;undirlegg2;100
-0113035;undirlegg;200
-18572054;flísalím;42
