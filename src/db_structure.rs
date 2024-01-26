@@ -130,7 +130,7 @@ impl HeaderItem {
 pub enum TableKey {
     Primary,
     None,
-    Foreign(String),
+    Foreign,
 }
 
 #[derive(Clone, Debug)]
@@ -155,7 +155,7 @@ impl Display for ColumnTable {
             }
             match &item.key {
                 TableKey::Primary => printer.push_str("-P"),
-                TableKey::Foreign(table_name) => printer.push_str(&format!("F{}", table_name)),
+                TableKey::Foreign => printer.push_str("-F"),
                 TableKey::None => printer.push_str("-N")
             }
             printer.push(';');
@@ -260,15 +260,16 @@ impl ColumnTable {
                     _ => return Err(StrictError::WrongType),
                 }
                 match t.next().unwrap() {
-                    "P" => header_item.key = TableKey::Primary,
-                    "N" => header_item.key = TableKey::None,
-                    s => {
-                        if s.starts_with('F') {
-                            header_item.key = TableKey::Foreign(s[1..].to_owned());
-                        } else {
-                            return Err(StrictError::WrongKey)
+                    "P" => {
+                        if primary_key_set {
+                            return Err(StrictError::TooManyPrimaryKeys)
                         }
-                    }
+                        header_item.key = TableKey::Primary;
+                        primary_key_set = true;
+                    },
+                    "N" => header_item.key = TableKey::None,
+                    "F" => header_item.key = TableKey::Foreign,
+                    _ => return Err(StrictError::WrongKey),
                 }
             }
             header.push(header_item);
@@ -855,7 +856,7 @@ impl ColumnTable {
             match &item.key {
                 TableKey::Primary => output.push(b'P'),
                 TableKey::None => output.push(b'N'),
-                TableKey::Foreign(table_name) => output.push(b'F'),
+                TableKey::Foreign => output.push(b'F'),
             }
             output.push(b';');
 
@@ -911,7 +912,7 @@ impl ColumnTable {
             let key = match item.last().unwrap() {
                 b'P' => TableKey::Primary,
                 b'N' => TableKey::None,
-                b'F' => TableKey::Foreign("TODO: Figure this shit out".to_owned()),
+                b'F' => TableKey::Foreign,
                 x => unreachable!("The last byte of a header item should never be {:x?}", x),
             };
             let name = match std::str::from_utf8(&item[1..item.len()-1]) {
@@ -1031,15 +1032,6 @@ fn remove_indices<T>(vec: &mut Vec<T>, indices: &[usize]) {
     }
 
     vec.truncate(vec.len() - shift);
-}
-
-fn main() {
-    let mut vec = vec![1, 2, 3, 4, 5, 6, 7, 8, 9];
-    let indices_to_remove = [1, 3, 5];
-
-    remove_indices(&mut vec, &indices_to_remove);
-
-    println!("{:?}", vec); // Expected output: [1, 3, 5, 7, 8, 9]
 }
 
 
