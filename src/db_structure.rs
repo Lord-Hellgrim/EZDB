@@ -2,7 +2,7 @@ use std::{collections::HashSet, fmt::{self, Display, Debug}, io::Write};
 
 use smartstring::{SmartString, LazyCompact};
 
-use crate::networking_utilities::get_current_time;
+use crate::networking_utilities::*;
 
 use crate::PATH_SEP;
 
@@ -286,6 +286,7 @@ impl ColumnTable {
         let mut line_index = 0;
         let mut data: Vec<Vec<&str>> = Vec::new();
         for line in s.lines() {
+            // println!("line: {}", line);
             if line_index == 0 {
                 line_index += 1;
                 continue
@@ -313,7 +314,7 @@ impl ColumnTable {
                         let temp = match cell.parse::<f32>() {
                             Ok(x) => x,
                             Err(_) => {
-                                println!("failed to parse: {}", cell);
+                                println!("failed to parse float: {:x?}", cell.as_bytes());
                                 return Err(StrictError::Parse(index))
                             },
                         };
@@ -326,10 +327,10 @@ impl ColumnTable {
                     let mut outvec = Vec::with_capacity(col.len());
                     let mut index = 0;
                     for cell in col {
+                        // println!("index: {} - cell: {}",index, cell);
                         let temp = match cell.parse::<i32>() {
                             Ok(x) => x,
                             Err(_) => {
-                                println!("failed to parse: {}", cell);
                                 return Err(StrictError::Parse(index))
                             },
                         };
@@ -514,12 +515,15 @@ impl ColumnTable {
         self.table.iter_mut().for_each(|vec| {
             match vec {
             DbVec::Floats(col) => {
+                println!("float!");
                 rearrange_by_index(col, &indexer);
             },
             DbVec::Ints(col) => {
+                println!("int!");
                 rearrange_by_index(col, &indexer);
             },
             DbVec::Texts(col) => {
+                println!("text!");
                 rearrange_by_index(col, &indexer);
             },
             }
@@ -991,23 +995,7 @@ impl ColumnTable {
     }
 }
 
-#[inline]
-fn i32_from_le_slice(slice: &[u8]) -> i32 {
-    let l: [u8;4] = [slice[0], slice[1], slice[2], slice[3]];
-    i32::from_le_bytes(l)
-}
 
-#[inline]
-fn u32_from_le_slice(slice: &[u8]) -> u32 {
-    let l: [u8;4] = [slice[0], slice[1], slice[2], slice[3]];
-    u32::from_le_bytes(l)
-}
-
-#[inline]
-fn f32_from_le_slice(slice: &[u8]) -> f32 {   
-    let l: [u8;4] = [slice[0], slice[1], slice[2], slice[3]];
-    f32::from_le_bytes(l)
-}
 
 #[inline]
 fn rearrange_by_index<T: Clone>(col: &mut Vec<T>, indexer: &[usize]) {

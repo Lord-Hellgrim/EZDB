@@ -139,7 +139,7 @@ impl From<Utf8Error> for InstructionError {
 pub struct Connection {
     pub stream: TcpStream,
     pub user: String,
-    pub aes_key: Vec<u8>,   
+    pub aes_key: [u8;32],   
 }
 
 impl Connection {
@@ -193,9 +193,9 @@ impl Connection {
 }
 
 
-pub fn blake3_hash(s: &[u8]) -> Vec<u8> {
+pub fn blake3_hash(s: &[u8]) -> [u8;32]{
 
-    blake3::hash(s).as_bytes().to_vec()
+    blake3::hash(s).into()
 
 }
 
@@ -306,10 +306,38 @@ pub fn decode_hex(s: &str) -> Result<Vec<u8>, ParseIntError> {
 }
 
 
-pub fn hash_function(a: &str) -> Vec<u8> {
-    blake3::hash(a.as_bytes()).as_bytes().to_vec()
+pub fn hash_function(a: &str) -> [u8;32] {
+    blake3::hash(a.as_bytes()).into()
 }
 
+
+#[inline]
+pub fn i32_from_le_slice(slice: &[u8]) -> i32 {
+    assert!(slice.len() == 4);
+    let l: [u8;4] = [slice[0], slice[1], slice[2], slice[3]];
+    i32::from_le_bytes(l)
+}
+
+#[inline]
+pub fn u32_from_le_slice(slice: &[u8]) -> u32 {
+    assert!(slice.len() == 4);
+    let l: [u8;4] = [slice[0], slice[1], slice[2], slice[3]];
+    u32::from_le_bytes(l)
+}
+
+#[inline]
+pub fn f32_from_le_slice(slice: &[u8]) -> f32 {   
+    assert!(slice.len() == 4);
+    let l: [u8;4] = [slice[0], slice[1], slice[2], slice[3]];
+    f32::from_le_bytes(l)
+}
+
+#[inline]
+pub fn usize_from_le_slice(slice: &[u8]) -> usize {   
+    assert!(slice.len() == 8);
+    let l: [u8;8] = [slice[0], slice[1], slice[2], slice[3], slice[4], slice[5], slice[6], slice[7]];
+    usize::from_le_bytes(l)
+}
 
 
 

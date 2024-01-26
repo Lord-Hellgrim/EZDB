@@ -41,7 +41,7 @@ impl Permission {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct User {
     pub username: KeyString,
-    pub password: Vec<u8>,
+    pub password: [u8;32],
     pub admin: bool,
     pub can_upload: bool,
     pub can_download: Vec<String>,
@@ -175,13 +175,15 @@ mod tests {
 
     #[test]
     fn test_user_string_parsing() {
-        let temp = String::from(r#"(username:"admin",password:[0x6e,0xf5,0xf3,0x31,0xcc,0xc2,0x38,0x4c,0x9e,0x74,0x4d,0xea,0xd5,0xcb,0x61,0xb7,0xe1,0x62,0x4b,0x9b,0xf2,0xea,0xf9,0xb2,0xa1,0xaa,0x8b,0xaf,0x4c,0xc0,0x69,0x2e],admin:true,can_upload:true,can_download:[],can_update:[],can_query:[])"#);
+        let temp = String::from(
+            r#"(username:"admin",password:(210,137,178,218,155,112,81,243,107,78,57,110,10,243,224,105,231,140,241,25,167,253,203,100,55,182,133,196,135,94,159,158),admin:true,can_upload:true,can_download:[],can_update:[],can_query:[])"#
+        );
         let test_user: User = ron::from_str(&temp).unwrap();
         dbg!(test_user);
         let user_string = ron::to_string(&User::admin("admin", "admin")).unwrap();
         println!("{}", user_string);
         let user: User = ron::from_str(&user_string).unwrap();
-        assert!(user == User::admin("admin", "admin"));
+        assert_eq!(user, User::admin("admin", "admin"));
 
     }
 
