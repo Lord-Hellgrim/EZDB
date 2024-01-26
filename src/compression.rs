@@ -1,11 +1,12 @@
+use std::io::Write;
+
 use miniz_oxide::deflate::compress_to_vec;
-use miniz_oxide::inflate::{decompress_to_vec, decompress_to_vec_with_limit};
+use miniz_oxide::inflate::decompress_to_vec;
 
 use brotli::{self, CompressorWriter};
 
-use crate::networking_utilities::usize_from_le_slice;
+use crate::networking_utilities::{usize_from_le_slice, ServerError};
 
-#[inline]
 pub fn miniz_compress(data: &[u8], level: u8) -> Vec<u8> {
     let mut output = Vec::with_capacity(data.len() + 8);
     output.extend_from_slice(&data.len().to_le_bytes());
@@ -13,10 +14,28 @@ pub fn miniz_compress(data: &[u8], level: u8) -> Vec<u8> {
     output
 }
 
-#[inline]
-pub fn miniz_decompress(data: &[u8]) -> Vec<u8> {
+pub fn miniz_decompress(data: &[u8]) -> Result<Vec<u8>, ServerError> {
     let len = usize_from_le_slice(&data[0..8]);
-    decompress_to_vec_with_limit(data, 4_000_001).unwrap()
+    match decompress_to_vec(data) {
+        Ok(result) => Ok(result),
+        Err(e) => {
+            println!("failed to decompress because {e}");
+            Err(ServerError::Decompression(e))
+        },
+    }
+}
+
+pub fn brotli_compress(data: &[u8]) -> Vec<u8> {
+    let mut compressed_data = Vec::new();
+        {
+            let mut compressor = CompressorWriter::new(&mut compressed_data, 4096, 11, 22);
+            compressor.write_all(data).unwrap();
+        }
+    compressed_data
+}
+
+pub fn brotli_decompress(data: &[u8]) -> Vec<u8> {
+    
 }
 
 

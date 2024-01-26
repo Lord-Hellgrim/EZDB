@@ -33,6 +33,7 @@ pub enum ServerError {
     ParseInt(ParseIntError),
     ParseResponse(String),
     OversizedData,
+    Decompression(miniz_oxide::inflate::DecompressError)
 }
 
 impl fmt::Display for ServerError {
@@ -48,6 +49,7 @@ impl fmt::Display for ServerError {
             ServerError::ParseInt(e) => write!(f, "There has been a problem parsing an integer, presumably while sending a data_len. The error signature is: {}", e),
             ServerError::OversizedData => write!(f, "Sent data is too long. Maximum data size is {MAX_DATA_LEN}"),
             ServerError::ParseResponse(e) => write!(f, "{}", e),
+            ServerError::Decompression(e) => write!(f, "Decompression error occurred from miniz_oxide library.\nLibrary error: {}", e)
         }
     }
 }
