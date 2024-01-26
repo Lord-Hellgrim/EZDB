@@ -1,4 +1,4 @@
-use std::{fmt::{self, Display, Debug}, io::Write};
+use std::{collections::HashSet, fmt::{self, Display, Debug}, io::Write};
 
 use smartstring::{SmartString, LazyCompact};
 
@@ -112,7 +112,7 @@ pub enum DbVec {
 pub struct HeaderItem {
     name: KeyString,
     kind: DbType,
-    primary_key: bool,
+    key: TableKey,
 }
 
 impl HeaderItem {
@@ -120,9 +120,17 @@ impl HeaderItem {
         HeaderItem{
             name: KeyString::from("default_name"),
             kind: DbType::Text,
-            primary_key: false,
+            key: TableKey::None,
+
         }
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum TableKey {
+    Primary,
+    None,
+    Foreign(String),
 }
 
 #[derive(Clone, Debug)]
@@ -145,8 +153,10 @@ impl Display for ColumnTable {
                 DbType::Int => printer.push('i'),
                 DbType::Text => printer.push('t'),
             }
-            if item.primary_key {
-                printer.push_str("-p");
+            match &item.key {
+                TableKey::Primary => printer.push_str("-P"),
+                TableKey::Foreign(table_name) => printer.push_str(&format!("F{}", table_name)),
+                TableKey::None => printer.push_str("-N")
             }
             printer.push(';');
         }
@@ -186,6 +196,43 @@ impl Display for ColumnTable {
 impl ColumnTable {
     pub fn from_csv_string(s: &str, table_name: &str, created_by: &str) -> Result<ColumnTable, StrictError> {
 
+
+        /* 
+        EZ CSV FORMAT:
+        Table names shall be no more that 254 characters.
+
+        Header is formatted like this:
+        name1,type-key;name2,type-key;...;nameN,type-key        
+
+        The name can be:
+        Any string of characters except these three (;  ,  -) and of course newlines
+
+        The type can be:
+        I, Int, int, or i for integer data (i32)
+        F, Float, float, or f for floating point data (f32)
+        T, Text, text, or t for text data (String, ax length 255)
+
+        The key should be one of the three:
+        P - This column will be treated as the primary key. There can be only one P column
+        FTableName - This column will be treated as a foreign key. The first character F denotes that this is a foreign key. If they foreign key references it's own table, that is an error.
+        N - This column is neither a primary nor foreign key. It simply contains data
+
+        The body is formatted like this:
+        Given a header:
+        id,i-P;name,Text-N;product_group,t-FProductGroup
+
+        The body can be formatted like this:
+
+        123;sample;samples
+        234;plunger;toiletries
+        567;racecar;toys
+
+        If a value needs to contain a ";" character, you can enclose the calue in triple quotes """value"""
+        Values will not be trimmed. Any whitespace will be included. Take care that the triple quotes are included in the 255 character limit for text values
+        if you need to store text values longer than 255 characters, reference them by foreign keys to key_value storage
+        */ 
+
+
         if s.is_empty() {
             return Err(StrictError::Empty)
         }
@@ -205,31 +252,23 @@ impl ColumnTable {
                 return Err(StrictError::TooManyHeaderFields)
             } else {
                 header_item.name = KeyString::from(temp[0].trim());
-                let t = temp[1].trim();
-                match t {
+                let mut t = temp[1].trim().split('-');
+                match t.next().unwrap() {
                     "I" | "Int" | "int" | "i" => header_item.kind = DbType::Int,
                     "F" | "Float" | "float" | "f" => header_item.kind = DbType::Float,
                     "T" | "Text" | "text" | "t" => header_item.kind = DbType::Text,
-                    "I-p" | "Int-p" | "int-p" | "i-p" => {
-                        if primary_key_set {
-                            return Err(StrictError::TooManyPrimaryKeys)
-                        } else {
-                            header_item.kind = DbType::Int;
-                            header_item.primary_key = true;
-                            primary_key_set = true;
-                        }
-                    },
-                    "T-p" | "Text-p" | "text-p" | "t-p" => {
-                        if primary_key_set {
-                            return Err(StrictError::TooManyPrimaryKeys)
-                        } else {
-                            header_item.kind = DbType::Text;
-                            header_item.primary_key = true;
-                            primary_key_set = true;
-                        }
-                    },
-                    "F-p" | "Float-p" | "float-p" | "f-p" => return Err(StrictError::FloatPrimaryKey),
                     _ => return Err(StrictError::WrongType),
+                }
+                match t.next().unwrap() {
+                    "P" => header_item.key = TableKey::Primary,
+                    "N" => header_item.key = TableKey::None,
+                    s => {
+                        if s.starts_with('F') {
+                            header_item.key = TableKey::Foreign(s[1..].to_owned());
+                        } else {
+                            return Err(StrictError::WrongKey)
+                        }
+                    }
                 }
             }
             header.push(header_item);
@@ -237,8 +276,8 @@ impl ColumnTable {
 
         if !primary_key_set {
             match header[0].kind {
-                DbType::Int => header[0].primary_key = true,
-                DbType::Text => header[0].primary_key = true,
+                DbType::Int => header[0].key = TableKey::Primary,
+                DbType::Text => header[0].key = TableKey::Primary,
                 _ => unreachable!("Should already have a primary key or have been rejected for float primary key")
             };
         }
@@ -313,7 +352,7 @@ impl ColumnTable {
 
         let mut primary_key_index = 0;
         for (index, item) in header.iter().enumerate() {
-            if item.primary_key {
+            if item.key == TableKey::Primary {
                 primary_key_index = index;
             }
         };
@@ -365,7 +404,7 @@ impl ColumnTable {
         
         let mut i = 0;
         for item in &self.header {
-            if item.primary_key {
+            if item.key == TableKey::Primary {
                 self_primary_key_index = i;
             }
             i+= 1;
@@ -620,8 +659,9 @@ impl ColumnTable {
         self.query_list(Vec::from([query]))
     }
 
-    pub fn delete_range(&self, range: (&str, &str)) -> Result<(), StrictError> {
-        let mut printer = String::new();
+    pub fn delete_range(&mut self, range: (&str, &str)) -> Result<(), StrictError> {
+
+        // UP TO BUT NOT INCLUDING!!!!
 
         if range.1 < range.0 {
             return Err(StrictError::Empty)
@@ -641,7 +681,7 @@ impl ColumnTable {
                     Ok(num) => num,
                     Err(_) => return Err(StrictError::Empty),
                 };
-                let index: usize = col.partition_point(|n| n < &key);
+                let index: usize = col.partition_point(|n| *n < key);
                 indexes[0] = index;
 
                 if range.1 == "" {
@@ -653,11 +693,7 @@ impl ColumnTable {
                     };
                     // // println!("key2: {}", key2);
                     let index: usize = col.partition_point(|n| n < &key2);
-                    if col[index] == key2 {
-                        indexes[1] = index;
-                    } else {
-                        indexes[1] = index - 1;
-                    }
+                    indexes[1] = index;
                 }
 
             },
@@ -681,15 +717,15 @@ impl ColumnTable {
             }
         }
 
-        for col in &self.table {
+        for col in self.table.iter_mut() {
             match col {
-                DbVec::Floats(mut v) => {
+                DbVec::Floats(v) => {
                     v.drain(indexes[0]..indexes[1]);
                 },
-                DbVec::Ints(mut v) => {
+                DbVec::Ints(v) => {
                     v.drain(indexes[0]..indexes[1]);
                 },
-                DbVec::Texts(mut v) => {
+                DbVec::Texts(v) => {
                     v.drain(indexes[0]..indexes[1]);
                 },
             };
@@ -698,7 +734,7 @@ impl ColumnTable {
         Ok(())
     }
 
-    pub fn delete_list(&self, mut key_list: Vec<&str>) -> Result<(), StrictError> {
+    pub fn delete_list(&mut self, mut key_list: Vec<&str>) -> Result<(), StrictError> {
         let primary_index = self.get_primary_key_col_index();
         key_list.sort();
 
@@ -730,30 +766,25 @@ impl ColumnTable {
             }
         }
 
-        for col in &self.table {
+        let imut = self.table.iter_mut();
+        for col in imut {
             match col {
-                DbVec::Floats(mut v) => {
-                    for index in indexes {
-                        v.remove(index);
-                    }
+                DbVec::Floats(v) => {
+                    remove_indices(v, &indexes);
                 }
-                DbVec::Ints(mut v) => {
-                    for index in indexes {
-                        v.remove(index);
-                    }
+                DbVec::Ints(v) => {
+                    remove_indices(v, &indexes);
                 }
-                DbVec::Texts(mut v) => {
-                    for index in indexes {
-                        v.remove(index);
-                    }
+                DbVec::Texts(v) => {
+                    remove_indices(v, &indexes);
                 }
-            }
+            };
         }
 
         Ok(())
     }
 
-    fn delete(&self, query: &str) -> Result<(), StrictError> {
+    fn delete(&mut self, query: &str) -> Result<(), StrictError> {
         self.delete_list(Vec::from([query]))
     }
 
@@ -821,9 +852,10 @@ impl ColumnTable {
             output.push(kind);
             let name = item.name.as_bytes();
             output.extend_from_slice(name);
-            match item.primary_key {
-                true => output.push(1),
-                false => output.push(0),
+            match &item.key {
+                TableKey::Primary => output.push(b'P'),
+                TableKey::None => output.push(b'N'),
+                TableKey::Foreign(table_name) => output.push(b'F'),
             }
             output.push(b';');
 
@@ -870,17 +902,16 @@ impl ColumnTable {
         let mut header = Vec::new();
 
         for item in bin_header.split(|n| n == &b';') {
-            let first = item.first().unwrap();
-            // println!("first: {}", first);
-            let kind = match first {
+            let kind = match item.first().unwrap() {
                 b'i' => DbType::Int,
                 b'f' => DbType::Float,
                 b't' => DbType::Text,
                 x => unreachable!("the first byte of a header item should never be {:x?}", x),
             };
-            let primary_key = match item.last().unwrap() {
-                0 => false,
-                1 => true,
+            let key = match item.last().unwrap() {
+                b'P' => TableKey::Primary,
+                b'N' => TableKey::None,
+                b'F' => TableKey::Foreign("TODO: Figure this shit out".to_owned()),
                 x => unreachable!("The last byte of a header item should never be {:x?}", x),
             };
             let name = match std::str::from_utf8(&item[1..item.len()-1]) {
@@ -890,7 +921,7 @@ impl ColumnTable {
             let header_item = HeaderItem{
                 kind: kind,
                 name: KeyString::from(name),
-                primary_key: primary_key,
+                key: key,
             };
 
             header.push(header_item);
@@ -985,6 +1016,32 @@ fn rearrange_by_index<T: Clone>(col: &mut Vec<T>, indexer: &[usize]) {
     }
     *col = temp;
 } 
+
+
+fn remove_indices<T>(vec: &mut Vec<T>, indices: &[usize]) {
+    let indices_set: HashSet<_> = indices.iter().cloned().collect();
+    let mut shift = 0;
+
+    for i in 0..vec.len() {
+        if indices_set.contains(&i) {
+            shift += 1;
+        } else if shift > 0 {
+            vec.swap(i - shift, i);
+        }
+    }
+
+    vec.truncate(vec.len() - shift);
+}
+
+fn main() {
+    let mut vec = vec![1, 2, 3, 4, 5, 6, 7, 8, 9];
+    let indices_to_remove = [1, 3, 5];
+
+    remove_indices(&mut vec, &indices_to_remove);
+
+    println!("{:?}", vec); // Expected output: [1, 3, 5, 7, 8, 9]
+}
+
 
 fn merge_sorted<T: Ord + Clone + Display + Debug>(one: &[T], two: &[T]) -> (Vec<T>, Vec<u8>) {
     let mut output: Vec<T> = Vec::with_capacity(one.len() + two.len());
@@ -1141,7 +1198,7 @@ mod tests {
 
     #[test]
     fn test_columntable_from_to_string() {
-        let input = "vnr,i-p;heiti,t;magn,i\n113035;undirlegg;200\n113050;annad undirlegg;500";
+        let input = "vnr,i-P;heiti,t-N;magn,i-N\n113035;undirlegg;200\n113050;annad undirlegg;500";
         let t = ColumnTable::from_csv_string(input, "test", "test").unwrap();
         // println!("t: {}", t.to_string());
         assert_eq!(input, t.to_string());
@@ -1150,8 +1207,8 @@ mod tests {
     #[test]
     fn test_columntable_combine_sorted() {
         let mut i = 0;
-        let mut printer = String::from("vnr,text-p;heiti,text;magn,int;lengd,float\n");
-        let mut printer2 = String::from("vnr,text-p;heiti,text;magn,int;lengd,float\n");
+        let mut printer = String::from("vnr,text-P;heiti,text-N;magn,int-N;lengd,float-N\n");
+        let mut printer2 = String::from("vnr,text-P;heiti,text-N;magn,int-N;lengd,float-N\n");
         let mut printer22 = String::new();
         loop {
             if i > 50 {
@@ -1203,7 +1260,7 @@ mod tests {
 
     #[test]
     fn test_columntable_query_list() {
-        let input = "vnr,i-p;heiti,t;magn,i\n113035;undirlegg;200\n113050;annad undirlegg;500";
+        let input = "vnr,i-P;heiti,t-N;magn,i-N\n113035;undirlegg;200\n113050;annad undirlegg;500";
         let t = ColumnTable::from_csv_string(input, "test", "test").unwrap();
         // println!("t: {}", t.to_string());
         let x = t.query_list(Vec::from(["113035"])).unwrap();
@@ -1212,7 +1269,7 @@ mod tests {
 
     #[test]
     fn test_columntable_query_single() {
-        let input = "vnr,i-p;heiti,t;magn,i\n113035;undirlegg;200\n113050;annad undirlegg;500";
+        let input = "vnr,i-P;heiti,t-N;magn,i-N\n113035;undirlegg;200\n113050;annad undirlegg;500";
         let t = ColumnTable::from_csv_string(input, "test", "test").unwrap();
         // println!("t: {}", t.to_string());
         let x = t.query("113035").unwrap();
@@ -1221,7 +1278,7 @@ mod tests {
 
     #[test]
     fn test_columntable_query_range() {
-        let input = "vnr,i-p;heiti,t;magn,i\n113035;undirlegg;200\n113050;annad undirlegg;500\n18572054;flísalím;42\n113446;harlech;250";
+        let input = "vnr,i-P;heiti,t-N;magn,i-N\n113035;undirlegg;200\n113050;annad undirlegg;500\n18572054;flísalím;42\n113446;harlech;250";
         let t = ColumnTable::from_csv_string(input, "test", "test").unwrap();
         let x = t.query_range(("113035", "113060")).unwrap();
 
@@ -1230,7 +1287,7 @@ mod tests {
 
     #[test]
     fn test_raw_binary() {
-        // let input = "vnr,i-p;heiti,t;magn,i\n113035;undirlegg;200\n113050;annad undirlegg;500";
+        // let input = "vnr,i-P;heiti,t;magn,i\n113035;undirlegg;200\n113050;annad undirlegg;500";
         let input = std::fs::read_to_string(format!("test_files{PATH_SEP}test_csv_from_google_sheets_combined_sorted.csv")).unwrap();
         let t = ColumnTable::from_csv_string(&input, "test", "test").unwrap();
         let bint_t = t.write_to_raw_binary();
@@ -1241,5 +1298,34 @@ mod tests {
         
         let string_transl_t = translated_t.to_string();
         assert_eq!(string_t, string_transl_t);
+    }
+
+
+    // TEST QUERIES ###############################################################################################################################################################################
+
+    #[test]
+    fn test_delete_range() {
+        let input = std::fs::read_to_string(format!("test_files{PATH_SEP}test_csv_from_google_sheets_combined_sorted.csv")).unwrap();
+        let test_input = std::fs::read_to_string(format!("test_files{PATH_SEP}test_csv_from_google_sheets_combined_sorted_test_range.csv")).unwrap();
+        let mut t = ColumnTable::from_csv_string(&input, "test", "test").unwrap();
+        
+        let test_t = ColumnTable::from_csv_string(&test_input, "test", "test").unwrap();
+        // println!("{}", t);
+        t.delete_range(("262", "673"));
+        // println!("{}", t);
+        assert_eq!(t.to_string(), test_t.to_string());
+    }
+
+    #[test]
+    fn test_delete_list() {
+        let input = std::fs::read_to_string(format!("test_files{PATH_SEP}test_csv_from_google_sheets_combined_sorted.csv")).unwrap();
+        let test_input = std::fs::read_to_string(format!("test_files{PATH_SEP}test_csv_from_google_sheets_combined_sorted_test_range.csv")).unwrap();
+        let mut t = ColumnTable::from_csv_string(&input, "test", "test").unwrap();
+        
+        let test_t = ColumnTable::from_csv_string(&test_input, "test", "test").unwrap();
+        // println!("{}", t);
+        t.delete_list(vec!["262","264","353","544","656"]);
+        // println!("{}", t);
+        assert_eq!(t.to_string(), test_t.to_string());
     }
 }
