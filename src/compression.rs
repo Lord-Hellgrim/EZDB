@@ -1,4 +1,4 @@
-use std::{char::MAX, io::Write};
+use std::io::Write;
 
 use miniz_oxide::deflate::compress_to_vec;
 use miniz_oxide::inflate::decompress_to_vec;
