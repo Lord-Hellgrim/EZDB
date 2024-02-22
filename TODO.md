@@ -11,5 +11,6 @@
 - Implement more complex queries
     - WHERE
 - Make the on-disk config more stable
-- Vectorize hot functions
+- Implement logging
+- Make the tests more organized and stable
 - ...suggestions?

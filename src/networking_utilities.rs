@@ -11,6 +11,7 @@ use aes_gcm::aead;
 
 use crate::aes_temp_crypto::{encrypt_aes256, decrypt_aes256};
 use crate::auth::AuthenticationError;
+use crate::compression;
 use crate::db_structure::StrictError;
 
 
@@ -416,14 +417,14 @@ pub fn data_send_and_confirm(connection: &mut Connection, data: &[u8]) -> Result
 
     // // println!("data: {:x?}", data);
 
-    let (encrypted_data, data_nonce) = encrypt_aes256(data, &connection.aes_key);
+    let data = compression::miniz_compress(&data)?;
+    let (encrypted_data, data_nonce) = encrypt_aes256(&data, &connection.aes_key);
 
     let mut encrypted_data_block = Vec::with_capacity(data.len() + 28);
     encrypted_data_block.extend_from_slice(&encrypted_data);
     encrypted_data_block.extend_from_slice(&data_nonce);
 
-    // println!("encrypted data: {:x?}", encrypted_data_block);
-    // println!("Sending data...");
+
     // The reason for the +28 in the length checker is that it accounts for the length of the nonce (IV) and the authentication tag
     // in the aes-gcm encryption. The nonce is 12 bytes and the auth tag is 16 bytes
     let mut block = Vec::from(&(data.len() + 28).to_le_bytes());
@@ -447,7 +448,7 @@ pub fn data_send_and_confirm(connection: &mut Connection, data: &[u8]) -> Result
 }
 
 
-pub fn receive_data(connection: &mut Connection) -> Result<(Vec<u8>, usize), ServerError> {
+pub fn receive_data(connection: &mut Connection) -> Result<Vec<u8>, ServerError> {
 
     let mut size_buffer: [u8; 8] = [0; 8];
     connection.stream.read_exact(&mut size_buffer)?;
@@ -472,9 +473,13 @@ pub fn receive_data(connection: &mut Connection) -> Result<(Vec<u8>, usize), Ser
         println!("Total read: {}", total_read);
     }
     
+
+
     let (ciphertext, nonce) = (&data[0..data.len()-12], &data[data.len()-12..]);
     let csv = decrypt_aes256(&ciphertext, &connection.aes_key, nonce)?;
-    Ok((csv, total_read))
+
+    let csv = compression::miniz_decompress(&csv)?;
+    Ok(csv)
 }
 
 

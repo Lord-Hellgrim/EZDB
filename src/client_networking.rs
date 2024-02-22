@@ -25,7 +25,7 @@ pub fn download_table(address: &str, username: &str, password: &str, table_name:
     
     let csv: Vec<u8>;
     match parse_response(&response, &connection.user, table_name) {
-        Ok(_) => (csv, _) = receive_data(&mut connection)?,
+        Ok(_) => csv = receive_data(&mut connection)?,
         Err(e) => return Err(e),
     }
     println!("received: {}", bytes_to_str(&csv)?);
@@ -52,10 +52,8 @@ pub fn upload_table(address: &str, username: &str, password: &str, table_name: &
         Err(e) => return Err(e),
     };
     println!("confirmation: {}", confirmation);
-    // The reason for the +28 in the length checker is that it accounts for the length of the nonce (IV) and the authentication tag
-    // in the aes-gcm encryption. The nonce is 12 bytes and the auth tag is 16 bytes
-    let data_len = (csv.len() + 28).to_string();
-    if confirmation == data_len {
+
+    if confirmation == "OK" {
         return Ok("OK".to_owned());
     } else {
         return Err(ServerError::Confirmation(confirmation));
@@ -100,7 +98,7 @@ pub fn query_table(address: &str, username: &str, password: &str, table_name: &s
 
         // THIS IS WHERE YOU SEND THE BULK OF THE DATA
         //########## SUCCESS BRANCH #################################
-        "OK" => (csv, _) = receive_data(&mut connection)?,
+        "OK" => csv = receive_data(&mut connection)?,
         //###########################################################
         "Username is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongUser(connection.user))),
         "Password is incorrect" => return Err(ServerError::Authentication(AuthenticationError::WrongPassword(password.as_bytes().to_owned()))),
@@ -148,7 +146,7 @@ pub fn kv_download(address: &str, username: &str, password: &str, key: &str) -> 
     let value: Vec<u8>;
     
     match parse_response(&response, &connection.user, key) {
-        Ok(_) => (value, _) = receive_data(&mut connection)?,
+        Ok(_) => value = receive_data(&mut connection)?,
         Err(e) => return Err(e),
     }
 
@@ -193,7 +191,7 @@ pub fn meta_list_tables(address: &str, username: &str, password: &str) -> Result
     let value: Vec<u8>;
     
     match parse_response(&response, &connection.user, "") {
-        Ok(_) => (value, _) = receive_data(&mut connection)?,
+        Ok(_) => value = receive_data(&mut connection)?,
         Err(e) => return Err(e),
     }
     println!("value downloaded successfully");
@@ -216,7 +214,7 @@ pub fn meta_list_key_values(address: &str, username: &str, password: &str) -> Re
     let value: Vec<u8>;
     
     match parse_response(&response, &connection.user, "") {
-        Ok(_) => (value, _) = receive_data(&mut connection)?,
+        Ok(_) => value = receive_data(&mut connection)?,
         Err(e) => return Err(e),
     }
     println!("value downloaded successfully");
@@ -260,7 +258,8 @@ mod tests {
         let username = "admin";
         let password = "admin";
         let e = upload_table(address, username, password, "good_csv", &csv);
-        assert!(e.is_ok());
+        e.unwrap();
+        // assert!(e.is_ok());
     }
 
     #[test]

@@ -48,18 +48,16 @@ pub fn handle_upload_request(connection: &mut Connection, name: &str, global_tab
     connection.stream.flush()?;
 
 
-    let (csv, total_read) = receive_data(connection)?;
+    let csv = receive_data(connection)?;
 
     // Here we create a ColumnTable from the csv and supplied name
     println!("About to check for strictness");
     let instant = std::time::Instant::now();
     match ColumnTable::from_csv_string(bytes_to_str(&csv)?, name, "test") {
         Ok(mut table) => {
-            println!("About to write: {:x?}", format!("{}", total_read).as_bytes());
-            println!("Which is: {}", bytes_to_str(format!("{}", total_read).as_bytes())?);
-            match connection.stream.write(format!("{}", total_read).as_bytes()) {
+            println!("About to write: {:x?}", "OK".as_bytes());
+            match connection.stream.write("OK".as_bytes()) {
                 Ok(_) => {
-                    println!("Time to check strictness: {}", instant.elapsed().as_millis());
                     println!("Confirmed correctness with client");
                 },
                 Err(e) => {return Err(ServerError::Io(e.kind()));},
@@ -95,7 +93,7 @@ pub fn handle_update_request(connection: &mut Connection, name: &str, global_tab
     connection.stream.flush()?;
 
 
-    let (csv, total_read) = receive_data(connection)?;
+    let csv = receive_data(connection)?;
 
     let mut mutex_binding = global_tables.lock().unwrap();
 
@@ -103,7 +101,7 @@ pub fn handle_update_request(connection: &mut Connection, name: &str, global_tab
     
     match requested_table.update_from_csv(bytes_to_str(&csv)?) {
         Ok(_) => {
-            connection.stream.write_all(total_read.to_string().as_bytes())?;
+            connection.stream.write_all("OK".as_bytes())?;
         },
         Err(e) => {
             connection.stream.write_all(e.to_string().as_bytes())?;
@@ -209,12 +207,12 @@ pub fn handle_kv_upload(connection: &mut Connection, name: &str, global_kv_table
     connection.stream.flush()?;
 
 
-    let (value, total_read) = receive_data(connection)?;
+    let value = receive_data(connection)?;
     // println!("value: {:?}", value);
 
     // Here we create a ColumnTable from the csv and supplied name
     println!("About to check for strictness");
-    match connection.stream.write(format!("{}", total_read).as_bytes()) {
+    match connection.stream.write("OK".as_bytes()) {
         Ok(_) => {
             println!("Confirmed correctness with client");
         },
@@ -243,11 +241,11 @@ pub fn handle_kv_update(connection: &mut Connection, name: &str, global_kv_table
     connection.stream.flush()?;
 
 
-    let (value, total_read) = receive_data(connection)?;
+    let value = receive_data(connection)?;
 
     // Here we create a ColumnTable from the csv and supplied name
     println!("About to check for strictness");
-    match connection.stream.write(format!("{}", total_read).as_bytes()) {
+    match connection.stream.write("OK".as_bytes()) {
         Ok(_) => {
             println!("Confirmed correctness with client");
         },
