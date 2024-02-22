@@ -515,15 +515,15 @@ impl ColumnTable {
         self.table.iter_mut().for_each(|vec| {
             match vec {
             DbVec::Floats(col) => {
-                println!("float!");
+                // println!("float!");
                 rearrange_by_index(col, &indexer);
             },
             DbVec::Ints(col) => {
-                println!("int!");
+                // println!("int!");
                 rearrange_by_index(col, &indexer);
             },
             DbVec::Texts(col) => {
-                println!("text!");
+                // println!("text!");
                 rearrange_by_index(col, &indexer);
             },
             }

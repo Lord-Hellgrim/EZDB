@@ -3,9 +3,11 @@ use std::io::Write;
 use miniz_oxide::deflate::compress_to_vec;
 use miniz_oxide::inflate::decompress_to_vec;
 
-use brotli::{self, CompressorWriter};
+use brotli::{self, CompressorWriter, DecompressorWriter};
 
 use crate::networking_utilities::{usize_from_le_slice, ServerError};
+
+pub const MAX_PACKET_SIZE: usize = 1_000_000_000;
 
 pub fn miniz_compress(data: &[u8], level: u8) -> Vec<u8> {
     let mut output = Vec::with_capacity(data.len() + 8);
@@ -16,7 +18,10 @@ pub fn miniz_compress(data: &[u8], level: u8) -> Vec<u8> {
 
 pub fn miniz_decompress(data: &[u8]) -> Result<Vec<u8>, ServerError> {
     let len = usize_from_le_slice(&data[0..8]);
-    match decompress_to_vec(data) {
+    if len > MAX_PACKET_SIZE {
+        return Err(ServerError::OversizedData)
+    }
+    match decompress_to_vec(&data[8..]) {
         Ok(result) => Ok(result),
         Err(e) => {
             println!("failed to decompress because {e}");
@@ -35,11 +40,13 @@ pub fn brotli_compress(data: &[u8]) -> Vec<u8> {
 }
 
 pub fn brotli_decompress(data: &[u8]) -> Vec<u8> {
-    
+    let mut decompressed_data = Vec::new();
+        {
+            let mut decompressor = DecompressorWriter::new(&mut decompressed_data, 4096);
+            decompressor.write_all(data).unwrap();
+        }
+    decompressed_data
 }
-
-
-
 
 
 #[cfg(test)]
@@ -62,37 +69,25 @@ mod tests {
     #[test]
     fn test_brotli() {
 
-        let input = std::fs::read_to_string(format!("vorufletting_no_dups_for_export.txt")).unwrap();
-        let t = ColumnTable::from_csv_string(&input, "test", "test");
-        let t = match t {
-            Ok(yeah) => yeah,
-            Err(e) => {
-                println!("{e}");
-                panic!();
-            }
-        };
+        let input = std::fs::read_to_string(format!("test_files{PATH_SEP}test_csv_from_google_sheets_combined_sorted.csv")).unwrap();
+        let t = ColumnTable::from_csv_string(&input, "test", "test").unwrap();
 
         let string_t = t.to_string();
         let binary_t = t.write_to_raw_binary();
 
-        let mut compressed_data = Vec::new();
-        {
-            let mut compressor = CompressorWriter::new(&mut compressed_data, 4096, 11, 22);
-            compressor.write_all(string_t.as_bytes()).unwrap();
-        }
-        println!("raw string length: {}", string_t.len());
-        println!("compressed string length: {}", compressed_data.len());
+        let compressed_string = brotli_compress(string_t.as_bytes());
 
-        let mut compressed_data = Vec::new();
-        {
-            let mut compressor = CompressorWriter::new(&mut compressed_data, 4096, 11, 22);
-            compressor.write_all(&binary_t).unwrap();
-        }
+        let compressed_binary = brotli_compress(&binary_t);
 
-        println!("raw binary length: {}", binary_t.len());
-        println!("compressed binary length: {}", compressed_data.len());
+        println!("compressed string length: {}", compressed_string.len());
+        println!("compressed binary length: {}", compressed_string.len());
 
+        let decompressed_string = brotli_decompress(&compressed_string);
 
+        let decompressed_binary = brotli_decompress(&compressed_binary);
+
+        assert_eq!(string_t.as_bytes(), decompressed_string);
+        assert_eq!(binary_t, decompressed_binary);
     }
 
 

@@ -1,11 +1,18 @@
 use std::io::Write;
+use std::string;
 
 use EZDB::client_networking;
 use criterion::{criterion_group, criterion_main, Criterion};
+use EZDB::compression::brotli_compress;
+use EZDB::compression::brotli_decompress;
+use EZDB::compression::miniz_compress;
+use EZDB::compression::miniz_decompress;
 use EZDB::db_structure::*;
 use EZDB::networking_utilities::*;
 use EZDB::client_networking::*;
 use rand::Rng;
+
+use EZDB::PATH_SEP;
 
 fn my_benchmark(c: &mut Criterion) {
 
@@ -40,7 +47,7 @@ fn my_benchmark(c: &mut Criterion) {
     // let password = "admin";
     // group.bench_function("upload_table", |b| b.iter(|| upload_table(address, username, password, "large_csv", &bench_csv)));
 
-    let input = std::fs::read_to_string("test_csv_from_google_sheets_combined_sorted.csv").unwrap();
+    let input = std::fs::read_to_string(format!("test_files{PATH_SEP}test_csv_from_google_sheets_combined_sorted.csv")).unwrap();
     let t = ColumnTable::from_csv_string(&input, "test", "test").unwrap();
     let bint_t = t.write_to_raw_binary();
     let string_t = t.to_string();
@@ -48,6 +55,16 @@ fn my_benchmark(c: &mut Criterion) {
     println!("string_t lent: {}", string_t.len());
     group.bench_function("binary", |b| b.iter(|| ColumnTable::read_raw_binary(&bint_t)));
     group.bench_function("csv", |b| b.iter(|| ColumnTable::from_csv_string(&string_t, "test", "test")));
+
+    group.bench_function("compress string miniz_oxide", |b| b.iter(|| miniz_compress(string_t.as_bytes(), 10)));
+    group.bench_function("compress string brotli", |b| b.iter(|| brotli_compress(string_t.as_bytes())));
+
+    let comp_mo_string_t = miniz_compress(string_t.as_bytes(), 10);
+    let comp_br_string_t = brotli_compress(string_t.as_bytes());
+
+    group.bench_function("decompress string miniz_oxide", |b| b.iter(|| miniz_decompress(&comp_mo_string_t)));
+    group.bench_function("decompress string brotli", |b| b.iter(|| brotli_decompress(&comp_br_string_t)));
+
 
     // StrictTable::from_csv_string
     // group.sample_size(10);
