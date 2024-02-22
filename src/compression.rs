@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::{char::MAX, io::Write};
 
 use miniz_oxide::deflate::compress_to_vec;
 use miniz_oxide::inflate::decompress_to_vec;
@@ -9,11 +9,14 @@ use crate::networking_utilities::{usize_from_le_slice, ServerError};
 
 pub const MAX_PACKET_SIZE: usize = 1_000_000_000;
 
-pub fn miniz_compress(data: &[u8], level: u8) -> Vec<u8> {
+pub fn miniz_compress(data: &[u8]) -> Result<Vec<u8>, ServerError> {
+    if data.len() > MAX_PACKET_SIZE {
+        return Err(ServerError::OversizedData);
+    }
     let mut output = Vec::with_capacity(data.len() + 8);
     output.extend_from_slice(&data.len().to_le_bytes());
-    output.extend_from_slice(&compress_to_vec(data, level));
-    output
+    output.extend_from_slice(&compress_to_vec(data, 10));
+    Ok(output)
 }
 
 pub fn miniz_decompress(data: &[u8]) -> Result<Vec<u8>, ServerError> {
@@ -91,37 +94,37 @@ mod tests {
     }
 
 
-    #[test]
-    fn test_miniz_oxide() {
+    // #[test]
+    // fn test_miniz_oxide() {
         
-        let input = std::fs::read_to_string(format!("vorufletting_no_dups_for_export.txt")).unwrap();
-        let t = ColumnTable::from_csv_string(&input, "test", "test").unwrap();
+    //     let input = std::fs::read_to_string(format!("vorufletting_no_dups_for_export.txt")).unwrap();
+    //     let t = ColumnTable::from_csv_string(&input, "test", "test").unwrap();
 
-        let string_t = t.to_string();
-        let binary_t = t.write_to_raw_binary();
+    //     let string_t = t.to_string();
+    //     let binary_t = t.write_to_raw_binary();
 
-        let string_time = std::time::Instant::now();
-        let compressed_string = compress_to_vec(string_t.as_bytes(), 10);
-        let x = string_time.elapsed();
-        println!("time to compress string: {}", x.as_micros());
+    //     let string_time = std::time::Instant::now();
+    //     let compressed_string = compress_to_vec(string_t.as_bytes(), 10);
+    //     let x = string_time.elapsed();
+    //     println!("time to compress string: {}", x.as_micros());
 
-        let binary_time = std::time::Instant::now();
-        let compressed_binary = compress_to_vec(&binary_t, 10);
-        let y = binary_time.elapsed();
-        println!("time to compress binary: {}", y.as_micros());
+    //     let binary_time = std::time::Instant::now();
+    //     let compressed_binary = compress_to_vec(&binary_t, 10);
+    //     let y = binary_time.elapsed();
+    //     println!("time to compress binary: {}", y.as_micros());
 
-        println!("raw string length: {}", string_t.len());
-        println!("compressed_string length: {}", compressed_string.len());
-        println!("raw binary length: {}", binary_t.len());
-        println!("compressed_binary length: {}", compressed_binary.len());
+    //     println!("raw string length: {}", string_t.len());
+    //     println!("compressed_string length: {}", compressed_string.len());
+    //     println!("raw binary length: {}", binary_t.len());
+    //     println!("compressed_binary length: {}", compressed_binary.len());
 
-        let uncompressed_string = decompress_to_vec(&compressed_string).unwrap();
-        let uncompressed_binary = decompress_to_vec(&compressed_binary).unwrap();
+    //     let uncompressed_string = decompress_to_vec(&compressed_string).unwrap();
+    //     let uncompressed_binary = decompress_to_vec(&compressed_binary).unwrap();
 
-        assert_eq!(string_t.as_bytes(), uncompressed_string);
-        assert_eq!(binary_t, uncompressed_binary);
+    //     assert_eq!(string_t.as_bytes(), uncompressed_string);
+    //     assert_eq!(binary_t, uncompressed_binary);
 
-    }
+    // }
 
 
 

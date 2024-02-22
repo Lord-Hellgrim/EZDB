@@ -56,10 +56,10 @@ fn my_benchmark(c: &mut Criterion) {
     group.bench_function("binary", |b| b.iter(|| ColumnTable::read_raw_binary(&bint_t)));
     group.bench_function("csv", |b| b.iter(|| ColumnTable::from_csv_string(&string_t, "test", "test")));
 
-    group.bench_function("compress string miniz_oxide", |b| b.iter(|| miniz_compress(string_t.as_bytes(), 10)));
+    group.bench_function("compress string miniz_oxide", |b| b.iter(|| miniz_compress(string_t.as_bytes())));
     group.bench_function("compress string brotli", |b| b.iter(|| brotli_compress(string_t.as_bytes())));
 
-    let comp_mo_string_t = miniz_compress(string_t.as_bytes(), 10);
+    let comp_mo_string_t = miniz_compress(string_t.as_bytes()).unwrap();
     let comp_br_string_t = brotli_compress(string_t.as_bytes());
 
     group.bench_function("decompress string miniz_oxide", |b| b.iter(|| miniz_decompress(&comp_mo_string_t)));
