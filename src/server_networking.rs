@@ -4,6 +4,7 @@ use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::str::{self};
 
+use aes_gcm::Key;
 use smartstring::{SmartString, LazyCompact};
 use x25519_dalek::{StaticSecret, PublicKey};
 
@@ -166,9 +167,11 @@ pub struct Server {
     users: HashMap<KeyString, User>,
 }
 
-impl Server {
-    pub fn init(address: &str) -> Result<Server, ServerError> {
-        println!("Starting server...\n###########################");
+
+pub fn run_server(address: &str) -> Result<(), ServerError> {
+    
+    // #################################### STARTUP SEQUENCE #############################################
+    println!("Starting server...\n###########################");
         let server_private_key = StaticSecret::random();
         let server_public_key = PublicKey::from(&server_private_key);
         
@@ -182,22 +185,15 @@ impl Server {
         let global_kv_table: Arc<Mutex<HashMap<KeyString, Value>>> = Arc::new(Mutex::new(HashMap::new()));
         let users: HashMap<KeyString, User> = HashMap::new();
 
-        Ok(
-            Server {
-                public_key: server_public_key,
-                private_key: server_private_key,
-                listener: l,
-                tables: global_tables,
-                kv_list: global_kv_table,
-                users: users,
-            }
-        )
-    }
-}
+        let mut server = Server {
+            public_key: server_public_key,
+            private_key: server_private_key,
+            listener: l,
+            tables: global_tables,
+            kv_list: global_kv_table,
+            users: users,
+        };
 
-
-pub fn run_server(mut server: Server) -> Result<(), ServerError> {
-    // #################################### STARTUP SEQUENCE #############################################
     
     println!("Reading users config into memory");
     if std::path::Path::new("EZconfig").is_dir() {
@@ -224,15 +220,10 @@ pub fn run_server(mut server: Server) -> Result<(), ServerError> {
         };
         match user_file.write_all(temp.as_bytes()) {
             Ok(_) => (),
-            Err(_) => panic!("failed to create config file. Server cannot run"),
+            Err(e) => panic!("failed to create config file. Server cannot run.\n\nError cause was:\n{e}"),
         };
-        for line in temp.lines() {
-            if line.as_bytes()[0] == b'#' {
-                continue
-            }
-            let temp_user: User = ron::from_str(line).unwrap();
-            server.users.insert(temp_user.username.clone(), temp_user);
-        }
+
+        server.users.insert(KeyString::from("admin"), User::admin("admin", "admin"));
     } 
 
     dbg!(&server.users);

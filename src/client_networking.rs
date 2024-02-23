@@ -73,10 +73,7 @@ pub fn update_table(address: &str, username: &str, password: &str, table_name: &
         Err(e) => return Err(e),
     };
 
-    // The reason for the +28 in the length checker is that it accounts for the length of the nonce (IV) and the authentication tag
-    // in the aes-gcm encryption. The nonce is 12 bytes and the auth tag is 16 bytes
-    let data_len = (csv.len() + 28).to_string();
-    if confirmation == data_len {
+    if confirmation == "OK" {
         println!("Confirmation from server: {}", confirmation);
         return Ok("OK".to_owned());
     } else {
@@ -127,10 +124,7 @@ pub fn kv_upload(address: &str, username: &str, password: &str, key: &str, value
     };
     println!("value uploaded successfully");
 
-    // The reason for the +28 in the length checker is that it accounts for the length of the nonce (IV) and the authentication tag
-    // in the aes-gcm encryption. The nonce is 12 bytes and the auth tag is 16 bytes
-    let data_len = (value.len() + 28).to_string();
-    if confirmation == data_len {
+    if confirmation == "OK" {
         return Ok(());
     } else {
         return Err(ServerError::Confirmation(confirmation));

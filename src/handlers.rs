@@ -1,11 +1,16 @@
-use std::{sync::{Arc, Mutex}, collections::HashMap, io::Write};
+use std::{collections::HashMap, io::Write, ops::Range, sync::{Arc, Mutex}};
 
 use crate::{networking_utilities::*, db_structure::{ColumnTable, Value}, auth::User};
+
+use crate::db_structure::{Query, Test, Condition, RangeOrList};
 
 use smartstring::{SmartString, LazyCompact};
 use crate::PATH_SEP;
 
 pub type KeyString = SmartString<LazyCompact>;
+
+
+
 
 
 
@@ -120,8 +125,6 @@ pub fn handle_query_request(connection: &mut Connection, name: &str, query: &str
     };
     connection.stream.flush()?;
 
-
-    
     let mutex_binding = global_tables.lock().unwrap();
     let requested_table = mutex_binding.get(name).expect("Instruction parser should have verified table");
     // PARSE INSTRUCTION
@@ -377,6 +380,167 @@ pub fn handle_meta_list_key_values(connection: &mut Connection, global_kv_table:
         return Ok(())
     } else {
         return Err(ServerError::Confirmation(response))
+    }
+
+}
+
+
+/*
+    EZQL spec
+    Special reserved characters are
+    ; : , ".."
+    You cannot use these in the table header or in the names of primary keys
+
+    [list or range of primary keys (* for all items)];
+    [attribute to test]: [test to apply], [what to test against];
+    [another (or same) attribute]: [different test], [different bar];
+
+    White space next to separator characters ; : and , is ignored
+
+    example1:
+    0113000..18572054;
+    price: less, 500;
+    in_stock: greater, 100;
+    location: equals, lag15;
+
+    example2:
+    0113000, 0113034, 0113035, 0113500;
+    price: less, 500;
+    price: greater, 200;
+    location: equals, lag15;
+
+    Supported tests are (soon to be): equals, less, greater, starts, ends, contains
+*/
+
+
+impl From<&str> for Test {
+    fn from(input: &str) -> Self {
+        match input {
+            "equals" => Test::Equals,
+            "less" => Test::Less,
+            "greater" => Test::Greater,
+            "starts" => Test::Starts,
+            "ends" => Test::Ends,
+            "contains" => Test::Contains,
+            _ => todo!(),
+        }
+    }
+}
+
+pub fn parse_query(query: &str) -> Result<Query, ServerError> {
+
+    let mut output = Query {
+        primary_keys: RangeOrList::List(Vec::new()),
+        conditions: Vec::new(),
+    };
+
+    let mut split_query = query.split(';');
+    let items_to_test = match split_query.next() {
+        Some(x) => x.trim(),
+        None => return Err(ServerError::Query),
+    };
+
+    match items_to_test.find("..") {
+        Some(_) => {
+            let mut temp_split = items_to_test.split("..");
+            let start = match temp_split.next() {
+                Some(x) => x.trim(),
+                None => return Err(ServerError::Query),
+            };
+            let stop = match temp_split.next() {
+                Some(x) => x.trim(),
+                None => return Err(ServerError::Query),
+            };
+            output.primary_keys = RangeOrList::Range([KeyString::from(start), KeyString::from(stop)]);
+        },
+        None => {
+            let list: Vec<KeyString> = items_to_test.split(',').map(|x| KeyString::from(x.trim())).collect();
+            output.primary_keys = RangeOrList::List(list);
+        },
+    };
+
+    println!("PK's: {}", items_to_test);
+
+    let conditions: Vec<&str> = split_query.map(|x| x.trim()).collect();
+
+    let mut tests = Vec::with_capacity(conditions.len());
+    for condition in &conditions {
+        let mut split = condition.split(':');
+        let attribute = match split.next() {
+            Some(x) => x.trim(),
+            None => return Err(ServerError::Query),
+        };
+
+        let test_bar = match split.next() {
+            Some(x) => x.trim(),
+            None => return Err(ServerError::Query),
+        };
+
+        let mut test_bar_split = test_bar.split(',');
+
+        let test = match test_bar_split.next() {
+            Some(x) => x.trim(),
+            None => return Err(ServerError::Query),
+        };
+
+        println!("test: {}", test);
+
+        let bar = match test_bar_split.next() {
+            Some(x) => x.trim(),
+            None => return Err(ServerError::Query),
+        };
+
+        let t = Condition {
+            attribute: KeyString::from(attribute),
+            test: Test::from(test),
+            bar: KeyString::from(bar),
+        };
+
+        tests.push(t);
+    }
+
+    output.conditions = tests;
+
+    Ok(output)
+}
+
+#[cfg(test)]
+
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn test_parse_query() {
+        let query = "0113000, 0113034, 0113035, 0113500;
+        price: less, 500;
+        price: greater, 200;
+        location: equals, lag15";
+        let query = parse_query(query).unwrap();
+
+        let test_query = Query {
+            primary_keys: RangeOrList::List(vec![KeyString::from("0113000"), KeyString::from("0113034"), KeyString::from("0113035"), KeyString::from("0113500")]),
+            conditions: vec![
+                Condition {
+                    attribute: KeyString::from("price"),
+                    test: Test::Less,
+                    bar: KeyString::from("500"),
+                },
+                Condition {
+                    attribute: KeyString::from("price"),
+                    test: Test::Greater,
+                    bar: KeyString::from("200"),
+                },
+                Condition {
+                    attribute: KeyString::from("location"),
+                    test: Test::Equals,
+                    bar: KeyString::from("lag15"),
+                },
+            ]
+        };
+
+        assert_eq!(query, test_query);
+        dbg!(query);
     }
 
 }

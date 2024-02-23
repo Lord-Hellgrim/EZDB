@@ -25,6 +25,7 @@ pub enum StrictError {
     WrongKey,
     NonUniquePrimaryKey(usize),
     BinaryRead(String),
+    Query(String),
 }
 
 impl fmt::Display for StrictError {
@@ -45,6 +46,7 @@ impl fmt::Display for StrictError {
             StrictError::WrongKey => write!(f, "The type of the primary key is wrong"),
             StrictError::NonUniquePrimaryKey(i) => write!(f, "The primary key at position {i} in the sorted table is repeated"),
             StrictError::BinaryRead(s) => write!(f, "{}", s),
+            StrictError::Query(s) => write!(f, "Query item {s} is incorrectly formatted"),
         }
     }
 }
@@ -131,6 +133,37 @@ pub enum TableKey {
     Primary,
     None,
     Foreign,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+
+pub struct Query {
+    pub primary_keys: RangeOrList,
+    pub conditions: Vec<Condition>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum RangeOrList {
+    Range([KeyString;2]),
+    List(Vec<KeyString>),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Condition {
+    pub attribute: KeyString,
+    pub test: Test,
+    pub bar: KeyString,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Test {
+    Equals,
+    Less,
+    Greater,
+    Starts,
+    Ends,
+    Contains,
+    //Closure,   could you imagine?
 }
 
 #[derive(Clone, Debug)]
@@ -530,6 +563,36 @@ impl ColumnTable {
         });
     }
 
+    pub fn get_line(&self, index: usize) -> Result<String, StrictError> {
+        
+        if index > self.len() {
+            return Err(StrictError::Query("Index larger than data".to_owned()))
+        }
+
+        let mut output = String::new();
+        for v in &self.table {
+            match v {
+                DbVec::Floats(col) => {
+                    let item = col[index];
+                    output.push_str(&item.to_string());
+                },
+                DbVec::Ints(col) => {
+                    let item = col[index];
+                    output.push_str(&item.to_string());
+                },
+                DbVec::Texts(col) => {
+                    let item = &col[index];
+                    output.push_str(item);
+                },
+            }
+
+            output.push(';');
+        }
+        output.pop();
+
+        Ok(output)
+    }
+
     pub fn query_list(&self, mut key_list: Vec<&str>) -> Result<String, StrictError> {
         let mut printer = String::new();
         let primary_index = self.get_primary_key_col_index();
@@ -662,6 +725,258 @@ impl ColumnTable {
 
     pub fn query(&self, query: &str) -> Result<String, StrictError> {
         self.query_list(Vec::from([query]))
+    }
+
+    pub fn complex_query(&self, mut query: Query) -> Result<String, StrictError> {
+
+        let pk_index = self.get_primary_key_col_index();
+
+        let mut indexes = Vec::new();
+        let mut keepers = Vec::new();
+
+        match &self.table[pk_index] {
+            DbVec::Ints(col) => {
+                match query.primary_keys {
+                    RangeOrList::List(list) => {
+
+                        let mut int_list = Vec::with_capacity(list.len());
+                        for item in &list {
+                            let temp = match item.parse::<i32>() {
+                                Ok(x) => x,
+                                Err(_) => return Err(StrictError::Query(item.to_string())),
+                            };
+                            int_list.push(temp);
+                        }
+                        int_list.sort();
+
+                        for item in int_list {
+                            match col.binary_search(&item) {
+                                Ok(i) => indexes.push(i),
+                                Err(_) => break,
+                            };
+                        }
+                    },
+                    RangeOrList::Range(range) => {
+                        let range0 = match range[0].parse::<i32>() {
+                            Ok(x) => x,
+                            Err(e) => return Err(StrictError::Query(format!("Could not parse '{}' as a i32", range[0]))),
+                        };
+                        let range1 = match range[1].parse::<i32>() {
+                            Ok(x) => x,
+                            Err(e) => return Err(StrictError::Query(format!("Could not parse '{}' as a i32", range[1]))),
+                        };
+                        let start = col.binary_search(&range0).unwrap_or(0);
+                        let stop = col.binary_search(&range1).unwrap_or(col.len());
+
+                        indexes = (start..stop).collect();
+                        
+                    },
+                };
+            },
+            DbVec::Texts(col) => {
+                match query.primary_keys {
+                    RangeOrList::List(list) => {
+
+                        let mut text_list = Vec::with_capacity(list.len());
+                        for item in &list {
+                            text_list.push(item);
+//  ######################################## YOU ARE HERE ###########################################################
+                        }
+                        text_list.sort();
+
+                        for item in text_list {
+                            match col.binary_search(&item) {
+                                Ok(i) => indexes.push(i),
+                                Err(_) => break,
+                            };
+                        }
+                    },
+                    RangeOrList::Range(range) => {
+                        
+                        let start = col.binary_search(&range[0]).unwrap_or(0);
+                        let stop = col.binary_search(&range[1]).unwrap_or(col.len());
+
+                        indexes = (start..stop).collect();
+                        
+                    },
+                };
+            },
+            DbVec::Floats(col) => unreachable!("Should never have a float primary key"),
+        }
+
+        for index in indexes {
+            for condition in &query.conditions {
+                let col_index = match self.header.iter().position(|x| x.name == condition.attribute) {
+                    Some(x) => x,
+                    None => return Err(StrictError::Query(format!("Queried table does not have attribute {}", condition.attribute)))
+                };
+
+                match condition.test {
+
+                    Test::Contains => {
+                        match &self.table[col_index] {
+                            DbVec::Floats(_) => {
+                                return Err(StrictError::Query(format!("Cannot apply a 'contains' test on floats")))
+                            },
+                            DbVec::Ints(_) => {
+                                return Err(StrictError::Query(format!("Cannot apply a 'contains' test on ints")))
+                            },
+                            DbVec::Texts(col) => {
+                                let bar = &condition.bar;
+                                if col[index].contains(&bar.to_string()) {
+                                    keepers.push(index);
+                                } else {
+                                    continue;
+                                }
+                            },
+                        }
+                    },
+
+                    Test::Ends => {
+                        match &self.table[col_index] {
+                            DbVec::Floats(_) => {
+                                return Err(StrictError::Query(format!("Cannot apply a 'ends' test on floats")))
+                            },
+                            DbVec::Ints(_) => {
+                                return Err(StrictError::Query(format!("Cannot apply a 'ends' test on ints")))
+                            },
+                            DbVec::Texts(col) => {
+                                let bar = &condition.bar;
+                                if col[index].ends_with(&bar.to_string()) {
+                                    keepers.push(index);
+                                } else {
+                                    continue;
+                                }
+                            },
+                        }
+                    },
+
+                    Test::Equals => {
+                        match &self.table[col_index] {
+                            DbVec::Floats(col) => {
+                                let bar = match condition.bar.parse::<f32>() {
+                                    Ok(n) => n,
+                                    Err(_) => return Err(StrictError::Query(format!("Could not parse '{}' as an f32", condition.bar).to_owned()))
+                                };
+                                if col[index] == bar {
+                                    keepers.push(index);
+                                } else {
+                                    continue;
+                                }
+                            },
+                            DbVec::Ints(col) => {
+                                let bar = match condition.bar.parse::<i32>() {
+                                    Ok(n) => n,
+                                    Err(_) => return Err(StrictError::Query(format!("Could not parse '{}' as an i32", condition.bar).to_owned()))
+                                };
+                                if col[index] == bar {
+                                    keepers.push(index);
+                                } else {
+                                    continue;
+                                }
+                            },
+                            DbVec::Texts(col) => {
+                                let bar = &condition.bar;
+                                if col[index] == *bar {
+                                    keepers.push(index);
+                                } else {
+                                    continue;
+                                }
+                            },
+                        }
+                    },
+
+                    Test::Greater => {
+                        match &self.table[col_index] {
+                            DbVec::Floats(col) => {
+                                let bar = match condition.bar.parse::<f32>() {
+                                    Ok(n) => n,
+                                    Err(_) => return Err(StrictError::Query(format!("Could not parse '{}' as an f32", condition.bar).to_owned()))
+                                };
+                                if col[index] > bar {
+                                    keepers.push(index);
+                                } else {
+                                    continue;
+                                }
+                            },
+                            DbVec::Ints(col) => {
+                                let bar = match condition.bar.parse::<i32>() {
+                                    Ok(n) => n,
+                                    Err(_) => return Err(StrictError::Query(format!("Could not parse '{}' as an i32", condition.bar).to_owned()))
+                                };
+                                if col[index] > bar {
+                                    keepers.push(index);
+                                } else {
+                                    continue;
+                                }
+                            },
+                            DbVec::Texts(col) => {
+                                let bar = &condition.bar;
+                                if col[index] > *bar {
+                                    keepers.push(index);
+                                } else {
+                                    continue;
+                                }
+                            },
+                        }
+                    },
+
+                    Test::Less => {match &self.table[col_index] {
+                        DbVec::Floats(col) => {
+                            let bar = match condition.bar.parse::<f32>() {
+                                Ok(n) => n,
+                                Err(_) => return Err(StrictError::Query(format!("Could not parse '{}' as an f32", condition.bar).to_owned()))
+                            };
+                            if col[index] < bar {
+                                keepers.push(index);
+                            } else {
+                                continue;
+                            }
+                        },
+                        DbVec::Ints(col) => {
+                            let bar = match condition.bar.parse::<i32>() {
+                                Ok(n) => n,
+                                Err(_) => return Err(StrictError::Query(format!("Could not parse '{}' as an i32", condition.bar).to_owned()))
+                            };
+                            if col[index] < bar {
+                                keepers.push(index);
+                            } else {
+                                continue;
+                            }
+                        },
+                        DbVec::Texts(col) => {
+                            let bar = &condition.bar;
+                            if col[index] < *bar {
+                                keepers.push(index);
+                            } else {
+                                continue;
+                            }
+                        },
+                    }},
+
+                    Test::Starts => {
+                        match &self.table[col_index] {
+                            DbVec::Floats(_) => {
+                                return Err(StrictError::Query(format!("Cannot apply a 'ends' test on floats")))
+                            },
+                            DbVec::Ints(_) => {
+                                return Err(StrictError::Query(format!("Cannot apply a 'ends' test on ints")))
+                            },
+                            DbVec::Texts(col) => {
+                                let bar = &condition.bar;
+                                if col[index].starts_with(&bar.to_string()) {
+                                    keepers.push(index);
+                                } else {
+                                    continue;
+                                }
+                            },
+                        }
+                    },
+                };
+            }
+        }
+
+        todo!();
     }
 
     pub fn delete_range(&mut self, range: (&str, &str)) -> Result<(), StrictError> {
