@@ -804,6 +804,9 @@ impl ColumnTable {
         let mut keepers = Vec::with_capacity(indexes.len());
 
         for index in indexes {
+
+            let mut pass = true;
+
             for condition in &query.conditions {
                 let col_index = match self.header.iter().position(|x| x.name == condition.attribute) {
                     Some(x) => x,
@@ -811,7 +814,6 @@ impl ColumnTable {
                 };
 
                 match condition.test {
-
                     Test::Contains => {
                         match &self.table[col_index] {
                             DbVec::Floats(_) => {
@@ -823,9 +825,9 @@ impl ColumnTable {
                             DbVec::Texts(col) => {
                                 let bar = &condition.bar;
                                 if col[index].contains(&bar.to_string()) {
-                                    keepers.push(index);
-                                } else {
                                     continue;
+                                } else {
+                                    pass = false;
                                 }
                             },
                         }
@@ -842,9 +844,9 @@ impl ColumnTable {
                             DbVec::Texts(col) => {
                                 let bar = &condition.bar;
                                 if col[index].ends_with(&bar.to_string()) {
-                                    keepers.push(index);
-                                } else {
                                     continue;
+                                } else {
+                                    pass = false;
                                 }
                             },
                         }
@@ -858,9 +860,9 @@ impl ColumnTable {
                                     Err(_) => return Err(StrictError::Query(format!("Could not parse '{}' as an f32", condition.bar).to_owned()))
                                 };
                                 if col[index] == bar {
-                                    keepers.push(index);
-                                } else {
                                     continue;
+                                } else {
+                                    pass = false;
                                 }
                             },
                             DbVec::Ints(col) => {
@@ -869,17 +871,17 @@ impl ColumnTable {
                                     Err(_) => return Err(StrictError::Query(format!("Could not parse '{}' as an i32", condition.bar).to_owned()))
                                 };
                                 if col[index] == bar {
-                                    keepers.push(index);
-                                } else {
                                     continue;
+                                } else {
+                                    pass = false;
                                 }
                             },
                             DbVec::Texts(col) => {
                                 let bar = &condition.bar;
                                 if col[index] == *bar {
-                                    keepers.push(index);
-                                } else {
                                     continue;
+                                } else {
+                                    pass = false;
                                 }
                             },
                         }
@@ -893,9 +895,9 @@ impl ColumnTable {
                                     Err(_) => return Err(StrictError::Query(format!("Could not parse '{}' as an f32", condition.bar).to_owned()))
                                 };
                                 if col[index] > bar {
-                                    keepers.push(index);
-                                } else {
                                     continue;
+                                } else {
+                                    pass = false;
                                 }
                             },
                             DbVec::Ints(col) => {
@@ -904,17 +906,17 @@ impl ColumnTable {
                                     Err(_) => return Err(StrictError::Query(format!("Could not parse '{}' as an i32", condition.bar).to_owned()))
                                 };
                                 if col[index] > bar {
-                                    keepers.push(index);
-                                } else {
                                     continue;
+                                } else {
+                                    pass = false;
                                 }
                             },
                             DbVec::Texts(col) => {
                                 let bar = &condition.bar;
                                 if col[index] > *bar {
-                                    keepers.push(index);
-                                } else {
                                     continue;
+                                } else {
+                                    pass = false;
                                 }
                             },
                         }
@@ -927,9 +929,9 @@ impl ColumnTable {
                                 Err(_) => return Err(StrictError::Query(format!("Could not parse '{}' as an f32", condition.bar).to_owned()))
                             };
                             if col[index] < bar {
-                                keepers.push(index);
-                            } else {
                                 continue;
+                            } else {
+                                pass = false;
                             }
                         },
                         DbVec::Ints(col) => {
@@ -938,17 +940,17 @@ impl ColumnTable {
                                 Err(_) => return Err(StrictError::Query(format!("Could not parse '{}' as an i32", condition.bar).to_owned()))
                             };
                             if col[index] < bar {
-                                keepers.push(index);
-                            } else {
                                 continue;
+                            } else {
+                                pass = false;
                             }
                         },
                         DbVec::Texts(col) => {
                             let bar = &condition.bar;
                             if col[index] < *bar {
-                                keepers.push(index);
-                            } else {
                                 continue;
+                            } else {
+                                pass = false;
                             }
                         },
                     }},
@@ -964,15 +966,18 @@ impl ColumnTable {
                             DbVec::Texts(col) => {
                                 let bar = &condition.bar;
                                 if col[index].starts_with(&bar.to_string()) {
-                                    keepers.push(index);
-                                } else {
                                     continue;
+                                } else {
+                                    pass = false;
                                 }
                             },
                         }
                     },
                 }; // match condition.test
             } // for condition in query.conditions {
+            if pass {
+                keepers.push(index);
+            }
         }  // Generating keepers
 
         let mut output = String::new();
@@ -981,6 +986,7 @@ impl ColumnTable {
             output.push_str(&self.get_line(keeper).unwrap()); // should be safe to unwrap since the keepers are generated from self
             output.push('\n');
         }
+        output.pop();
 
         Ok(output)
     }
@@ -1648,6 +1654,10 @@ mod tests {
         let output = t.complex_query(query).unwrap();
         println!("output: {}", output);
 
+        assert_eq!(output, "803;name39;34;lag45");
+
+        println!();
+
         let query = Query {
             primary_keys: RangeOrListorAll::All,
             conditions: vec![
@@ -1656,11 +1666,23 @@ mod tests {
                     test: Test::Less,
                     bar: KeyString::from("50"),
                 },
+                Condition {
+                    attribute: KeyString::from("lager"),
+                    test: Test::Ends,
+                    bar: KeyString::from("15"),
+                },
+                Condition {
+                    attribute: KeyString::from("magn"),
+                    test: Test::Greater,
+                    bar: KeyString::from("40"),
+                },
             ]
         };
 
         let output = t.complex_query(query).unwrap();
-        println!("output: {}", output);
+        println!("{}", output);
+
+        assert_eq!(output, "5784;name5;41;lag15\n7582;name25;49;lag15");
 
     }
 }
