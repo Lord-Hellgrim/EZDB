@@ -18,7 +18,7 @@ use crate::handlers::*;
 
 pub const CONFIG_FOLDER: &str = "EZconfig/";
 
-
+/// Parses the inctructions sent by the client. Will be rewritten soon to accomodate EZQL
 pub fn parse_instruction(instructions: &[u8], users: Arc<Mutex<HashMap<KeyString, User>>>, global_tables: Arc<Mutex<HashMap<KeyString, ColumnTable>>>, global_kv_table: Arc<Mutex<HashMap<KeyString, Value>>>, aes_key: &[u8]) -> Result<Instruction, ServerError> {
 
     println!("Decrypting instructions");
@@ -157,7 +157,8 @@ pub fn parse_instruction(instructions: &[u8], users: Arc<Mutex<HashMap<KeyString
     }
 }
 
-
+/// The struct that carries data relevant to the running server. 
+/// Am trying to think of ways to reduce reliance on Arc<Mutex<T>>
 pub struct Server {
     public_key: PublicKey,
     private_key: StaticSecret,
@@ -167,7 +168,9 @@ pub struct Server {
     users: HashMap<KeyString, User>,
 }
 
-
+/// The main loop of the server. Checks for incoming connections, parses their instructions, and handles them
+/// Also writes tables to disk in a super primitive way. Basically a separate thread writes all the tables to disk
+/// every 10 seconds. This will be improved but I would appreciate some advice here.
 pub fn run_server(address: &str) -> Result<(), ServerError> {
     
     // #################################### STARTUP SEQUENCE #############################################

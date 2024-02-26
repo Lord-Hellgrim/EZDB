@@ -21,7 +21,7 @@ pub const INSTRUCTION_LENGTH: usize = 4;
 pub const MAX_DATA_LEN: usize = u32::MAX as usize;
 
 
-
+/// The main error of all networking. Any error that can occur during a networking function should be covered here.
 #[derive(Debug)]
 pub enum ServerError {
     Utf8(Utf8Error),
@@ -99,6 +99,8 @@ impl From<ParseIntError> for ServerError {
     }
 }
 
+/// An enum that lists the possible instructions that the database can receive.
+/// Will be rewritten soon to handle EZQL.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Instruction {
     Upload(String),
@@ -114,6 +116,7 @@ pub enum Instruction {
     MetaListKeyValues,
 }
 
+/// An error that happens during instruction parsing.
 #[derive(Debug, PartialEq, Clone)]
 pub enum InstructionError {
     Invalid(String),
@@ -140,7 +143,7 @@ impl From<Utf8Error> for InstructionError {
     }
 }
 
-
+/// A connection to a peer. The client side uses the same struct.
 pub struct Connection {
     pub stream: TcpStream,
     pub user: String,
@@ -148,6 +151,7 @@ pub struct Connection {
 }
 
 impl Connection {
+    /// Initialize a connection. This means doing diffie hellman key exchange and establishing a shared secret
     pub fn connect(address: &str, username: &str, password: &str) -> Result<Connection, ServerError> {
 
         if username.len() > 512 || password.len() > 512 {
@@ -197,14 +201,16 @@ impl Connection {
     }
 }
 
-
+/// Just a blake3 hash.
+#[inline]
 pub fn blake3_hash(s: &[u8]) -> [u8;32]{
 
     blake3::hash(s).into()
 
 }
 
-
+/// Gets the current time as seconds since UNIX_EPOCH. Used for logging, mostly.
+#[inline]
 pub fn get_current_time() -> u64 {
 
     std::time::SystemTime::now()
@@ -213,6 +219,7 @@ pub fn get_current_time() -> u64 {
         .as_secs()
 }
 
+/// Count cycles for benchmarking
 #[inline(always)]
 pub fn rdtsc() -> u64 {
     let lo: u32;
@@ -223,6 +230,7 @@ pub fn rdtsc() -> u64 {
     ((hi as u64) << 32) | (lo as u64)
 }
 
+/// Incredibly convoluted way to print the current date. Copied from StackOverflow
 pub fn time_print(s: &str, cycles: u64) {
     let num = cycles.to_string()
     .as_bytes()
@@ -246,10 +254,7 @@ pub fn time_print(s: &str, cycles: u64) {
 }
 
 
-
-
-
-//Removes the trailing 0 bytes from a str created from a byte buffer
+/// Removes the trailing 0 bytes from a str created from a byte buffer
 pub fn bytes_to_str(bytes: &[u8]) -> Result<&str, Utf8Error> {
     let mut index: usize = 0;
     let len = bytes.len();
@@ -283,17 +288,14 @@ pub fn bytes_to_str(bytes: &[u8]) -> Result<&str, Utf8Error> {
     str::from_utf8(&bytes[start..stop])
 }
 
-
+/// Parses any 8 byte slice as a usize.
+#[inline]
 pub fn bytes_to_usize(bytes: [u8; 8]) -> usize {
-    let mut value: usize = 0;
-
-    for &byte in bytes.iter() {
-        value = (value << 8) | (byte as usize);
-    }
-
-    value
+    
+    std::primitive::usize::from_le_bytes(bytes)
 }
 
+/// Encodes a byte slice as a hexadecimal String
 pub fn encode_hex(bytes: &[u8]) -> String {
     let mut s = String::new();
     for &b in bytes {
@@ -302,6 +304,7 @@ pub fn encode_hex(bytes: &[u8]) -> String {
     s
 }
 
+/// Decodes a hexadecimal String as a byte slice.
 pub fn decode_hex(s: &str) -> Result<Vec<u8>, ParseIntError> {
     // println!("s.len(): {}", s.len());
     (0..s.len())
@@ -310,12 +313,12 @@ pub fn decode_hex(s: &str) -> Result<Vec<u8>, ParseIntError> {
         .collect()
 }
 
-
+/// Just a blake3 hash
 pub fn hash_function(a: &str) -> [u8;32] {
     blake3::hash(a.as_bytes()).into()
 }
 
-
+/// Creates a i32 from a &[u8] of length 4. Panics if len is different than 4. 
 #[inline]
 pub fn i32_from_le_slice(slice: &[u8]) -> i32 {
     assert!(slice.len() == 4);
@@ -323,6 +326,7 @@ pub fn i32_from_le_slice(slice: &[u8]) -> i32 {
     i32::from_le_bytes(l)
 }
 
+/// Creates a u32 from a &[u8] of length 4. Panics if len is different than 4.
 #[inline]
 pub fn u32_from_le_slice(slice: &[u8]) -> u32 {
     assert!(slice.len() == 4);
@@ -330,6 +334,7 @@ pub fn u32_from_le_slice(slice: &[u8]) -> u32 {
     u32::from_le_bytes(l)
 }
 
+/// Creates a u32 from a &[u8] of length 4. Panics if len is different than 4.
 #[inline]
 pub fn f32_from_le_slice(slice: &[u8]) -> f32 {   
     assert!(slice.len() == 4);
@@ -337,6 +342,7 @@ pub fn f32_from_le_slice(slice: &[u8]) -> f32 {
     f32::from_le_bytes(l)
 }
 
+/// Creates a usize from a &[u8] of length 8. Panics if len is different than 8.
 #[inline]
 pub fn usize_from_le_slice(slice: &[u8]) -> usize {   
     assert!(slice.len() == 8);
@@ -344,13 +350,7 @@ pub fn usize_from_le_slice(slice: &[u8]) -> usize {
     usize::from_le_bytes(l)
 }
 
-
-
-
-
-
-
-
+/// This is a utility function that sends an instruction from the client to the server and returns the servers answer.
 pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut Connection) -> Result<String, ServerError> {
 
     let instruction = match instruction {
@@ -397,7 +397,8 @@ pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut C
     
 }
 
-
+/// Helper function that parses a response from instruction_send_and_confirm().
+#[inline]
 pub fn parse_response(response: &str, username: &str, table_name: &str) -> Result<(), ServerError> {
 
     if response == "OK" {
@@ -414,7 +415,9 @@ pub fn parse_response(response: &str, username: &str, table_name: &str) -> Resul
 
 }
 
-
+/// This is the function primarily responsible for transmitting data.
+/// It compresses, encrypts, sends, and confirms receipt of the data.
+/// Used by both client and server.
 pub fn data_send_and_confirm(connection: &mut Connection, data: &[u8]) -> Result<String, ServerError> {
 
     // // println!("data: {:x?}", data);
@@ -449,7 +452,9 @@ pub fn data_send_and_confirm(connection: &mut Connection, data: &[u8]) -> Result
 
 }
 
-
+/// This is the function primarily responsible for receiving data.
+/// It receives, decompresses, decrypts, and confirms receipt of the data.
+/// Used by both client and server.
 pub fn receive_data(connection: &mut Connection) -> Result<Vec<u8>, ServerError> {
 
     let mut size_buffer: [u8; 8] = [0; 8];

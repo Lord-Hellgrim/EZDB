@@ -3,8 +3,8 @@ use std::string;
 
 use EZDB::client_networking;
 use criterion::{criterion_group, criterion_main, Criterion};
-use EZDB::compression::brotli_compress;
-use EZDB::compression::brotli_decompress;
+// use EZDB::compression::brotli_compress;
+// use EZDB::compression::brotli_decompress;
 use EZDB::compression::miniz_compress;
 use EZDB::compression::miniz_decompress;
 use EZDB::db_structure::*;
@@ -57,13 +57,13 @@ fn my_benchmark(c: &mut Criterion) {
     group.bench_function("csv", |b| b.iter(|| ColumnTable::from_csv_string(&string_t, "test", "test")));
 
     group.bench_function("compress string miniz_oxide", |b| b.iter(|| miniz_compress(string_t.as_bytes())));
-    group.bench_function("compress string brotli", |b| b.iter(|| brotli_compress(string_t.as_bytes())));
+    // group.bench_function("compress string brotli", |b| b.iter(|| brotli_compress(string_t.as_bytes())));
 
     let comp_mo_string_t = miniz_compress(string_t.as_bytes()).unwrap();
-    let comp_br_string_t = brotli_compress(string_t.as_bytes());
+    // let comp_br_string_t = brotli_compress(string_t.as_bytes());
 
     group.bench_function("decompress string miniz_oxide", |b| b.iter(|| miniz_decompress(&comp_mo_string_t)));
-    group.bench_function("decompress string brotli", |b| b.iter(|| brotli_decompress(&comp_br_string_t)));
+    // group.bench_function("decompress string brotli", |b| b.iter(|| brotli_decompress(&comp_br_string_t)));
 
 
     // StrictTable::from_csv_string

@@ -7,8 +7,11 @@ use brotli::{self, CompressorWriter, DecompressorWriter};
 
 use crate::networking_utilities::{usize_from_le_slice, ServerError};
 
+/// The maximum size of a package that will be processed in one transmission
 pub const MAX_PACKET_SIZE: usize = 1_000_000_000;
 
+/// Compresses a byte slice with miniz_oxide
+/// Puts the uncompressed size of the package as a usize in the first 8 bytes
 pub fn miniz_compress(data: &[u8]) -> Result<Vec<u8>, ServerError> {
     if data.len() > MAX_PACKET_SIZE {
         return Err(ServerError::OversizedData);
@@ -19,38 +22,39 @@ pub fn miniz_compress(data: &[u8]) -> Result<Vec<u8>, ServerError> {
     Ok(output)
 }
 
+/// decompresses a byte slice that was compressed with miniz_oxide
+/// checks to see if decompressed size will be more than 1gb
 pub fn miniz_decompress(data: &[u8]) -> Result<Vec<u8>, ServerError> {
     let len = usize_from_le_slice(&data[0..8]);
     if len > MAX_PACKET_SIZE {
-        return Err(ServerError::OversizedData)
+        return Err(ServerError::OversizedData);
     }
     match decompress_to_vec(&data[8..]) {
         Ok(result) => Ok(result),
         Err(e) => {
             println!("failed to decompress because {e}");
             Err(ServerError::Decompression(e))
-        },
+        }
     }
 }
 
-pub fn brotli_compress(data: &[u8]) -> Vec<u8> {
-    let mut compressed_data = Vec::new();
-        {
-            let mut compressor = CompressorWriter::new(&mut compressed_data, 4096, 11, 22);
-            compressor.write_all(data).unwrap();
-        }
-    compressed_data
-}
-
-pub fn brotli_decompress(data: &[u8]) -> Vec<u8> {
-    let mut decompressed_data = Vec::new();
-        {
-            let mut decompressor = DecompressorWriter::new(&mut decompressed_data, 4096);
-            decompressor.write_all(data).unwrap();
-        }
-    decompressed_data
-}
-
+// pub fn brotli_compress(data: &[u8]) -> Vec<u8> {
+//     let mut compressed_data = Vec::new();
+//         {
+//             let mut compressor = CompressorWriter::new(&mut compressed_data, 4096, 11, 22);
+//             compressor.write_all(data).unwrap();
+//         }
+//     compressed_data
+// }
+//
+// pub fn brotli_decompress(data: &[u8]) -> Vec<u8> {
+//     let mut decompressed_data = Vec::new();
+//         {
+//             let mut decompressor = DecompressorWriter::new(&mut decompressed_data, 4096);
+//             decompressor.write_all(data).unwrap();
+//         }
+//     decompressed_data
+// }
 
 #[cfg(test)]
 mod tests {
@@ -68,35 +72,35 @@ mod tests {
 
     use brotli::{self, CompressorWriter};
 
+    // #[test]
+    // fn test_brotli() {
+    //     let input = std::fs::read_to_string(format!(
+    //         "test_files{PATH_SEP}test_csv_from_google_sheets_combined_sorted.csv"
+    //     ))
+    //     .unwrap();
+    //     let t = ColumnTable::from_csv_string(&input, "test", "test").unwrap();
 
-    #[test]
-    fn test_brotli() {
+    //     let string_t = t.to_string();
+    //     let binary_t = t.write_to_raw_binary();
 
-        let input = std::fs::read_to_string(format!("test_files{PATH_SEP}test_csv_from_google_sheets_combined_sorted.csv")).unwrap();
-        let t = ColumnTable::from_csv_string(&input, "test", "test").unwrap();
+    //     let compressed_string = brotli_compress(string_t.as_bytes());
 
-        let string_t = t.to_string();
-        let binary_t = t.write_to_raw_binary();
+    //     let compressed_binary = brotli_compress(&binary_t);
 
-        let compressed_string = brotli_compress(string_t.as_bytes());
+    //     println!("compressed string length: {}", compressed_string.len());
+    //     println!("compressed binary length: {}", compressed_string.len());
 
-        let compressed_binary = brotli_compress(&binary_t);
+    //     let decompressed_string = brotli_decompress(&compressed_string);
 
-        println!("compressed string length: {}", compressed_string.len());
-        println!("compressed binary length: {}", compressed_string.len());
+    //     let decompressed_binary = brotli_decompress(&compressed_binary);
 
-        let decompressed_string = brotli_decompress(&compressed_string);
-
-        let decompressed_binary = brotli_decompress(&compressed_binary);
-
-        assert_eq!(string_t.as_bytes(), decompressed_string);
-        assert_eq!(binary_t, decompressed_binary);
-    }
-
+    //     assert_eq!(string_t.as_bytes(), decompressed_string);
+    //     assert_eq!(binary_t, decompressed_binary);
+    // }
 
     // #[test]
     // fn test_miniz_oxide() {
-        
+
     //     let input = std::fs::read_to_string(format!("vorufletting_no_dups_for_export.txt")).unwrap();
     //     let t = ColumnTable::from_csv_string(&input, "test", "test").unwrap();
 
@@ -125,7 +129,4 @@ mod tests {
     //     assert_eq!(binary_t, uncompressed_binary);
 
     // }
-
-
-
 }
