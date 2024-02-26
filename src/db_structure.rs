@@ -138,14 +138,15 @@ pub enum TableKey {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 
 pub struct Query {
-    pub primary_keys: RangeOrList,
+    pub primary_keys: RangeOrListorAll,
     pub conditions: Vec<Condition>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum RangeOrList {
+pub enum RangeOrListorAll{
     Range([KeyString;2]),
     List(Vec<KeyString>),
+    All,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -732,12 +733,11 @@ impl ColumnTable {
         let pk_index = self.get_primary_key_col_index();
 
         let mut indexes = Vec::new();
-        let mut keepers = Vec::new();
 
         match &self.table[pk_index] {
             DbVec::Ints(col) => {
                 match query.primary_keys {
-                    RangeOrList::List(list) => {
+                    RangeOrListorAll::List(list) => {
 
                         let mut int_list = Vec::with_capacity(list.len());
                         for item in &list {
@@ -756,7 +756,7 @@ impl ColumnTable {
                             };
                         }
                     },
-                    RangeOrList::Range(range) => {
+                    RangeOrListorAll::Range(range) => {
                         let range0 = match range[0].parse::<i32>() {
                             Ok(x) => x,
                             Err(e) => return Err(StrictError::Query(format!("Could not parse '{}' as a i32", range[0]))),
@@ -771,38 +771,37 @@ impl ColumnTable {
                         indexes = (start..stop).collect();
                         
                     },
+                    RangeOrListorAll::All => indexes = (0..col.len()).collect(),
                 };
             },
             DbVec::Texts(col) => {
                 match query.primary_keys {
-                    RangeOrList::List(list) => {
+                    RangeOrListorAll::List(mut list) => {
+                        
+                        list.sort();
 
-                        let mut text_list = Vec::with_capacity(list.len());
-                        for item in &list {
-                            text_list.push(item);
-//  ######################################## YOU ARE HERE ###########################################################
-                        }
-                        text_list.sort();
-
-                        for item in text_list {
+                        for item in list {
                             match col.binary_search(&item) {
                                 Ok(i) => indexes.push(i),
                                 Err(_) => break,
                             };
                         }
                     },
-                    RangeOrList::Range(range) => {
+                    RangeOrListorAll::Range(range) => {
                         
                         let start = col.binary_search(&range[0]).unwrap_or(0);
                         let stop = col.binary_search(&range[1]).unwrap_or(col.len());
-
+                        
                         indexes = (start..stop).collect();
                         
                     },
+                    RangeOrListorAll::All => indexes = (0..col.len()).collect(),
                 };
             },
-            DbVec::Floats(col) => unreachable!("Should never have a float primary key"),
+            DbVec::Floats(_) => unreachable!("Should never have a float primary key"),
         }
+
+        let mut keepers = Vec::with_capacity(indexes.len());
 
         for index in indexes {
             for condition in &query.conditions {
@@ -972,11 +971,18 @@ impl ColumnTable {
                             },
                         }
                     },
-                };
-            }
+                }; // match condition.test
+            } // for condition in query.conditions {
+        }  // Generating keepers
+
+        let mut output = String::new();
+        for keeper in keepers {
+            assert!(keeper < self.len());
+            output.push_str(&self.get_line(keeper).unwrap()); // should be safe to unwrap since the keepers are generated from self
+            output.push('\n');
         }
 
-        todo!();
+        Ok(output)
     }
 
     pub fn delete_range(&mut self, range: (&str, &str)) -> Result<(), StrictError> {
@@ -1622,5 +1628,39 @@ mod tests {
         t.delete_list(vec!["262","264","353","544","656"]);
         // println!("{}", t);
         assert_eq!(t.to_string(), test_t.to_string());
+    }
+
+    #[test]
+    fn test_complex_query() {
+        let input = std::fs::read_to_string("test_files/test_csv_from_google_sheets_combined_sorted_test_range.csv").unwrap();
+        let mut t = ColumnTable::from_csv_string(&input, "test", "test").unwrap();
+        let query = Query {
+            primary_keys: RangeOrListorAll::List(vec![KeyString::from("178"), KeyString::from("673"), KeyString::from("803")]),
+            conditions: vec![
+                Condition {
+                    attribute: KeyString::from("heiti"),
+                    test: Test::Equals,
+                    bar: KeyString::from("name39"),
+                },
+            ]
+        };
+
+        let output = t.complex_query(query).unwrap();
+        println!("output: {}", output);
+
+        let query = Query {
+            primary_keys: RangeOrListorAll::All,
+            conditions: vec![
+                Condition {
+                    attribute: KeyString::from("magn"),
+                    test: Test::Less,
+                    bar: KeyString::from("50"),
+                },
+            ]
+        };
+
+        let output = t.complex_query(query).unwrap();
+        println!("output: {}", output);
+
     }
 }

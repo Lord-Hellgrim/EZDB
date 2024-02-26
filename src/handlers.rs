@@ -2,7 +2,7 @@ use std::{collections::HashMap, io::Write, ops::Range, sync::{Arc, Mutex}};
 
 use crate::{networking_utilities::*, db_structure::{ColumnTable, Value}, auth::User};
 
-use crate::db_structure::{Query, Test, Condition, RangeOrList};
+use crate::db_structure::{Query, Test, Condition, RangeOrListorAll};
 
 use smartstring::{SmartString, LazyCompact};
 use crate::PATH_SEP;
@@ -430,7 +430,7 @@ impl From<&str> for Test {
 pub fn parse_query(query: &str) -> Result<Query, ServerError> {
 
     let mut output = Query {
-        primary_keys: RangeOrList::List(Vec::new()),
+        primary_keys: RangeOrListorAll::List(Vec::new()),
         conditions: Vec::new(),
     };
 
@@ -440,24 +440,29 @@ pub fn parse_query(query: &str) -> Result<Query, ServerError> {
         None => return Err(ServerError::Query),
     };
 
-    match items_to_test.find("..") {
-        Some(_) => {
-            let mut temp_split = items_to_test.split("..");
-            let start = match temp_split.next() {
-                Some(x) => x.trim(),
-                None => return Err(ServerError::Query),
-            };
-            let stop = match temp_split.next() {
-                Some(x) => x.trim(),
-                None => return Err(ServerError::Query),
-            };
-            output.primary_keys = RangeOrList::Range([KeyString::from(start), KeyString::from(stop)]);
-        },
-        None => {
-            let list: Vec<KeyString> = items_to_test.split(',').map(|x| KeyString::from(x.trim())).collect();
-            output.primary_keys = RangeOrList::List(list);
-        },
-    };
+    if items_to_test.trim() == "*" {
+        output.primary_keys = RangeOrListorAll::All;
+    } else {
+
+        match items_to_test.find("..") {
+            Some(_) => {
+                let mut temp_split = items_to_test.split("..");
+                let start = match temp_split.next() {
+                    Some(x) => x.trim(),
+                    None => return Err(ServerError::Query),
+                };
+                let stop = match temp_split.next() {
+                    Some(x) => x.trim(),
+                    None => return Err(ServerError::Query),
+                };
+                output.primary_keys = RangeOrListorAll::Range([KeyString::from(start), KeyString::from(stop)]);
+            },
+            None => {
+                let list: Vec<KeyString> = items_to_test.split(',').map(|x| KeyString::from(x.trim())).collect();
+                output.primary_keys = RangeOrListorAll::List(list);
+            },
+        };
+    }
 
     println!("PK's: {}", items_to_test);
 
@@ -519,7 +524,7 @@ mod tests {
         let query = parse_query(query).unwrap();
 
         let test_query = Query {
-            primary_keys: RangeOrList::List(vec![KeyString::from("0113000"), KeyString::from("0113034"), KeyString::from("0113035"), KeyString::from("0113500")]),
+            primary_keys: RangeOrListorAll::List(vec![KeyString::from("0113000"), KeyString::from("0113034"), KeyString::from("0113035"), KeyString::from("0113500")]),
             conditions: vec![
                 Condition {
                     attribute: KeyString::from("price"),
