@@ -153,17 +153,16 @@ pub enum RangeOrListorAll{
 pub struct Condition {
     pub attribute: KeyString,
     pub test: Test,
-    pub bar: KeyString,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Test {
-    Equals,
-    Less,
-    Greater,
-    Starts,
-    Ends,
-    Contains,
+    Equals(KeyString),
+    Less(KeyString),
+    Greater(KeyString),
+    Starts(KeyString),
+    Ends(KeyString),
+    Contains(KeyString),
     //Closure,   could you imagine?
 }
 
@@ -813,8 +812,8 @@ impl ColumnTable {
                     None => return Err(StrictError::Query(format!("Queried table does not have attribute {}", condition.attribute)))
                 };
 
-                match condition.test {
-                    Test::Contains => {
+                match &condition.test {
+                    Test::Contains(bar) => {
                         match &self.table[col_index] {
                             DbVec::Floats(_) => {
                                 return Err(StrictError::Query(format!("Cannot apply a 'contains' test on floats")))
@@ -823,7 +822,6 @@ impl ColumnTable {
                                 return Err(StrictError::Query(format!("Cannot apply a 'contains' test on ints")))
                             },
                             DbVec::Texts(col) => {
-                                let bar = &condition.bar;
                                 if col[index].contains(&bar.to_string()) {
                                     continue;
                                 } else {
@@ -833,7 +831,7 @@ impl ColumnTable {
                         }
                     },
 
-                    Test::Ends => {
+                    Test::Ends(bar) => {
                         match &self.table[col_index] {
                             DbVec::Floats(_) => {
                                 return Err(StrictError::Query(format!("Cannot apply a 'ends' test on floats")))
@@ -842,7 +840,6 @@ impl ColumnTable {
                                 return Err(StrictError::Query(format!("Cannot apply a 'ends' test on ints")))
                             },
                             DbVec::Texts(col) => {
-                                let bar = &condition.bar;
                                 if col[index].ends_with(&bar.to_string()) {
                                     continue;
                                 } else {
@@ -852,12 +849,12 @@ impl ColumnTable {
                         }
                     },
 
-                    Test::Equals => {
+                    Test::Equals(bar) => {
                         match &self.table[col_index] {
                             DbVec::Floats(col) => {
-                                let bar = match condition.bar.parse::<f32>() {
+                                let bar = match bar.parse::<f32>() {
                                     Ok(n) => n,
-                                    Err(_) => return Err(StrictError::Query(format!("Could not parse '{}' as an f32", condition.bar).to_owned()))
+                                    Err(_) => return Err(StrictError::Query(format!("Could not parse '{}' as an f32", bar).to_owned()))
                                 };
                                 if col[index] == bar {
                                     continue;
@@ -866,9 +863,9 @@ impl ColumnTable {
                                 }
                             },
                             DbVec::Ints(col) => {
-                                let bar = match condition.bar.parse::<i32>() {
+                                let bar = match bar.parse::<i32>() {
                                     Ok(n) => n,
-                                    Err(_) => return Err(StrictError::Query(format!("Could not parse '{}' as an i32", condition.bar).to_owned()))
+                                    Err(_) => return Err(StrictError::Query(format!("Could not parse '{}' as an i32", bar).to_owned()))
                                 };
                                 if col[index] == bar {
                                     continue;
@@ -877,7 +874,6 @@ impl ColumnTable {
                                 }
                             },
                             DbVec::Texts(col) => {
-                                let bar = &condition.bar;
                                 if col[index] == *bar {
                                     continue;
                                 } else {
@@ -887,12 +883,12 @@ impl ColumnTable {
                         }
                     },
 
-                    Test::Greater => {
+                    Test::Greater(bar) => {
                         match &self.table[col_index] {
                             DbVec::Floats(col) => {
-                                let bar = match condition.bar.parse::<f32>() {
+                                let bar = match bar.parse::<f32>() {
                                     Ok(n) => n,
-                                    Err(_) => return Err(StrictError::Query(format!("Could not parse '{}' as an f32", condition.bar).to_owned()))
+                                    Err(_) => return Err(StrictError::Query(format!("Could not parse '{}' as an f32", bar).to_owned()))
                                 };
                                 if col[index] > bar {
                                     continue;
@@ -901,9 +897,9 @@ impl ColumnTable {
                                 }
                             },
                             DbVec::Ints(col) => {
-                                let bar = match condition.bar.parse::<i32>() {
+                                let bar = match bar.parse::<i32>() {
                                     Ok(n) => n,
-                                    Err(_) => return Err(StrictError::Query(format!("Could not parse '{}' as an i32", condition.bar).to_owned()))
+                                    Err(_) => return Err(StrictError::Query(format!("Could not parse '{}' as an i32", bar).to_owned()))
                                 };
                                 if col[index] > bar {
                                     continue;
@@ -912,7 +908,6 @@ impl ColumnTable {
                                 }
                             },
                             DbVec::Texts(col) => {
-                                let bar = &condition.bar;
                                 if col[index] > *bar {
                                     continue;
                                 } else {
@@ -922,11 +917,11 @@ impl ColumnTable {
                         }
                     },
 
-                    Test::Less => {match &self.table[col_index] {
+                    Test::Less(bar) => {match &self.table[col_index] {
                         DbVec::Floats(col) => {
-                            let bar = match condition.bar.parse::<f32>() {
+                            let bar = match bar.parse::<f32>() {
                                 Ok(n) => n,
-                                Err(_) => return Err(StrictError::Query(format!("Could not parse '{}' as an f32", condition.bar).to_owned()))
+                                Err(_) => return Err(StrictError::Query(format!("Could not parse '{}' as an f32", bar).to_owned()))
                             };
                             if col[index] < bar {
                                 continue;
@@ -935,9 +930,9 @@ impl ColumnTable {
                             }
                         },
                         DbVec::Ints(col) => {
-                            let bar = match condition.bar.parse::<i32>() {
+                            let bar = match bar.parse::<i32>() {
                                 Ok(n) => n,
-                                Err(_) => return Err(StrictError::Query(format!("Could not parse '{}' as an i32", condition.bar).to_owned()))
+                                Err(_) => return Err(StrictError::Query(format!("Could not parse '{}' as an i32", bar).to_owned()))
                             };
                             if col[index] < bar {
                                 continue;
@@ -946,7 +941,6 @@ impl ColumnTable {
                             }
                         },
                         DbVec::Texts(col) => {
-                            let bar = &condition.bar;
                             if col[index] < *bar {
                                 continue;
                             } else {
@@ -955,7 +949,7 @@ impl ColumnTable {
                         },
                     }},
 
-                    Test::Starts => {
+                    Test::Starts(bar) => {
                         match &self.table[col_index] {
                             DbVec::Floats(_) => {
                                 return Err(StrictError::Query(format!("Cannot apply a 'ends' test on floats")))
@@ -964,7 +958,6 @@ impl ColumnTable {
                                 return Err(StrictError::Query(format!("Cannot apply a 'ends' test on ints")))
                             },
                             DbVec::Texts(col) => {
-                                let bar = &condition.bar;
                                 if col[index].starts_with(&bar.to_string()) {
                                     continue;
                                 } else {
@@ -1645,8 +1638,7 @@ mod tests {
             conditions: vec![
                 Condition {
                     attribute: KeyString::from("heiti"),
-                    test: Test::Equals,
-                    bar: KeyString::from("name39"),
+                    test: Test::Equals(KeyString::from("name39")),
                 },
             ]
         };
@@ -1663,18 +1655,15 @@ mod tests {
             conditions: vec![
                 Condition {
                     attribute: KeyString::from("magn"),
-                    test: Test::Less,
-                    bar: KeyString::from("50"),
+                    test: Test::Less(KeyString::from("50")),
                 },
                 Condition {
                     attribute: KeyString::from("lager"),
-                    test: Test::Ends,
-                    bar: KeyString::from("15"),
+                    test: Test::Ends(KeyString::from("15")),
                 },
                 Condition {
                     attribute: KeyString::from("magn"),
-                    test: Test::Greater,
-                    bar: KeyString::from("40"),
+                    test: Test::Greater(KeyString::from("40")),
                 },
             ]
         };

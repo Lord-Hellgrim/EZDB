@@ -413,15 +413,15 @@ pub fn handle_meta_list_key_values(connection: &mut Connection, global_kv_table:
 */
 
 
-impl From<&str> for Test {
-    fn from(input: &str) -> Self {
+impl Test {
+    fn new(input: &str, bar: &str) -> Self {
         match input {
-            "equals" => Test::Equals,
-            "less" => Test::Less,
-            "greater" => Test::Greater,
-            "starts" => Test::Starts,
-            "ends" => Test::Ends,
-            "contains" => Test::Contains,
+            "equals" => Test::Equals(KeyString::from(bar)),
+            "less" => Test::Less(KeyString::from(bar)),
+            "greater" => Test::Greater(KeyString::from(bar)),
+            "starts" => Test::Starts(KeyString::from(bar)),
+            "ends" => Test::Ends(KeyString::from(bar)),
+            "contains" => Test::Contains(KeyString::from(bar)),
             _ => todo!(),
         }
     }
@@ -497,8 +497,7 @@ pub fn parse_query(query: &str) -> Result<Query, ServerError> {
 
         let t = Condition {
             attribute: KeyString::from(attribute),
-            test: Test::from(test),
-            bar: KeyString::from(bar),
+            test: Test::new(test, bar),
         };
 
         tests.push(t);
@@ -528,18 +527,15 @@ mod tests {
             conditions: vec![
                 Condition {
                     attribute: KeyString::from("price"),
-                    test: Test::Less,
-                    bar: KeyString::from("500"),
+                    test: Test::Less(KeyString::from("500")),
                 },
                 Condition {
                     attribute: KeyString::from("price"),
-                    test: Test::Greater,
-                    bar: KeyString::from("200"),
+                    test: Test::Greater(KeyString::from("200")),
                 },
                 Condition {
                     attribute: KeyString::from("location"),
-                    test: Test::Equals,
-                    bar: KeyString::from("lag15"),
+                    test: Test::Equals(KeyString::from("lag15")),
                 },
             ]
         };
