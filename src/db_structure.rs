@@ -802,6 +802,9 @@ impl ColumnTable {
 
         let mut keepers = Vec::with_capacity(indexes.len());
 
+        // Sort the conditions to keep the same col in memory if it is tested multiple times
+        query.conditions.sort_by(|a, b| a.attribute.cmp(&b.attribute));
+
         for index in indexes {
 
             let mut pass = true;
