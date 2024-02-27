@@ -802,7 +802,7 @@ impl ColumnTable {
                     RangeOrListorAll::Range(range) => {
                         let range0 = match range[0].parse::<i32>() {
                             Ok(x) => x,
-                            Err(e) => {
+                            Err(_) => {
                                 return Err(StrictError::Query(format!(
                                     "Could not parse '{}' as a i32",
                                     range[0]
@@ -811,7 +811,7 @@ impl ColumnTable {
                         };
                         let range1 = match range[1].parse::<i32>() {
                             Ok(x) => x,
-                            Err(e) => {
+                            Err(_) => {
                                 return Err(StrictError::Query(format!(
                                     "Could not parse '{}' as a i32",
                                     range[1]

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, io::Write, ops::Range, sync::{Arc, Mutex}};
+use std::{collections::HashMap, io::Write, sync::{Arc, Mutex}};
 
 use crate::{networking_utilities::*, db_structure::{ColumnTable, Value}, auth::User};
 
@@ -395,25 +395,36 @@ pub fn handle_meta_list_key_values(connection: &mut Connection, global_kv_table:
     ..
     You cannot use these in the table header or in the names of primary keys
 
+    This is what an EZQL query looks like:
+    [Type of query (ALL CAPS)]
     [list or range of primary keys (* for all items)];
-    [attribute to test]: [test to apply], [what to test against];
+    [attribute to filter by]: [test to apply], [what to test against];
     [another (or same) attribute]: [different test], [different bar];
+    [if query is UPDATE then here you would put TO];
+    [attribute to update]: [new value];
 
-    White space next to separator characters ; : and , is ignored
+    White space next to separator characters ; : and , is ignored. The newlines are just for clarity.
 
     example1:
-    0113000..18572054;
-    price: less, 500;
-    in_stock: greater, 100;
-    location: equals, lag15;
+    SELECT;                             <-- Type of query
+    0113000..18572054;                  <-- List or range of keys to check. Use * to check all keys
+    price: less, 500;                   <-- |\
+    in_stock: greater, 100;             <-- | > Filters. Only keys from the list that meet these conditions will be selected
+    location: equals, lag15;            <-- |/
 
     example2:
-    0113000, 0113034, 0113035, 0113500;
-    price: less, 500;
-    price: greater, 200;
-    location: equals, lag15;
+    UPDATE;                             <-- Type of query
+    0113000, 0113034, 0113035, 0113500; <-- List or range of keys to check. Use * to check all keys
+    price: less, 500;                   <-- |\
+    price: greater, 200;                <-- | > Filters. Only keys from the list that meet these conditions will be selected
+    location: equals, lag15;            <-- |/
+    TO;                                 <-- Attributes after the TO statement are new values
+    price: 400;                         <-- |\
+    location: lag30;                    <-- | > All values that remain in the selection will be updated according to these specs.
+    price: 500;                         <-- | > If an attribute is listed more than once, there is no guarantee which value will apply.
+    in_stock: 5;                        <-- |/
 
-    Supported tests are (soon to be): equals, less, greater, starts, ends, contains
+    Supported filter tests are: equals, less, greater, starts, ends, contains
 */
 
 /// Parses a EZQL query into a Query struct. Currently only select queries are implemented.

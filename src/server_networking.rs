@@ -4,7 +4,6 @@ use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::str::{self};
 
-use aes_gcm::Key;
 use smartstring::{SmartString, LazyCompact};
 use x25519_dalek::{StaticSecret, PublicKey};
 
