@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fmt::{self, Debug, Display},
     io::Write,
 };
@@ -173,7 +173,7 @@ pub struct ColumnTable {
     pub metadata: Metadata,
     pub name: KeyString,
     pub header: Vec<HeaderItem>,
-    pub table: Vec<DbVec>,
+    pub table: HashMap<HeaderItem, DbVec>,
 }
 
 /// Prints the ColumnTable as a csv (separated by semicolons ;)
