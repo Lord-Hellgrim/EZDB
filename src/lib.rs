@@ -17,3 +17,4 @@ pub mod compression;
 // pub mod aes;
 pub mod aes_temp_crypto;
 pub mod handlers;
+pub mod ezql;

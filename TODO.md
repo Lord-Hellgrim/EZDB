@@ -1,9 +1,7 @@
 - Implement compression     COMPLETE!!
 
 
-- Implement more complex queries PARTIALLY COMPLETE: (implemented filter queries and EZQL, see db_structure.rs and handlers.rs, respectively)
-- Implement JOIN
-    - ...shit I'm gonna have to implement a query language... COMPLETED!
+- Finish the full implementation of EZQL
 - Re examine the ColumnTable
     - Try to further optimize queries
 - Implement HTTP requests and responses

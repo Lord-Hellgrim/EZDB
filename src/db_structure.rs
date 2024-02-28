@@ -7,6 +7,7 @@ use std::{
 use smartstring::{LazyCompact, SmartString};
 
 use crate::networking_utilities::*;
+use crate::ezql::*;
 
 use crate::PATH_SEP;
 
@@ -162,54 +163,6 @@ pub enum TableKey {
     Foreign,
 }
 
-/// A database query that has already been parsed from EZQL (see handlers.rs)
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Query {
-    pub primary_keys: RangeOrListorAll,
-    pub conditions: Vec<Condition>,
-}
-
-/// This enum represents the possible ways to list primary keys to test. 
-/// See EZQL spec for details (handlers.rs).
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum RangeOrListorAll {
-    Range([KeyString; 2]),
-    List(Vec<KeyString>),
-    All,
-}
-
-/// Represents the condition a item must pass to be included in the result
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Condition {
-    pub attribute: KeyString,
-    pub test: Test,
-}
-
-/// Represents the currenlty implemented tests
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Test {
-    Equals(KeyString),
-    Less(KeyString),
-    Greater(KeyString),
-    Starts(KeyString),
-    Ends(KeyString),
-    Contains(KeyString),
-    //Closure,   could you imagine?
-}
-
-impl Test {
-    pub fn new(input: &str, bar: &str) -> Self {
-        match input {
-            "equals" => Test::Equals(KeyString::from(bar)),
-            "less" => Test::Less(KeyString::from(bar)),
-            "greater" => Test::Greater(KeyString::from(bar)),
-            "starts" => Test::Starts(KeyString::from(bar)),
-            "ends" => Test::Ends(KeyString::from(bar)),
-            "contains" => Test::Contains(KeyString::from(bar)),
-            _ => todo!(),
-        }
-    }
-}
 
 /// This is the main data structure of EZDB. It represents a table as a list of columns.
 /// The reason I chose to use a list of columns rather than a list of rows, is that it
