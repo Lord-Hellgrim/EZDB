@@ -104,11 +104,22 @@
 */
 
 
+use std::collections::btree_map::Range;
+
 use smartstring::{LazyCompact, SmartString};
 
 use crate::networking_utilities::ServerError;
 
 pub type KeyString = SmartString<LazyCompact>;
+
+#[derive(Debug, PartialEq)]
+pub enum QueryError {
+    InvalidQueryType,
+    InvalidConditionFormat,
+    InvalidTO,
+    TableNameTooLong,
+    Unknown,
+}
 
 
 /// A database query that has already been parsed from EZQL (see handlers.rs)
@@ -139,6 +150,9 @@ pub enum QueryType {
     INNER_JOIN,
     RIGHT_JOIN,
     FULL_JOIN,
+    UPDATE,
+    INSERT,
+    DELETE,
 }
 
 /// This enum represents the possible ways to list primary keys to test. 
@@ -190,6 +204,8 @@ impl Test {
 pub fn parse_query(query: &str) -> Result<Vec<Query>, ServerError> {
 
     let mut output = Query {
+        table: KeyString::from("Test"),
+        query_type: QueryType::SELECT,
         primary_keys: RangeOrListorAll::List(Vec::new()),
         conditions: Vec::new(),
     };
@@ -265,9 +281,136 @@ pub fn parse_query(query: &str) -> Result<Vec<Query>, ServerError> {
 
     output.conditions = tests;
 
-    Ok(output)
+    Ok(vec![output])
 }
 
+enum Expect {
+    QueryType,
+    TableName,
+    PrimaryKeys,
+    Conditions,
+    Updates,
+}
+
+pub fn parse_EZQL(query_string: &str) -> Result<Vec<Query>, QueryError> {
+
+    let mut query_buf = Query::new();
+
+    let mut queries = Vec::new();
+
+    let mut expect = Expect::QueryType;
+    for token in query_string.split(';') {
+        match expect {
+            Expect::QueryType => {
+                match token.trim() {
+                    "SELECT" => {
+                        query_buf.query_type = QueryType::SELECT;
+                        expect = Expect::TableName;
+                    },
+                    "LEFT_JOIN" => {
+                        query_buf.query_type = QueryType::LEFT_JOIN;
+                        expect = Expect::TableName;
+                    },
+                    "INNER_JOIN" => {
+                        query_buf.query_type = QueryType::INNER_JOIN;
+                        expect = Expect::TableName;
+                    },
+                    "RIGHT_JOIN" => {
+                        query_buf.query_type = QueryType::RIGHT_JOIN;
+                        expect = Expect::TableName;
+                    },
+                    "FULL_JOIN" => {
+                        query_buf.query_type = QueryType::FULL_JOIN;
+                        expect = Expect::TableName;
+                    },
+                    "DELETE" => {
+                        query_buf.query_type = QueryType::DELETE;
+                        expect = Expect::TableName;
+                    },
+                    "UPDATE" => {
+                        query_buf.query_type = QueryType::UPDATE;
+                        expect = Expect::TableName;
+                    },
+                    "INSERT" => {
+                        query_buf.query_type = QueryType::INSERT;
+                        expect = Expect::TableName;
+                    }
+
+                    _ => return Err(QueryError::InvalidQueryType),
+                }
+            },
+            Expect::TableName => {
+                match token.trim() {
+                    x => {
+                        if x.len() > 255 {
+                            return Err(QueryError::TableNameTooLong);
+                        } else {
+                            query_buf.table = KeyString::from(x);
+                            expect = Expect::PrimaryKeys;
+                        }
+                    }
+                }
+            },
+            Expect::PrimaryKeys => {
+                match token.trim() {
+                    tok => {
+                        if tok.trim().split("..").count() == 2 {
+                            let mut ranger = tok.split("..");
+                            query_buf.primary_keys = RangeOrListorAll::Range([KeyString::from(ranger.next().unwrap()), KeyString::from(ranger.next().unwrap())]);
+                            expect = Expect::Conditions;
+                        } else if tok == "*" {
+                            query_buf.primary_keys = RangeOrListorAll::All;
+                            expect = Expect::Conditions;
+                        } else {
+                            query_buf.primary_keys = RangeOrListorAll::List(tok.split(',').map(|n| KeyString::from(n)).collect());
+                            expect = Expect::Conditions;
+                        }
+                    }
+                }
+
+            },
+            Expect::Conditions => {
+                match token.trim() {
+                    "THEN" => {
+                        queries.push(query_buf.clone());
+                        query_buf = Query::new();
+                        expect = Expect::QueryType;
+                    },
+
+                    "TO" => {
+                        if query_buf.query_type == QueryType::UPDATE {
+                            return Err(QueryError::InvalidTO)
+                        } else
+                    }
+
+                    tok => {
+                        if tok.split(':').count() != 2 {
+                            return Err(QueryError::InvalidConditionFormat)
+                        } else {
+                            let mut block = tok.split(':');
+                            let attribute = block.next().unwrap();
+                            let mut condition = block.next().unwrap().split(',');
+                            let test = condition.next().unwrap();
+                            let bar = condition.next().unwrap();
+                            query_buf.conditions.push(
+                                Condition {
+                                    attribute: KeyString::from(attribute),
+                                    test: Test::new(test, bar),
+                                }
+                            )
+                        }
+                    }
+                }
+            },
+
+            Expect::Updates => {
+
+            },
+        }
+    }
+
+    todo!()
+}
 
 
 #[cfg(test)]
@@ -285,6 +428,8 @@ mod tests {
         let query = parse_query(query).unwrap();
 
         let test_query = Query {
+            table: KeyString::from("Test"),
+            query_type: QueryType::SELECT,
             primary_keys: RangeOrListorAll::List(vec![KeyString::from("0113000"), KeyString::from("0113034"), KeyString::from("0113035"), KeyString::from("0113500")]),
             conditions: vec![
                 Condition {
@@ -302,7 +447,7 @@ mod tests {
             ]
         };
 
-        assert_eq!(query, test_query);
+        assert_eq!(query[0], test_query);
         dbg!(query);
     }
 

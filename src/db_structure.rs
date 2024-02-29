@@ -1722,6 +1722,8 @@ mod tests {
         .unwrap();
         let mut t = ColumnTable::from_csv_string(&input, "test", "test").unwrap();
         let query = Query {
+            table: KeyString::from("Test"),
+            query_type: QueryType::SELECT,
             primary_keys: RangeOrListorAll::List(vec![
                 KeyString::from("178"),
                 KeyString::from("673"),
@@ -1741,6 +1743,8 @@ mod tests {
         println!();
 
         let query = Query {
+            table: KeyString::from("Test"),
+            query_type: QueryType::SELECT,
             primary_keys: RangeOrListorAll::All,
             conditions: vec![
                 Condition {
