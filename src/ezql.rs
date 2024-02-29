@@ -7,16 +7,58 @@
     ..
     You cannot use these in the table header or in the names of primary keys
 
-    This is what an EZQL query looks like:
-    [Type of query (ALL CAPS)];
-    [Table name (or names if the query applies to multiple tables)];
-    [list or range of primary keys (* for all items)];
-    [attribute to filter by]: [test to apply], [what to test against];
-    [another (or same) attribute]: [different test], [different bar];
-    [if query is UPDATE then here you would put TO];
-    [attribute to update]: [new value];
+    Special reserved keywords are
+    SELECT                  <-- \ 
+    LEFT_JOIN               <--  \
+    INNER_JOIN              <--    > Read queries
+    RIGHT_JOIN              <--  /
+    FULL_JOIN               <-- /
+    
+    DELETE                  <-- Write queries
+    UPDATE                  <-- 
+    
+    THEN                    <-- Chain separate queries
 
+    SUM                     <-- \
+    AVERAGE                 <--  \
+    MEDIAN                  <--    > Statistical queries
+    MEAN                    <--  /
+    COUNT(value)            <-- /
+    
+    __ROWID__               <-- Automatic primary key row header
+    __RESULT__              <-- Name of transient table
+
+
+    This is what an EZQL query looks like:
+    
+    
     White space next to separator characters ; : and , is ignored. The newlines are just for clarity.
+    
+    Supported filter tests are: equals, less, greater, starts, ends, contains
+    Supported query types are: 
+    Read queries
+    SELECT, LEFT JOIN, INNER JOIN, RIGHT JOIN, FULL JOIN
+    
+    Write queries
+    DELETE, UPDATE, INSERT, SAVE([new name])
+
+    The result of a read query is a new reduced or expanded table according to the query.
+    This new table is called __RESULT__. At the end of the query (including all chains),
+    if there is a __RESULT__ table it will be returned to the querying client.
+    The result of a write query is a change to the currently selected table according to the query
+    You can chain read and write queries in any order. If you update a __RESULT__ table, there will
+    be no change to the actual database until you SAVE the __RESULT__ with a name by using 
+    the SAVE([new name]) command at the end of your update query. This will write the resulting 
+    table to the database. The SAVE command does not drop the table and you can keep chaining 
+    queries after it. Saving a __RESULT__ table creates a copy of it in the database. If you then
+    chain a write query with the new table name, you will change the table in the database but if
+    you use the __RESULT__ name, you only change the transient copy that will be returned to the
+    querying client.
+    The only difference between a chained query and a sequence of unchained queries is the __RESULT__ table.
+    At the start of a query, the __RESULT__ table is empty. Essentially, "read" queries are write queries
+    that only write to the __RESULT__ table. Each write query to a table other than __RESULT__ overwrites
+    the current __RESULT__. So if you chain two SELECT queries to different named tables, you only
+    get the result of the second query.
 
     example1:
     SELECT;                             <-- Type of query
@@ -26,7 +68,15 @@
     in_stock: greater, 100;             <-- | > Filters. Only keys from the list that meet these conditions will be selected
     location: equals, lag15;            <-- |/
 
-    example2:
+    example1:
+    DELETE;                             <-- Type of query
+    Products                            <-- Table name
+    0113000..18572054;                  <-- List or range of keys to check. Use * to check all keys
+    price: less, 500;                   <-- |\
+    in_stock: greater, 100;             <-- | > Filters. Only keys from the list that meet these conditions will be deleted
+    location: equals, lag15;            <-- |/
+
+    example3:
     UPDATE;                             <-- Type of query
     Products;                           <-- Table name
     0113000, 0113034, 0113035, 0113500; <-- List or range of keys to check. Use * to check all keys
@@ -39,12 +89,10 @@
     price: 500;                         <-- | > If an attribute is listed more than once, there is no guarantee which value will apply.
     in_stock: 5;                        <-- |/
 
-    Supported filter tests are: equals, less, greater, starts, ends, contains
-    Supported query types are: SELECT, UPDATE, LEFT JOIN, INNER JOIN, RIGHT JOIN, FULL JOIN
 
     Chaining queries:
     At the end of a query, the server internally has a ColumnTable that contains the elements 
-    remaining after the initial query. If you use the CHAIN query at the end of a query you can then
+    remaining after the initial query. If you use the THEN keyword at the end of a query you can then
     run a second query on the resulting table.
 
     Chain example1:
@@ -66,8 +114,31 @@ pub type KeyString = SmartString<LazyCompact>;
 /// A database query that has already been parsed from EZQL (see handlers.rs)
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Query {
+    pub table: KeyString,
+    pub query_type: QueryType,
     pub primary_keys: RangeOrListorAll,
     pub conditions: Vec<Condition>,
+}
+
+impl Query {
+    pub fn new() -> Self {
+        Query {
+            table: KeyString::from("__RESULT__"),
+            query_type: QueryType::SELECT,
+            primary_keys: RangeOrListorAll::All,
+            conditions: Vec::new(),
+        }
+    }
+}
+
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum QueryType {
+    SELECT,
+    LEFT_JOIN,
+    INNER_JOIN,
+    RIGHT_JOIN,
+    FULL_JOIN,
 }
 
 /// This enum represents the possible ways to list primary keys to test. 
@@ -116,7 +187,7 @@ impl Test {
 
 
 /// Parses a EZQL query into a Query struct. Currently only select queries are implemented.
-pub fn parse_query(query: &str) -> Result<Query, ServerError> {
+pub fn parse_query(query: &str) -> Result<Vec<Query>, ServerError> {
 
     let mut output = Query {
         primary_keys: RangeOrListorAll::List(Vec::new()),
