@@ -175,7 +175,7 @@ pub struct ColumnTable {
     pub metadata: Metadata,
     pub name: KeyString,
     pub header: Vec<HeaderItem>,
-    pub columns: BTreeMap<HeaderItem, DbVec>,
+    pub columns: BTreeMap<KeyString, DbVec>,
 }
 
 /// Prints the ColumnTable as a csv (separated by semicolons ;)
@@ -202,8 +202,9 @@ impl Display for ColumnTable {
         printer.push('\n');
 
         for i in 0..(self.len()) {
-            for column in self.columns.values() {
-                match column {
+            let mut j = 0;
+            while j < self.header.len() {
+                match &self.columns[&self.header[j].name]{
                     DbVec::Floats(col) => {
                         // println!("float: col.len(): {}", col.len());
                         printer.push_str(&col[i].to_string());
@@ -220,6 +221,7 @@ impl Display for ColumnTable {
                         printer.push(';');
                     }
                 }
+                j += 1;
             }
             printer.pop();
             printer.push('\n');
@@ -390,7 +392,7 @@ impl ColumnTable {
                 }
             };
 
-            result.insert(header[i].clone(), db_vec);
+            result.insert(header[i].name.clone(), db_vec);
             i += 1;
         }
 
@@ -403,7 +405,7 @@ impl ColumnTable {
         if primary_key_header == &HeaderItem::new() {
             return Err(StrictError::NoPrimaryKey)
         }
-        match &result[primary_key_header] {
+        match &result[&primary_key_header.name] {
             DbVec::Ints(col) => {
                 let mut i = 1;
                 while i < col.len() {
@@ -459,16 +461,16 @@ impl ColumnTable {
         self_primary_key_index
     }
 
-    pub fn get_primary_key_column_header(& self) -> & HeaderItem {
+    pub fn get_primary_key_column_header(& self) -> HeaderItem {
         
         let mut i = 0;
-        for (index, item) in self.columns.keys().enumerate() {
+        for (index, item) in self.header.iter().enumerate() {
             if item.key == TableKey::Primary {
                 i = index;
             }
         }
 
-        &self.header[i]
+        self.header[i].clone()
     }
 
     /// Updates a ColumnTable. Overwrites existing keys and adds new ones in proper order
@@ -480,14 +482,14 @@ impl ColumnTable {
         let self_primary_key_column_header = self.get_primary_key_column_header();
         
         let record_vec: Vec<u8>;
-        match &mut self.columns.get_mut(self_primary_key_column_header).unwrap() {
-            DbVec::Ints(col) => match &other_table.columns[self_primary_key_column_header] {
+        match self.columns.get_mut(&self_primary_key_column_header.name).unwrap() {
+            DbVec::Ints(col) => match &other_table.columns[&self_primary_key_column_header.name] {
                 DbVec::Ints(other_col) => {
                     (*col, record_vec) = merge_sorted(col, other_col);
                 }
                 _ => unreachable!("Should always have the same primary key column"),
             },
-            DbVec::Texts(col) => match &other_table.columns[self_primary_key_column_header] {
+            DbVec::Texts(col) => match &other_table.columns[&self_primary_key_column_header.name] {
                 DbVec::Texts(other_col) => {
                     (*col, record_vec) = merge_sorted(col, other_col);
                 }
@@ -503,20 +505,20 @@ impl ColumnTable {
                 continue;
             }
 
-            match &mut self.columns[&self.header[i]] {
-                DbVec::Ints(col) => match &other_table.columns[&self.header[i]] {
+            match self.columns.get_mut(&self.header[i].name).expect("We should already have confirmed the presence of this index") {
+                DbVec::Ints(col) => match &other_table.columns[&self.header[i].name] {
                     DbVec::Ints(other_col) => {
                         *col = merge_in_order(col, other_col, &record_vec);
                     }
                     _ => unreachable!("Should always have the same type column"),
                 },
-                DbVec::Texts(col) => match &other_table.columns[&self.header[i]] {
+                DbVec::Texts(col) => match &other_table.columns[&self.header[i].name] {
                     DbVec::Texts(other_col) => {
                         *col = merge_in_order(col, other_col, &record_vec);
                     }
                     _ => unreachable!("Should always have the same type column"),
                 },
-                DbVec::Floats(col) => match &other_table.columns[&self.header[i]] {
+                DbVec::Floats(col) => match &other_table.columns[&self.header[i].name] {
                     DbVec::Floats(other_col) => {
                         *col = merge_in_order(col, other_col, &record_vec);
                     }
@@ -550,7 +552,7 @@ impl ColumnTable {
 
         let primary_header = self.get_primary_key_column_header();
 
-        let vec = &mut self.columns[primary_header];
+        let vec = self.columns.get_mut(&primary_header.name).expect("Safe since we ge this index via self.get_primary_key_column_header()");
         match vec {
             DbVec::Ints(col) => {
                 indexer.sort_unstable_by_key(|&i| col[i]);
@@ -588,7 +590,8 @@ impl ColumnTable {
         }
 
         let mut output = String::new();
-        for v in self.columns.values() {
+        for i in 0..self.header.len() {
+            let v = &self.columns[&self.header[i].name];
             match v {
                 DbVec::Floats(col) => {
                     let item = col[index];
@@ -619,7 +622,7 @@ impl ColumnTable {
 
         let mut indexes = Vec::new();
         for item in key_list {
-            match &self.columns[primary_header] {
+            match &self.columns[&primary_header.name] {
                 DbVec::Floats(_) => return Err(StrictError::FloatPrimaryKey),
                 DbVec::Ints(col) => {
                     let key: i32;
@@ -646,7 +649,8 @@ impl ColumnTable {
         }
 
         for index in indexes {
-            for v in self.columns.values() {
+            for i in 0..self.header.len() {
+                let v = &self.columns[&self.header[i].name];
                 match v {
                     DbVec::Floats(col) => printer.push_str(&col[index].to_string()),
                     DbVec::Ints(col) => printer.push_str(&col[index].to_string()),
@@ -677,7 +681,7 @@ impl ColumnTable {
         let primary_header = self.get_primary_key_column_header();
 
         let mut indexes: [usize; 2] = [0, 0];
-        match &self.columns[primary_header] {
+        match &self.columns[&primary_header.name] {
             DbVec::Floats(_) => return Err(StrictError::FloatPrimaryKey),
             DbVec::Ints(col) => {
                 let key = match range.0.parse::<i32>() {
@@ -725,7 +729,8 @@ impl ColumnTable {
 
         let mut i = indexes[0];
         while i <= indexes[1] {
-            for v in self.columns.values() {
+            for j in 0..self.header.len() {
+                let v = &self.columns[&self.header[j].name];
                 match v {
                     DbVec::Floats(col) => printer.push_str(&col[i].to_string()),
                     DbVec::Ints(col) => printer.push_str(&col[i].to_string()),
@@ -755,7 +760,7 @@ impl ColumnTable {
 
         let mut indexes = Vec::new();
 
-        match &self.columns[pk_header] {
+        match &self.columns[&pk_header.name] {
             DbVec::Ints(col) => {
                 match query.primary_keys {
                     RangeOrListorAll::List(list) => {
@@ -845,7 +850,7 @@ impl ColumnTable {
 
 
                 match &condition.test {
-                    Test::Contains(bar) => match &self.columns[col_header] {
+                    Test::Contains(bar) => match &self.columns[&col_header.name] {
                         DbVec::Floats(_) => {
                             return Err(StrictError::Query(format!(
                                 "Cannot apply a 'contains' test on floats"
@@ -865,7 +870,7 @@ impl ColumnTable {
                         }
                     },
 
-                    Test::Ends(bar) => match &self.columns[col_header] {
+                    Test::Ends(bar) => match &self.columns[&col_header.name] {
                         DbVec::Floats(_) => {
                             return Err(StrictError::Query(format!(
                                 "Cannot apply a 'ends' test on floats"
@@ -885,7 +890,7 @@ impl ColumnTable {
                         }
                     },
 
-                    Test::Equals(bar) => match &self.columns[col_header] {
+                    Test::Equals(bar) => match &self.columns[&col_header.name] {
                         DbVec::Floats(col) => {
                             let bar = match bar.parse::<f32>() {
                                 Ok(n) => n,
@@ -925,7 +930,7 @@ impl ColumnTable {
                         }
                     },
 
-                    Test::Greater(bar) => match &self.columns[col_header] {
+                    Test::Greater(bar) => match &self.columns[&col_header.name] {
                         DbVec::Floats(col) => {
                             let bar = match bar.parse::<f32>() {
                                 Ok(n) => n,
@@ -965,7 +970,7 @@ impl ColumnTable {
                         }
                     },
 
-                    Test::Less(bar) => match &self.columns[col_header] {
+                    Test::Less(bar) => match &self.columns[&col_header.name] {
                         DbVec::Floats(col) => {
                             let bar = match bar.parse::<f32>() {
                                 Ok(n) => n,
@@ -1005,7 +1010,7 @@ impl ColumnTable {
                         }
                     },
 
-                    Test::Starts(bar) => match &self.columns[col_header] {
+                    Test::Starts(bar) => match &self.columns[&col_header.name] {
                         DbVec::Floats(_) => {
                             return Err(StrictError::Query(format!(
                                 "Cannot apply a 'ends' test on floats"
@@ -1070,7 +1075,7 @@ impl ColumnTable {
         let primary_header = self.get_primary_key_column_header();
 
         let mut indexes: [usize; 2] = [0, 0];
-        match &self.columns[primary_header] {
+        match &self.columns[&primary_header.name] {
             DbVec::Floats(_) => return Err(StrictError::FloatPrimaryKey),
             DbVec::Ints(col) => {
                 let key = match range.0.parse::<i32>() {
@@ -1136,7 +1141,7 @@ impl ColumnTable {
 
         let mut indexes = Vec::new();
         for item in key_list {
-            match &self.columns[primary_header] {
+            match &self.columns[&primary_header.name] {
                 DbVec::Floats(_) => return Err(StrictError::FloatPrimaryKey),
                 DbVec::Ints(col) => {
                     let key: i32;
@@ -1261,7 +1266,8 @@ impl ColumnTable {
         output.push(b'\n');
         output.extend_from_slice(&(self.len() as u32).to_le_bytes());
 
-        for column in self.columns.values() {
+        for i in 0..self.header.len() {
+            let column = &self.columns[&self.header[i].name];
             match &column {
                 DbVec::Floats(col) => {
                     for item in col {
@@ -1331,7 +1337,7 @@ impl ColumnTable {
 
         // dbg!(&header);
 
-        let mut table: BTreeMap<HeaderItem, DbVec> = BTreeMap::new();
+        let mut table: BTreeMap<KeyString, DbVec> = BTreeMap::new();
 
         let mut total = 0;
         let mut index = 0;
@@ -1346,21 +1352,24 @@ impl ColumnTable {
                     // println!("x: {}", x);
                     // }
                     total += bin_length * 4;
+                    table.insert(header[index].name.clone(), DbVec::Ints(v));
                     index += 1;
-                    table.insert(header[index].clone(), DbVec::Ints(v));
                 }
                 DbType::Float => {
                     let blob = &bin_body[total..total + (bin_length * 4)];
                     let v: Vec<f32> = blob.chunks(4).map(|n| f32_from_le_slice(n)).collect();
                     total += bin_length * 4;
                     index += 1;
-                    table.insert(header[index].clone(), DbVec::Floats(v));
+                    table.insert(header[index].name.clone(), DbVec::Floats(v));
                 }
                 DbType::Text => {
                     let mut pos = 0;
                     let mut v = Vec::with_capacity(bin_length);
                     let mut strbuf = Vec::with_capacity(24);
                     while pos < bin_length {
+                        println!("total:{}", total);
+                        println!("pos: {}", pos);
+                        println!("strbuf: {}", String::from_utf8(strbuf.clone()).unwrap_or("XXX".to_owned()));
                         if bin_body[total] == b';' {
                             match String::from_utf8(strbuf.clone()) {
                                 Ok(s) => v.push(KeyString::from(s)),
@@ -1381,7 +1390,7 @@ impl ColumnTable {
 
                         total += 1;
                     }
-                    table.insert(header[index].clone(), DbVec::Texts(v));
+                    table.insert(header[index].name.clone(), DbVec::Texts(v));
                     index += 1;
                 }
             }
@@ -1686,10 +1695,14 @@ mod tests {
     #[test]
     fn test_raw_binary() {
         // let input = "vnr,i-P;heiti,t;magn,i\n113035;undirlegg;200\n113050;annad undirlegg;500";
+        // let input = std::fs::read_to_string(format!(
+        //     "test_files{PATH_SEP}test_csv_from_google_sheets_combined_sorted.csv"
+        // ))
+        // .unwrap();
         let input = std::fs::read_to_string(format!(
-            "test_files{PATH_SEP}test_csv_from_google_sheets_combined_sorted.csv"
-        ))
-        .unwrap();
+                "test_files{PATH_SEP}good_csv.txt"
+            ))
+            .unwrap();
         let t = ColumnTable::from_csv_string(&input, "test", "test").unwrap();
         let bint_t = t.write_to_raw_binary();
         let string_t = t.to_string();
