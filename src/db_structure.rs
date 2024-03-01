@@ -1733,6 +1733,7 @@ mod tests {
                 attribute: KeyString::from("heiti"),
                 test: Test::Equals(KeyString::from("name39")),
             }],
+            updates: Vec::new(),
         };
 
         let output = t.complex_query(query).unwrap();
@@ -1760,6 +1761,7 @@ mod tests {
                     test: Test::Greater(KeyString::from("40")),
                 },
             ],
+            updates: Vec::new(),
         };
 
         let output = t.complex_query(query).unwrap();

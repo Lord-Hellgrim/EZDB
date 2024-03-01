@@ -89,6 +89,11 @@
     price: 500;                         <-- | > If an attribute is listed more than once, there is no guarantee which value will apply.
     in_stock: 5;                        <-- |/
 
+    example4:
+    INSERT;
+    Products;
+
+
 
     Chaining queries:
     At the end of a query, the server internally has a ColumnTable that contains the elements 
@@ -117,6 +122,7 @@ pub enum QueryError {
     InvalidQueryType,
     InvalidConditionFormat,
     InvalidTO,
+    InvalidUpdate,
     TableNameTooLong,
     Unknown,
 }
@@ -129,6 +135,7 @@ pub struct Query {
     pub query_type: QueryType,
     pub primary_keys: RangeOrListorAll,
     pub conditions: Vec<Condition>,
+    pub updates: Vec<[KeyString;2]>,
 }
 
 impl Query {
@@ -138,6 +145,7 @@ impl Query {
             query_type: QueryType::SELECT,
             primary_keys: RangeOrListorAll::All,
             conditions: Vec::new(),
+            updates: Vec::new(),
         }
     }
 }
@@ -203,12 +211,7 @@ impl Test {
 /// Parses a EZQL query into a Query struct. Currently only select queries are implemented.
 pub fn parse_query(query: &str) -> Result<Vec<Query>, ServerError> {
 
-    let mut output = Query {
-        table: KeyString::from("Test"),
-        query_type: QueryType::SELECT,
-        primary_keys: RangeOrListorAll::List(Vec::new()),
-        conditions: Vec::new(),
-    };
+    let mut output = Query::new();
 
     let mut split_query = query.split(';');
     let items_to_test = match split_query.next() {
@@ -378,16 +381,18 @@ pub fn parse_EZQL(query_string: &str) -> Result<Vec<Query>, QueryError> {
                     },
 
                     "TO" => {
-                        if query_buf.query_type == QueryType::UPDATE {
+                        if query_buf.query_type != QueryType::UPDATE {
                             return Err(QueryError::InvalidTO)
-                        } else
+                        } else {
+                            expect = Expect::Updates;
+                        }
                     }
 
-                    tok => {
-                        if tok.split(':').count() != 2 {
+                    other => {
+                        if other.split(':').count() != 2 {
                             return Err(QueryError::InvalidConditionFormat)
                         } else {
-                            let mut block = tok.split(':');
+                            let mut block = other.split(':');
                             let attribute = block.next().unwrap();
                             let mut condition = block.next().unwrap().split(',');
                             let test = condition.next().unwrap();
@@ -397,19 +402,31 @@ pub fn parse_EZQL(query_string: &str) -> Result<Vec<Query>, QueryError> {
                                     attribute: KeyString::from(attribute),
                                     test: Test::new(test, bar),
                                 }
-                            )
+                            );
                         }
-                    }
+                    },
                 }
             },
 
             Expect::Updates => {
+                match token.trim() {
+                    tok => {
+                        if tok.split(':').count() != 2 {
+                            return Err(QueryError::InvalidUpdate);
+                        } else {
+                            let mut splitter = tok.split(':');
+                            let attribute = KeyString::from(splitter.next().unwrap());
+                            let value = KeyString::from(splitter.next().unwrap());
 
+                            query_buf.updates.push([attribute, value]);
+                        }
+                    }
+                }
             },
         }
     }
 
-    todo!()
+    Ok(queries)
 }
 
 
@@ -444,7 +461,8 @@ mod tests {
                     attribute: KeyString::from("location"),
                     test: Test::Equals(KeyString::from("lag15")),
                 },
-            ]
+            ],
+            updates: Vec::new(),
         };
 
         assert_eq!(query[0], test_query);
