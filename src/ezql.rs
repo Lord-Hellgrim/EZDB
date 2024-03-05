@@ -2,8 +2,6 @@
     EZQL spec
     Special reserved characters are
     ; 
-    : 
-    , 
     ..
     You cannot use these in the table header or in the names of primary keys
 
@@ -30,17 +28,53 @@
 
 
     This is what an EZQL query looks like:
+    [Query Type];
+    [Table name];
+    [Primary keys to test];
+    [Conditions to apply];
+    [New values if any];
+    [Chain if any];
+    ... and next query can be chained
+
+    Example:
+    SELECT;                                     <-- Type of query. See all query types at the top of this file
+    Products;                                   <-- Name of table.
+    *;                                          <-- Primary keys. Can either be full list separated by commas, a range from..to separated by '..'
+    (price greater-than 500)                    <-- \
+    AND                                         <--  \
+    (price less-than 1000)                      <--    > List of conditions to filter by. Conditions should be enclosed in parentheses and 
+    OR                                          <--    > separated by whitespace (attribute test bar). Each condition can then be combined
+    ("in stock" greater-than 50)                <--    > with another with AND, OR, NOT. Precedence is NOT > AND > OR
+    AND                                         <--  /
+    (name contains "steel screw");              <-- /  (note the trailing semicolon here. The list of conditions must end with ';' if you will chain another query)
+    THEN;
+    UPDATE;
+    Products;
+    *;
+    (name contains "steel screw")
+    OR
+    (name contains "wood screw")
+    TO;
+    price += 400;
+    "in stock" *= 1.15;
+    name append " *Updated";
+
+    Whitespace next to separator characters ; : and , is ignored. The newlines are just for clarity.
     
+    Supported filter tests are: 
+    equals, less-than, greater-than, starts-with, ends-with, contains
     
-    White space next to separator characters ; : and , is ignored. The newlines are just for clarity.
-    
-    Supported filter tests are: equals, less, greater, starts, ends, contains
     Supported query types are: 
     Read queries
     SELECT, LEFT JOIN, INNER JOIN, RIGHT JOIN, FULL JOIN
     
     Write queries
     DELETE, UPDATE, INSERT, SAVE([new name])
+
+    Supported update operations are:
+    INTS:   '=', '+=', '*='  (Note that -= and /= are not supported but are subclasses of += and *=)
+    FLOATS: '=', '+=', '*='  (Note that -= and /= are not supported but are subclasses of += and *=)
+    TEXT:   append, assign, prepend, 
 
     The result of a read query is a new reduced or expanded table according to the query.
     This new table is called __RESULT__. At the end of the query (including all chains),
@@ -64,8 +98,10 @@
     SELECT;                             <-- Type of query
     Products                            <-- Table name
     0113000..18572054;                  <-- List or range of keys to check. Use * to check all keys
-    price: less, 500;                   <-- |\
-    in_stock: greater, 100;             <-- | > Filters. Only keys from the list that meet these conditions will be selected
+    price: less, 500
+    AND                                 <-- |\
+    in_stock: greater, 100
+    AND                                 <-- | > Filters. Only keys from the list that meet these conditions will be selected
     location: equals, lag15;            <-- |/
 
     example1:
@@ -105,12 +141,27 @@
     Products, warehouse1, warehouse2;
     *
     
+    NOT > AND > OR
+
+    SELECT;
+    Products;
+    *;
+    (price greater-than 500)
+    AND
+    (price less-than 1000)
+    OR
+    ("in stock" greater-than 50)
+    AND
+    (name contains "steel screw")
+    
+
 
 */
 
 
 use std::collections::btree_map::Range;
 
+use aes_gcm::Key;
 use smartstring::{LazyCompact, SmartString};
 
 use crate::networking_utilities::ServerError;
@@ -121,6 +172,7 @@ pub type KeyString = SmartString<LazyCompact>;
 pub enum QueryError {
     InvalidQueryType,
     InvalidConditionFormat,
+    InvalidTest,
     InvalidTO,
     InvalidUpdate,
     TableNameTooLong,
@@ -134,8 +186,8 @@ pub struct Query {
     pub table: KeyString,
     pub query_type: QueryType,
     pub primary_keys: RangeOrListorAll,
-    pub conditions: Vec<Condition>,
-    pub updates: Vec<[KeyString;2]>,
+    pub conditions: Vec<OpOrCond>,
+    pub updates: Vec<Update>,
 }
 
 impl Query {
@@ -146,6 +198,101 @@ impl Query {
             primary_keys: RangeOrListorAll::All,
             conditions: Vec::new(),
             updates: Vec::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Update {
+    attribute: KeyString,
+    Operator: UpdateOp,
+    Value: KeyString,
+}
+
+impl Update {
+
+    pub fn blank() -> Self{
+        Update {
+            attribute: KeyString::new(),
+            Operator: UpdateOp::Assign,
+            Value: KeyString::new(),
+        }
+    }
+
+    pub fn from_str(s: &str) -> Result<Self, QueryError> {
+        let mut output = Update::blank();
+        let mut switch = false;
+        let mut buf = String::new();
+        let mut t = s.split_whitespace();
+        if s.split_whitespace().count() < 3 {
+            return Err(QueryError::InvalidUpdate)
+        }
+        if s.split_whitespace().count() == 3 {
+            output = Update {
+                attribute: KeyString::from(t.next().unwrap()),
+                Operator: UpdateOp::from_str(t.next().unwrap())?,
+                Value: KeyString::from(t.next().unwrap()),
+            };
+        } else {
+            let mut acc = Vec::new();
+            let mut buf = String::new();
+            let mut inside = false;
+            for c in s.chars() {
+                if acc.len() > 3 {break;}
+                println!("buf: {}", buf);
+                if c.is_whitespace() {
+                    if inside {
+                        buf.push(c);
+                        continue;
+                    } else {
+                        acc.push(buf.clone());
+                        buf.clear();
+                        println!("acc: {:?}", acc);
+                        continue;
+                    }
+                } else if c == '"' {
+                    inside = inside ^ true;
+                    continue;
+                } else {
+                    buf.push(c);
+                }
+            }
+            acc.push(buf);
+
+            if acc.len() == 3 {
+                output = Update {
+                    attribute: KeyString::from(&acc[0]),
+                    Operator: UpdateOp::from_str(&acc[1])?,
+                    Value: KeyString::from(&acc[2]),
+                };
+            } else {
+                return Err(QueryError::InvalidUpdate)
+            }
+        }
+
+        Ok(output)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum UpdateOp {
+    Assign,
+    PlusEquals,
+    TimesEquals,
+    Append,
+    Prepend,
+}
+
+impl UpdateOp {
+    fn from_str(s: &str) -> Result<Self, QueryError> {
+        match s {
+            "=" => Ok(UpdateOp::Assign),
+            "+=" => Ok(UpdateOp::PlusEquals),
+            "*=" => Ok(UpdateOp::TimesEquals),
+            "append" => Ok(UpdateOp::Append),
+            "assign" => Ok(UpdateOp::Assign),
+            "prepend" => Ok(UpdateOp::Prepend),
+            _ => return Err(QueryError::InvalidUpdate),
         }
     }
 }
@@ -179,6 +326,97 @@ pub struct Condition {
     pub test: Test,
 }
 
+impl Condition {
+
+    pub fn new(attribute: &str, test: &str, bar: &str) -> Result<Self, QueryError> {
+        let test = match test {
+            "equals" => Test::Equals(KeyString::from(bar)),
+            "less" => Test::Less(KeyString::from(bar)),
+            "greater" => Test::Greater(KeyString::from(bar)),
+            "starts" => Test::Starts(KeyString::from(bar)),
+            "ends" => Test::Ends(KeyString::from(bar)),
+            "contains" => Test::Contains(KeyString::from(bar)),
+            _ => return Err(QueryError::InvalidTest)
+        };
+
+        Ok(Condition {
+            attribute: KeyString::from(attribute),
+            test,
+        })
+    }
+
+    fn from_str(s: &str) -> Result<Self, QueryError> {
+        let mut output = Condition::blank();
+        let mut switch = false;
+        let mut buf = String::new();
+        let mut t = s.split_whitespace();
+        if s.split_whitespace().count() < 3 {
+            return Err(QueryError::InvalidConditionFormat)
+        }
+        if s.split_whitespace().count() == 3 {
+            output = Condition {
+                attribute: KeyString::from(t.next().unwrap()),
+                test: Test::new(t.next().unwrap(), t.next().unwrap()),
+            };
+        } else {
+            let mut acc = Vec::new();
+            let mut buf = String::new();
+            let mut inside = false;
+            for c in s.chars() {
+                println!("buf: {}", buf);
+                if c.is_whitespace() {
+                    if inside {
+                        buf.push(c);
+                        continue;
+                    } else {
+                        acc.push(buf.clone());
+                        buf.clear();
+                        println!("acc: {:?}", acc);
+                        continue;
+                    }
+                } else if c == '"' {
+                    inside = inside ^ true;
+                    continue;
+                } else {
+                    buf.push(c);
+                }
+            }
+            acc.push(buf);
+
+            if acc.len() == 3 {
+                output = Condition::new(&acc[0], &acc[1], &acc[2])?;
+            } else {
+                return Err(QueryError::InvalidConditionFormat)
+            }
+        }
+
+        Ok(output)
+    }
+
+    pub fn blank() -> Self {
+        Condition {
+            attribute: KeyString::from(""),
+            test: Test::Equals(KeyString::from("")),
+        }
+    }
+}
+
+
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Operator {
+    AND,
+    OR,
+    NOT,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum OpOrCond {
+    Cond(Condition),
+    Op(Operator),
+}
+
+
 /// Represents the currenlty implemented tests
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Test {
@@ -205,86 +443,9 @@ impl Test {
     }
 }
 
-
-
-
-/// Parses a EZQL query into a Query struct. Currently only select queries are implemented.
-pub fn parse_query(query: &str) -> Result<Vec<Query>, ServerError> {
-
-    let mut output = Query::new();
-
-    let mut split_query = query.split(';');
-    let items_to_test = match split_query.next() {
-        Some(x) => x.trim(),
-        None => return Err(ServerError::Query),
-    };
-
-    if items_to_test.trim() == "*" {
-        output.primary_keys = RangeOrListorAll::All;
-    } else {
-
-        match items_to_test.find("..") {
-            Some(_) => {
-                let mut temp_split = items_to_test.split("..");
-                let start = match temp_split.next() {
-                    Some(x) => x.trim(),
-                    None => return Err(ServerError::Query),
-                };
-                let stop = match temp_split.next() {
-                    Some(x) => x.trim(),
-                    None => return Err(ServerError::Query),
-                };
-                output.primary_keys = RangeOrListorAll::Range([KeyString::from(start), KeyString::from(stop)]);
-            },
-            None => {
-                let list: Vec<KeyString> = items_to_test.split(',').map(|x| KeyString::from(x.trim())).collect();
-                output.primary_keys = RangeOrListorAll::List(list);
-            },
-        };
-    }
-
-    println!("PK's: {}", items_to_test);
-
-    let conditions: Vec<&str> = split_query.map(|x| x.trim()).collect();
-
-    let mut tests = Vec::with_capacity(conditions.len());
-    for condition in &conditions {
-        let mut split = condition.split(':');
-        let attribute = match split.next() {
-            Some(x) => x.trim(),
-            None => return Err(ServerError::Query),
-        };
-
-        let test_bar = match split.next() {
-            Some(x) => x.trim(),
-            None => return Err(ServerError::Query),
-        };
-
-        let mut test_bar_split = test_bar.split(',');
-
-        let test = match test_bar_split.next() {
-            Some(x) => x.trim(),
-            None => return Err(ServerError::Query),
-        };
-
-        println!("test: {}", test);
-
-        let bar = match test_bar_split.next() {
-            Some(x) => x.trim(),
-            None => return Err(ServerError::Query),
-        };
-
-        let t = Condition {
-            attribute: KeyString::from(attribute),
-            test: Test::new(test, bar),
-        };
-
-        tests.push(t);
-    }
-
-    output.conditions = tests;
-
-    Ok(vec![output])
+pub enum ConditionBranch<'a> {
+    Branch(Vec<&'a ConditionBranch<'a>>),
+    Leaf(Condition),
 }
 
 enum Expect {
@@ -297,12 +458,12 @@ enum Expect {
 
 pub fn parse_EZQL(query_string: &str) -> Result<Vec<Query>, QueryError> {
 
-    let mut query_buf = Query::new();
-
     let mut queries = Vec::new();
-
+    
     let mut expect = Expect::QueryType;
+    let mut query_buf = Query::new();
     for token in query_string.split(';') {
+        println!("token: {}", token);
         match expect {
             Expect::QueryType => {
                 match token.trim() {
@@ -359,13 +520,16 @@ pub fn parse_EZQL(query_string: &str) -> Result<Vec<Query>, QueryError> {
                     tok => {
                         if tok.trim().split("..").count() == 2 {
                             let mut ranger = tok.split("..");
-                            query_buf.primary_keys = RangeOrListorAll::Range([KeyString::from(ranger.next().unwrap()), KeyString::from(ranger.next().unwrap())]);
+                            query_buf.primary_keys = RangeOrListorAll::Range([
+                                KeyString::from(ranger.next().unwrap().trim()), 
+                                KeyString::from(ranger.next().unwrap().trim())
+                            ]);
                             expect = Expect::Conditions;
                         } else if tok == "*" {
                             query_buf.primary_keys = RangeOrListorAll::All;
                             expect = Expect::Conditions;
                         } else {
-                            query_buf.primary_keys = RangeOrListorAll::List(tok.split(',').map(|n| KeyString::from(n)).collect());
+                            query_buf.primary_keys = RangeOrListorAll::List(tok.split(',').map(|n| KeyString::from(n.trim())).collect());
                             expect = Expect::Conditions;
                         }
                     }
@@ -374,59 +538,146 @@ pub fn parse_EZQL(query_string: &str) -> Result<Vec<Query>, QueryError> {
             },
             Expect::Conditions => {
                 match token.trim() {
-                    "THEN" => {
-                        queries.push(query_buf.clone());
-                        query_buf = Query::new();
-                        expect = Expect::QueryType;
-                    },
-
-                    "TO" => {
-                        if query_buf.query_type != QueryType::UPDATE {
-                            return Err(QueryError::InvalidTO)
-                        } else {
-                            expect = Expect::Updates;
-                        }
-                    }
 
                     other => {
-                        if other.split(':').count() != 2 {
-                            return Err(QueryError::InvalidConditionFormat)
-                        } else {
-                            let mut block = other.split(':');
-                            let attribute = block.next().unwrap();
-                            let mut condition = block.next().unwrap().split(',');
-                            let test = condition.next().unwrap();
-                            let bar = condition.next().unwrap();
-                            query_buf.conditions.push(
-                                Condition {
-                                    attribute: KeyString::from(attribute),
-                                    test: Test::new(test, bar),
+                        let mut blocks = Vec::new();
+                        let mut pos = 0;
+                        while pos < other.len() {
+                            // println!("pos: {}", pos);
+                            // println!("blocks: {:?}", blocks);
+                            if other.as_bytes()[pos] == b'(' {
+                                let block = match parse_contained_token(&other[pos..], '(', ')') {
+                                    Some(z) => z,
+                                    None => return Err(QueryError::InvalidConditionFormat),
+                                }; 
+                                blocks.push(block);
+                                pos += block.len() + 2;
+                                continue;
+                            } else if other[pos..].starts_with("AND") || other[pos..].starts_with("OR") ||other[pos..].starts_with("NOT") {
+                                blocks.push(other[pos..pos+3].trim());
+                            } else if other[pos..].starts_with("THEN") {
+                                queries.push(query_buf.clone());
+                                query_buf = Query::new();
+                                expect = Expect::QueryType;
+                                break;
+                            } else if other[pos..].starts_with("TO") {
+                                if query_buf.query_type != QueryType::UPDATE {
+                                    return Err(QueryError::InvalidTO)
+                                } else {
+                                    expect = Expect::Updates;
                                 }
-                            );
+                                break;
+                            }
+                            pos += 1;
                         }
+
+                        let mut op_or_cond_queue = Vec::new();
+                        for block in blocks {
+                            match block {
+                                "AND" => op_or_cond_queue.push(OpOrCond::Op(Operator::AND)),
+                                "OR" => op_or_cond_queue.push(OpOrCond::Op(Operator::OR)),
+                                "NOT" => op_or_cond_queue.push(OpOrCond::Op(Operator::NOT)),
+                                other => {
+                                    op_or_cond_queue.push(OpOrCond::Cond(Condition::from_str(other)?));
+                                }
+                            }
+                        }
+                        query_buf.conditions = op_or_cond_queue;
                     },
-                }
+                };
+
+                
             },
 
             Expect::Updates => {
-                match token.trim() {
-                    tok => {
-                        if tok.split(':').count() != 2 {
-                            return Err(QueryError::InvalidUpdate);
-                        } else {
-                            let mut splitter = tok.split(':');
-                            let attribute = KeyString::from(splitter.next().unwrap());
-                            let value = KeyString::from(splitter.next().unwrap());
 
-                            query_buf.updates.push([attribute, value]);
+                match token.trim() {
+
+                    other => {
+                        let mut blocks = Vec::new();
+                        let mut pos = 0;
+                        while pos < other.len() {
+                            // println!("pos: {}", pos);
+                            // println!("blocks: {:?}", blocks);
+                            if other.as_bytes()[pos] == b'(' {
+                                let block = match parse_contained_token(&other[pos..], '(', ')') {
+                                    Some(z) => z,
+                                    None => return Err(QueryError::InvalidUpdate),
+                                }; 
+                                pos += block.len() + 2;
+                                blocks.push(block);
+                                continue;
+                            }
+                            pos += 1;
                         }
-                    }
-                }
+
+                        let mut update_queue = Vec::new();
+                        for block in blocks {
+                            update_queue.push(Update::from_str(block)?);
+                        }
+                        query_buf.updates = update_queue;
+                    },
+                };
+
+                
             },
-        }
+        };
     }
 
+    queries.push(query_buf);
+
     Ok(queries)
+}
+
+pub fn is_even(x: usize) -> bool {
+    0 == (x & 1)
+}
+
+
+pub fn parse_contained_token<'a>(s: &'a str, container_open: char, container_close: char) -> Option<&'a str> {
+    let mut start = std::usize::MAX;
+    let mut stop = 0;
+    let mut inside = false;
+    for (index, c) in s.chars().enumerate() {
+        // println!("start: {}\tstop: {}\tindex: {}", start, stop, index);
+        stop += 1;
+        match c {
+            x if x == container_open => {
+                match inside {
+                    true => {
+                        if container_open == container_close {
+                            stop = index;
+                            break;
+                        } else {
+                            continue;
+                        }
+                    },
+                    false => {
+                        inside = true;
+                        start = index + 1;
+                    }
+                };
+            },
+            x if x == container_close => {
+                match inside {
+                    true => {
+                        stop = index;
+                        break;
+                    },
+                    false => {
+                        continue;
+                    }
+                };
+            },
+            _ => continue,
+        };
+    }
+
+    if stop < start {
+        return None
+    }
+
+    Some(&s[start..stop])
 }
 
 
@@ -437,36 +688,101 @@ mod tests {
     use super::*;
 
     #[test]
+    #[should_panic]
+    fn test_Condition_new_fail() {
+        let test = Condition::new("att", "is", "500").unwrap();
+    }
+
+    #[test]
+    fn test_Condition_new_pass() {
+        let test = Condition::new("att", "equals", "500").unwrap();
+    }
+
+    #[test]
+    fn test_Condition_from_str() {
+        let test = Condition::from_str("\"att and other\" equals 500").unwrap();
+        dbg!(test);
+    }
+
+    #[test]
+    fn test_parse_contained_token() {
+        let text = "hello. (this part is contained). \"This one is not\"";
+        let output= parse_contained_token(text, '(', ')').unwrap();
+        assert_eq!(output, "this part is contained");
+        let second = parse_contained_token(text, '"', '"').unwrap();
+        assert_eq!(second, "This one is not");
+
+    }
+
+    #[test]
     fn test_parse_query() {
-        let query = "0113000, 0113034, 0113035, 0113500;
-        price: less, 500;
-        price: greater, 200;
-        location: equals, lag15";
-        let query = parse_query(query).unwrap();
+        let query = "SELECT;
+        products;
+        0113000, 0113034, 0113035, 0113500;
+        (price less 500)
+        AND
+        (price greater 200)
+        AND
+        (location equals lag15)";
+        let query = parse_EZQL(query).unwrap();
 
         let test_query = Query {
-            table: KeyString::from("Test"),
+            table: KeyString::from("products"),
             query_type: QueryType::SELECT,
-            primary_keys: RangeOrListorAll::List(vec![KeyString::from("0113000"), KeyString::from("0113034"), KeyString::from("0113035"), KeyString::from("0113500")]),
+            primary_keys: RangeOrListorAll::List(vec![
+                KeyString::from("0113000"),
+                KeyString::from("0113034"),
+                KeyString::from("0113035"),
+                KeyString::from("0113500"),
+            ]),
             conditions: vec![
-                Condition {
-                    attribute: KeyString::from("price"),
-                    test: Test::Less(KeyString::from("500")),
-                },
-                Condition {
-                    attribute: KeyString::from("price"),
-                    test: Test::Greater(KeyString::from("200")),
-                },
-                Condition {
-                    attribute: KeyString::from("location"),
-                    test: Test::Equals(KeyString::from("lag15")),
-                },
+                OpOrCond::Cond(
+                    Condition {
+                        attribute: KeyString::from("price"),
+                        test: Test::Less(KeyString::from("500")),
+                    },
+                ),
+                OpOrCond::Op(Operator::AND),
+                OpOrCond::Cond(
+                    Condition {
+                        attribute: KeyString::from("price"),
+                        test: Test::Greater(KeyString::from("200")),
+                    },
+                ),
+                OpOrCond::Op(Operator::AND),
+                OpOrCond::Cond(
+                    Condition {
+                        attribute: KeyString::from("location"),
+                        test: Test::Equals(KeyString::from("lag15")),
+                    },
+                )
             ],
             updates: Vec::new(),
         };
 
+        dbg!(&query[0]);
+
         assert_eq!(query[0], test_query);
         dbg!(query);
     }
+
+    #[test]
+    fn test_updates() {
+        let query = r#"UPDATE;
+            Products;
+            *;
+            (name contains "steel screw")
+            OR
+            (name contains "wood screw")
+            TO;
+            (price += 400)
+            ("in stock" *= 1.15)
+            (name append " *Updated")"#;
+        let parsed = parse_EZQL(query).unwrap();
+
+        dbg!(parsed);
+    }
+
+
 
 }
