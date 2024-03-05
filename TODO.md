@@ -2,6 +2,7 @@
 
 
 - Finish the full implementation of EZQL
+    - Parser done. Testing and optimization to come.
 - Re examine the ColumnTable
     - Try to further optimize queries
 - Implement HTTP requests and responses
