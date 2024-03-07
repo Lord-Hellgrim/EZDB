@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::io::{Write, Read};
 use std::net::TcpListener;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 use std::str::{self};
 
 use smartstring::{SmartString, LazyCompact};
@@ -19,7 +19,7 @@ use crate::ezql;
 pub const CONFIG_FOLDER: &str = "EZconfig/";
 
 /// Parses the inctructions sent by the client. Will be rewritten soon to accomodate EZQL
-pub fn parse_instruction(instructions: &[u8], users: Arc<RwLock<HashMap<KeyString, Mutex<User>>>>, global_tables: Arc<RwLock<HashMap<KeyString, Mutex<ColumnTable>>>>, global_kv_table: Arc<RwLock<HashMap<KeyString, Mutex<Value>>>>, aes_key: &[u8]) -> Result<Instruction, ServerError> {
+pub fn parse_instruction(instructions: &[u8], users: Arc<RwLock<HashMap<KeyString, RwLock<User>>>>, global_tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>, global_kv_table: Arc<RwLock<HashMap<KeyString, RwLock<Value>>>>, aes_key: &[u8]) -> Result<Instruction, ServerError> {
 
     println!("Decrypting instructions");
     let ciphertext = &instructions[0..instructions.len()-12];
@@ -84,7 +84,7 @@ pub fn parse_instruction(instructions: &[u8], users: Arc<RwLock<HashMap<KeyStrin
                     let disk_table = ColumnTable::from_csv_string(&disk_table, table_name, "temp")?;
                     {
                         let mut writer = global_tables.write().unwrap();
-                        writer.insert(KeyString::from(table_name), Mutex::new(disk_table));
+                        writer.insert(KeyString::from(table_name), RwLock::new(disk_table));
                     }
                     Ok(Instruction::Download(table_name.to_owned()))
                 } else {
@@ -103,7 +103,7 @@ pub fn parse_instruction(instructions: &[u8], users: Arc<RwLock<HashMap<KeyStrin
                     let disk_table = ColumnTable::from_csv_string(&disk_table, table_name, "temp")?;
                     {
                         let mut writer = global_tables.write().unwrap();
-                        writer.insert(KeyString::from(table_name), Mutex::new(disk_table));
+                        writer.insert(KeyString::from(table_name), RwLock::new(disk_table));
                     }
                     Ok(Instruction::Update(table_name.to_owned()))
                 } else {
@@ -122,7 +122,7 @@ pub fn parse_instruction(instructions: &[u8], users: Arc<RwLock<HashMap<KeyStrin
                     let disk_table = ColumnTable::from_csv_string(&disk_table, table_name, "temp")?;
                     {
                         let mut writer = global_tables.write().unwrap();
-                        writer.insert(KeyString::from(table_name), Mutex::new(disk_table));
+                        writer.insert(KeyString::from(table_name), RwLock::new(disk_table));
                     }
                     Ok(Instruction::Download(table_name.to_owned()))
                 } else {
@@ -189,14 +189,14 @@ pub enum DiskThreadMessage {
 
 
 /// The struct that carries data relevant to the running server. 
-/// Am trying to think of ways to reduce reliance on Arc<Mutex<T>>
+/// Am trying to think of ways to reduce reliance on Arc<RwLock<T>>
 pub struct Server {
     public_key: PublicKey,
     private_key: StaticSecret,
     listener: TcpListener,
-    tables: Arc<RwLock<HashMap<KeyString, Mutex<ColumnTable>>>>,
-    kv_list: Arc<RwLock<HashMap<KeyString, Mutex<Value>>>>,
-    users: Arc<RwLock<HashMap<KeyString, Mutex<User>>>>,
+    tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>,
+    kv_list: Arc<RwLock<HashMap<KeyString, RwLock<Value>>>>,
+    users: Arc<RwLock<HashMap<KeyString, RwLock<User>>>>,
 }
 
 /// The main loop of the server. Checks for incoming connections, parses their instructions, and handles them
@@ -215,9 +215,9 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
             Err(e) => {return Err(ServerError::Io(e.kind()));},
         };
 
-        let global_tables: Arc<RwLock<HashMap<KeyString, Mutex<ColumnTable>>>> = Arc::new(RwLock::new(HashMap::new()));
-        let global_kv_table: Arc<RwLock<HashMap<KeyString, Mutex<Value>>>> = Arc::new(RwLock::new(HashMap::new()));
-        let users: Arc<RwLock<HashMap<KeyString, Mutex<User>>>> = Arc::new(RwLock::new(HashMap::new()));
+        let global_tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>> = Arc::new(RwLock::new(HashMap::new()));
+        let global_kv_table: Arc<RwLock<HashMap<KeyString, RwLock<Value>>>> = Arc::new(RwLock::new(HashMap::new()));
+        let users: Arc<RwLock<HashMap<KeyString, RwLock<User>>>> = Arc::new(RwLock::new(HashMap::new()));
 
         let mut server = Server {
             public_key: server_public_key,
@@ -238,7 +238,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                 continue
             }
             let temp_user: User = ron::from_str(line).unwrap();
-            server.users.write().unwrap().insert(temp_user.username.clone(), Mutex::new(temp_user));
+            server.users.write().unwrap().insert(temp_user.username.clone(), RwLock::new(temp_user));
         }
     } else {
         println!("config does not exist");
@@ -257,7 +257,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
             Err(e) => panic!("failed to create config file. Server cannot run.\n\nError cause was:\n{e}"),
         };
 
-        server.users.write().unwrap().insert(KeyString::from("admin"), Mutex::new(User::admin("admin", "admin")));
+        server.users.write().unwrap().insert(KeyString::from("admin"), RwLock::new(User::admin("admin", "admin")));
     } 
 
     dbg!(&server.users);
@@ -267,6 +267,13 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
 
     // #################################### DATA SAVING AND LOADING LOOP ###################################################
 
+    let outer_thread_tables = server.tables.clone();
+    let outer_thread_kv_list = server.kv_list.clone();
+    let outer_thread_users = server.users.clone();
+    let outer_thread_public_key = server.public_key;
+    let outer_thread_private_key = server.private_key.clone();
+
+
     let full_scope: Result<(), ServerError> = std::thread::scope(|outer_scope| {
         
         
@@ -275,15 +282,15 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                 std::thread::sleep(std::time::Duration::from_secs(10));
                 println!("Background thread running good!...");
                 {
-                    let data = &server.tables.read().unwrap();
+                    let data = outer_thread_tables.read().unwrap();
                     for (name, table) in data.iter() {
-                        let locked_table = table.lock().unwrap();
+                        let locked_table = table.read().unwrap();
                         match locked_table.save_to_disk_csv(CONFIG_FOLDER) {
                             Ok(_) => (),
                             Err(e) => println!("Unable to save table {} because: {}", name, e),
                         };
                     }
-                    let user_lock = &server.users.read().unwrap();
+                    let user_lock = outer_thread_users.read().unwrap();
                     let mut printer = String::new();
                     for (_, user) in user_lock.iter() {
                         printer.push_str(&ron::to_string(&user).unwrap());
@@ -293,9 +300,9 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                 }
     
                 {
-                    let data = server.kv_list.read().unwrap();
+                    let data = outer_thread_kv_list.read().unwrap();
                     for (key, value) in data.iter() {
-                        let locked_value = value.lock().unwrap();
+                        let locked_value = value.read().unwrap();
                         match locked_value.save_to_disk_raw(key, CONFIG_FOLDER) {
                             Ok(_) => (),
                             Err(e) => println!("Unable to save value of key '{}' because: {}",key, e),
@@ -315,18 +322,18 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
             };
             println!("Accepted connection from: {}", client_address);        
             
-            // let thread_global_tables: Arc<HashMap<SmartString<LazyCompact>, Mutex<ColumnTable>>> = server.tables.clone();
-            // let thread_global_kv_table: Arc<HashMap<SmartString<LazyCompact>, Mutex<Value>>> = server.kv_list.clone();
-            // let thread_users: Arc<HashMap<SmartString<LazyCompact>, Mutex<User>>> = Arc::clone(&users);
-            // let thread_public_key: PublicKey = server.public_key;
-            // let thread_private_key: StaticSecret = server.private_key.clone();
+            let inner_thread_tables = server.tables.clone();
+            let inner_thread_kv_list = server.kv_list.clone();
+            let inner_thread_users = server.users.clone();
+            let inner_thread_public_key = server.public_key;
+            let inner_thread_private_key = server.private_key.clone();
             
     
             // Spawn a thread to handle establishing connections
-            let server_loop = outer_scope.spawn(move || {
+            outer_scope.spawn(move || {
     
                 // ################## ESTABLISHING ENCRYPTED CONNECTION ##########################################################################################################
-                match stream.write(server.public_key.as_bytes()) {
+                match stream.write(inner_thread_public_key.as_bytes()) {
                     Ok(_) => (),
                     Err(e) => {
                         println!("failed to write server public key because: {}", e);
@@ -346,7 +353,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                 
                 let client_public_key = PublicKey::from(buffer);
                 
-                let shared_secret = server.private_key.diffie_hellman(&client_public_key);
+                let shared_secret = inner_thread_private_key.diffie_hellman(&client_public_key);
                 let aes_key = blake3_hash(shared_secret.as_bytes());
     
                 let mut auth_buffer = [0u8; 1052];
@@ -389,17 +396,13 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                 
                 let mut connection: Connection;
                 {
-                    let user_lock = match server.users.read().unwrap().get(username) {
-                        Some(locked_user) => locked_user.lock().unwrap(),
-                        None => return Err(ServerError::Authentication(AuthenticationError::WrongUser(format!("Username: '{}' does not exist", username)))),
-                    };
-                    if !&server.users.read().unwrap().contains_key(username) {
+                    if !&inner_thread_users.read().unwrap().contains_key(username) {
                         println!("Username:\n\t{}\n...is wrong", username);
                         return Err(ServerError::Authentication(AuthenticationError::WrongUser(format!("Username: '{}' does not exist", username))));
-                    } else if &server.users.read().unwrap()[username].lock().unwrap().password != &password {
-                        println!("thread_users_lock[username].password: {:?}", user_lock.password);
-                        println!("password: {:?}", password);
-                        println!("Password hash:\n\t{:?}\n...is wrong", password);
+                    } else if &inner_thread_users.read().unwrap()[username].read().unwrap().password != &password {
+                        // println!("thread_users_lock[username].password: {:?}", user_lock.password);
+                        // println!("password: {:?}", password);
+                        // println!("Password hash:\n\t{:?}\n...is wrong", password);
                         return Err(ServerError::Authentication(AuthenticationError::WrongPassword));
                     }
                     
@@ -432,11 +435,11 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                 // println!("Instruction buffer[0..50]: {:x?}", &buffer[0..50]);
                 let instructions = &buffer[0..instruction_size];
                 println!("Parsing instructions...");
-                match parse_instruction(instructions, server.users.clone(), server.tables.clone(), server.kv_list.clone(), &connection.aes_key) {
+                match parse_instruction(instructions, inner_thread_users.clone(), inner_thread_tables.clone(), inner_thread_kv_list.clone(), &connection.aes_key) {
                     Ok(i) => match i {
                         
                         Instruction::Download(name) => {
-                            match handle_download_request(&mut connection, &name, server.tables.clone()) {
+                            match handle_download_request(&mut connection, &name, inner_thread_tables.clone()) {
                                 Ok(_) => {
                                     println!("Operation finished!");
                                 },
@@ -446,7 +449,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                             }
                         },
                         Instruction::Upload(name) => {
-                            match handle_upload_request(&mut connection, &name, server.tables.clone()) {
+                            match handle_upload_request(&mut connection, &name, inner_thread_tables.clone()) {
                                 Ok(_) => {
                                     println!("Operation finished!");
                                 },
@@ -456,7 +459,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                             }
                         },
                         Instruction::Update(name) => {
-                            match handle_update_request(&mut connection, &name, server.tables.clone()) {
+                            match handle_update_request(&mut connection, &name, inner_thread_tables.clone()) {
                                 Ok(_) => {
                                     println!("Operation finished!");
                                 },
@@ -466,7 +469,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                             }
                         },
                         Instruction::Query(table_name, query) => {
-                            match handle_query_request(&mut connection, &table_name, &query, server.tables.clone()) {
+                            match handle_query_request(&mut connection, &table_name, &query, inner_thread_tables.clone()) {
                                 Ok(_) => {
                                     println!("Operation finished!");
                                 },
@@ -476,7 +479,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                             }
                         },
                         Instruction::Delete(table_name, query) => {
-                            match handle_delete_request(&mut connection, &table_name, &query, server.tables.clone()) {
+                            match handle_delete_request(&mut connection, &table_name, &query, inner_thread_tables.clone()) {
                                 Ok(_) => {
                                     println!("Operation finished!");
                                 },
@@ -486,7 +489,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                             }
                         },
                         Instruction::NewUser(user_string) => {
-                            match handle_new_user_request(&user_string, server.users.clone()) {
+                            match handle_new_user_request(&user_string, inner_thread_users.clone()) {
                                 Ok(_) => {
                                     println!("New user added!");
                                 },
@@ -497,7 +500,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                             
                         },
                         Instruction::KvUpload(table_name) => {
-                            match handle_kv_upload(&mut connection, &table_name, server.kv_list.clone()) {
+                            match handle_kv_upload(&mut connection, &table_name, inner_thread_kv_list.clone()) {
                                 Ok(_) => {
                                     println!("Operation finished!");
                                 },
@@ -507,7 +510,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                             }
                         },
                         Instruction::KvUpdate(table_name) => {
-                            match handle_kv_update(&mut connection, &table_name, server.kv_list.clone()) {
+                            match handle_kv_update(&mut connection, &table_name, inner_thread_kv_list.clone()) {
                                 Ok(_) => {
                                     println!("Operation finished!");
                                 },
@@ -517,7 +520,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                             }
                         },
                         Instruction::KvDownload(table_name) => {
-                            match handle_kv_download(&mut connection, &table_name, server.kv_list.clone()) {
+                            match handle_kv_download(&mut connection, &table_name, inner_thread_kv_list.clone()) {
                                 Ok(_) => {
                                     println!("Operation finished!");
                                 },
@@ -527,7 +530,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                             }
                         },
                         Instruction::MetaListTables => {
-                            match handle_meta_list_tables(&mut connection, server.tables.clone()) {
+                            match handle_meta_list_tables(&mut connection, inner_thread_tables.clone()) {
                                 Ok(_) => {
                                     println!("Operation finished");
                                 },
@@ -537,7 +540,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                             }
                         }
                         Instruction::MetaListKeyValues => {
-                            match handle_meta_list_key_values(&mut connection, server.kv_list.clone()) {
+                            match handle_meta_list_key_values(&mut connection, inner_thread_kv_list.clone()) {
                                 Ok(_) => {
                                     println!("Operation finished");
                                 },

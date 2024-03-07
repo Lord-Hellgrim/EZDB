@@ -133,14 +133,15 @@ pub fn user_has_permission(
     table_name: &str,
     action: &str,
     username: &str,
-    users: Arc<RwLock<HashMap<KeyString, Mutex<User>>>>,
+    users: Arc<RwLock<HashMap<KeyString, RwLock<User>>>>,
 ) -> bool {
     let permission = match Permission::from_str(action) {
         Some(action) => action,
         None => return false,
     };
-    let user = match users.read().unwrap().get(username) {
-        Some(u) => u.lock().unwrap(),
+    let user = users.read().unwrap();
+    let user = match user.get(username) {
+        Some(u) => u.read().unwrap(),
         None => return false,
     };
 

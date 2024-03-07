@@ -125,7 +125,7 @@ pub fn query_table(
         }
         "Password is incorrect" => {
             return Err(ServerError::Authentication(
-                AuthenticationError::WrongPassword(password.as_bytes().to_owned()),
+                AuthenticationError::WrongPassword,
             ))
         }
         e => panic!("Need to handle error: {}", e),
