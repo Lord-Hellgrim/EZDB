@@ -1,4 +1,4 @@
-use std::{collections::HashMap, io::Write, sync::{Arc, Mutex}};
+use std::{collections::HashMap, io::Write, sync::{Arc, RwLock}};
 
 use crate::{networking_utilities::*, db_structure::{ColumnTable, Value}, auth::User};
 
@@ -8,26 +8,29 @@ use crate::PATH_SEP;
 pub type KeyString = SmartString<LazyCompact>;
 
 /// Handles a download request from a client. A download request is a request for a whole table with no filters.
-pub fn handle_download_request(connection: &mut Connection, name: &str, global_tables: Arc<Mutex<HashMap<KeyString, ColumnTable>>>) -> Result<(), ServerError> {
+pub fn handle_download_request(connection: &mut Connection, name: &str, global_tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>) -> Result<(), ServerError> {
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e.kind()));},
     };
 
-    let mut mutex_binding = global_tables.lock().unwrap();
-    let requested_table = mutex_binding.get_mut(name).expect("Instruction parser should have verified table");
-    let requested_csv = requested_table.to_string();
+    let mut read_binding = global_tables.read().unwrap();
+    let requested_table = read_binding.get(name).expect("Instruction parser should have verified table");
+    let requested_csv = requested_table.read().unwrap().to_string();
     println!("Requested_csv.len(): {}", requested_csv.len());
 
     let response = data_send_and_confirm(connection, requested_csv.as_bytes())?;
 
     if response == "OK" {
-        requested_table.metadata.last_access = get_current_time();
 
-        requested_table.metadata.times_accessed += 1;
-        println!("metadata: {}", requested_table.metadata);
+        // TODO: Need to implement logging. Can't lock the table to write to metadata.
+        return Ok(());
+        todo!();
+        // requested_table.metadata.last_access = get_current_time();
 
-        return Ok(())
+        // requested_table.metadata.times_accessed += 1;
+        // println!("metadata: {}", requested_table.metadata);
+
     } else {
         return Err(ServerError::Confirmation(response))
     }
@@ -35,7 +38,7 @@ pub fn handle_download_request(connection: &mut Connection, name: &str, global_t
 }
 
 /// Handles an upload request from a client. An upload request uploads a whole csv string that will be parsed into a ColumnTable.
-pub fn handle_upload_request(connection: &mut Connection, name: &str, global_tables: Arc<Mutex<HashMap<KeyString, ColumnTable>>>) -> Result<String, ServerError> {
+pub fn handle_upload_request(connection: &mut Connection, name: &str, global_tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>) -> Result<String, ServerError> {
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote OK as {n} bytes"),
@@ -66,7 +69,7 @@ pub fn handle_upload_request(connection: &mut Connection, name: &str, global_tab
         
             table.metadata.times_accessed += 1;
             
-            global_tables.lock().unwrap().insert(KeyString::from(table.name.clone()), table);
+            global_tables.write().unwrap().insert(KeyString::from(table.name.clone()), RwLock::new(table));
 
         },
         Err(e) => match connection.stream.write(e.to_string().as_bytes()){
@@ -81,7 +84,7 @@ pub fn handle_upload_request(connection: &mut Connection, name: &str, global_tab
     
 /// Handles an update request from a client. Executes a .update method on the designated table.
 /// This will be rewritten to use EZQL soon
-pub fn handle_update_request(connection: &mut Connection, name: &str, global_tables: Arc<Mutex<HashMap<KeyString, ColumnTable>>>) -> Result<String, ServerError> {
+pub fn handle_update_request(connection: &mut Connection, name: &str, global_tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>) -> Result<String, ServerError> {
     
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
@@ -92,11 +95,11 @@ pub fn handle_update_request(connection: &mut Connection, name: &str, global_tab
 
     let csv = receive_data(connection)?;
 
-    let mut mutex_binding = global_tables.lock().unwrap();
+    let mut mutex_binding = global_tables.write().unwrap();
 
     let requested_table = mutex_binding.get_mut(name).expect("Instruction parser should have verified existence of table");
     
-    match requested_table.update_from_csv(bytes_to_str(&csv)?) {
+    match requested_table.write().unwrap().update_from_csv(bytes_to_str(&csv)?) {
         Ok(_) => {
             connection.stream.write_all("OK".as_bytes())?;
         },
@@ -110,14 +113,14 @@ pub fn handle_update_request(connection: &mut Connection, name: &str, global_tab
 }
 
 /// This will be totally rewritten to handle EZQL. Don't worry about this garbage.
-pub fn handle_query_request(connection: &mut Connection, name: &str, query: &str, global_tables: Arc<Mutex<HashMap<KeyString, ColumnTable>>>) -> Result<String, ServerError> {
+pub fn handle_query_request(connection: &mut Connection, name: &str, query: &str, global_tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>) -> Result<String, ServerError> {
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e.kind()));},
     };
     connection.stream.flush()?;
 
-    let mutex_binding = global_tables.lock().unwrap();
+    let mutex_binding = global_tables.read().unwrap();
     let requested_table = mutex_binding.get(name).expect("Instruction parser should have verified table");
     // PARSE INSTRUCTION
     let query_type: &str;
@@ -129,10 +132,10 @@ pub fn handle_query_request(connection: &mut Connection, name: &str, query: &str
     let requested_csv: String;
     if query_type == "range" {
         let parsed_query: Vec<&str> = query.split("..").collect();
-        requested_csv = requested_table.query_range((parsed_query[0], parsed_query[1]))?;
+        requested_csv = requested_table.read().unwrap().query_range((parsed_query[0], parsed_query[1]))?;
     } else {
         let parsed_query = query.split(',').collect();
-        requested_csv = requested_table.query_list(parsed_query)?;
+        requested_csv = requested_table.read().unwrap().query_list(parsed_query)?;
     }
 
     let response = data_send_and_confirm(connection, requested_csv.as_bytes())?;
@@ -145,7 +148,7 @@ pub fn handle_query_request(connection: &mut Connection, name: &str, query: &str
 }
 
 /// This will be rewritten to use EZQL soon.
-pub fn handle_delete_request(connection: &mut Connection, name: &str, query: &str, global_tables: Arc<Mutex<HashMap<KeyString, ColumnTable>>>) -> Result<String, ServerError> {
+pub fn handle_delete_request(connection: &mut Connection, name: &str, query: &str, global_tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>) -> Result<String, ServerError> {
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e.kind()));},
@@ -154,7 +157,7 @@ pub fn handle_delete_request(connection: &mut Connection, name: &str, query: &st
 
 
     
-    let mutex_binding = global_tables.lock().unwrap();
+    let mutex_binding = global_tables.write().unwrap();
     let requested_table = mutex_binding.get(name).expect("Instruction parser should have verified table");
     // PARSE INSTRUCTION
     let query_type: &str;
@@ -166,10 +169,10 @@ pub fn handle_delete_request(connection: &mut Connection, name: &str, query: &st
     let requested_csv: String;
     if query_type == "range" {
         let parsed_query: Vec<&str> = query.split("..").collect();
-        requested_csv = requested_table.query_range((parsed_query[0], parsed_query[1]))?;
+        requested_csv = requested_table.write().unwrap().query_range((parsed_query[0], parsed_query[1]))?;
     } else {
         let parsed_query = query.split(',').collect();
-        requested_csv = requested_table.query_list(parsed_query)?;
+        requested_csv = requested_table.write().unwrap().query_list(parsed_query)?;
     }
 
     let response = data_send_and_confirm(connection, requested_csv.as_bytes())?;
@@ -182,12 +185,12 @@ pub fn handle_delete_request(connection: &mut Connection, name: &str, query: &st
 }
 
 /// Handles a create user request from a client. The user requesting the new user must have permission to create users
-pub fn handle_new_user_request(user_string: &str, users: Arc<Mutex<HashMap<KeyString, User>>>) -> Result<(), ServerError> {
+pub fn handle_new_user_request(user_string: &str, users: Arc<RwLock<HashMap<KeyString, RwLock<User>>>>) -> Result<(), ServerError> {
 
     let user: User = ron::from_str(user_string).unwrap();
 
-    let mut user_lock = users.lock().unwrap();
-    user_lock.insert(KeyString::from(user.username.clone()), user);
+    let mut user_lock = users.write().unwrap();
+    user_lock.insert(KeyString::from(user.username.clone()), RwLock::new(user));
 
 
     Ok(())
@@ -195,7 +198,7 @@ pub fn handle_new_user_request(user_string: &str, users: Arc<Mutex<HashMap<KeySt
 }
 
 /// Handles a key value upload request.
-pub fn handle_kv_upload(connection: &mut Connection, name: &str, global_kv_table: Arc<Mutex<HashMap<KeyString, Value>>>) -> Result<(), ServerError> {
+pub fn handle_kv_upload(connection: &mut Connection, name: &str, global_kv_table: Arc<RwLock<HashMap<KeyString, RwLock<Value>>>>) -> Result<(), ServerError> {
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote OK as {n} bytes"),
@@ -220,9 +223,9 @@ pub fn handle_kv_upload(connection: &mut Connection, name: &str, global_kv_table
     
     let value = Value::new(&connection.user, &value);
 
-    let mut global_kv_table_lock = global_kv_table.lock().unwrap();
-    global_kv_table_lock.insert(KeyString::from(name), value);
-    println!("value from table: {:x?}", global_kv_table_lock.get(name).unwrap().body);
+    let mut global_kv_table_lock = global_kv_table.write().unwrap();
+    global_kv_table_lock.insert(KeyString::from(name), RwLock::new(value));
+    println!("value from table: {:x?}", global_kv_table_lock.get(name).unwrap().read().unwrap().body);
 
 
     Ok(())
@@ -230,7 +233,7 @@ pub fn handle_kv_upload(connection: &mut Connection, name: &str, global_kv_table
 }
 
 /// Overwrites an existing value. If no existing value has this key, return error.
-pub fn handle_kv_update(connection: &mut Connection, name: &str, global_kv_table: Arc<Mutex<HashMap<KeyString, Value>>>) -> Result<(), ServerError> {
+pub fn handle_kv_update(connection: &mut Connection, name: &str, global_kv_table: Arc<RwLock<HashMap<KeyString, RwLock<Value>>>>) -> Result<(), ServerError> {
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote OK as {n} bytes"),
@@ -254,7 +257,7 @@ pub fn handle_kv_update(connection: &mut Connection, name: &str, global_kv_table
     
     let value = Value::new(&connection.user, &value);
 
-    global_kv_table.lock().unwrap().insert(KeyString::from(name), value);
+    global_kv_table.write().unwrap().insert(KeyString::from(name), RwLock::new(value));
 
 
     Ok(())
@@ -262,7 +265,7 @@ pub fn handle_kv_update(connection: &mut Connection, name: &str, global_kv_table
 
 /// Handles a download request of a value associated with the given key. 
 /// Returns error if no value with that key exists or if user doesn't have permission.
-pub fn handle_kv_download(connection: &mut Connection, name: &str, global_kv_table: Arc<Mutex<HashMap<KeyString, Value>>>) -> Result<(), ServerError> {
+pub fn handle_kv_download(connection: &mut Connection, name: &str, global_kv_table: Arc<RwLock<HashMap<KeyString, RwLock<Value>>>>) -> Result<(), ServerError> {
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
@@ -271,18 +274,21 @@ pub fn handle_kv_download(connection: &mut Connection, name: &str, global_kv_tab
     connection.stream.flush()?;
 
 
-    let mut mutex_binding = global_kv_table.lock().unwrap();
-    let requested_value = mutex_binding.get_mut(name).expect("Instruction parser should have verified table");
+    let mut mutex_binding = global_kv_table.read().unwrap();
+    let requested_value = mutex_binding.get(name).expect("Instruction parser should have verified table");
 
     // println!("Requested_value: {:x?}", requested_value.body);
 
-    let response = data_send_and_confirm(connection, &requested_value.body)?;
+    let response = data_send_and_confirm(connection, &requested_value.read().unwrap().body)?;
 
     if response == "OK" {
-        requested_value.metadata.last_access = get_current_time();
 
-        requested_value.metadata.times_accessed += 1;
-        println!("metadata: {}", requested_value.metadata.to_string());
+        // TODO: Implement proper logging to handle metadata. Can't lock the tables to write metadata.
+
+        // requested_value.metadata.last_access = get_current_time();
+
+        // requested_value.metadata.times_accessed += 1;
+        // println!("metadata: {}", requested_value.metadata.to_string());
 
         return Ok(())
     } else {
@@ -292,7 +298,7 @@ pub fn handle_kv_download(connection: &mut Connection, name: &str, global_kv_tab
 }
 
 /// Handles the request for the list of tables.
-pub fn handle_meta_list_tables(connection: &mut Connection, global_tables: Arc<Mutex<HashMap<KeyString, ColumnTable>>>) -> Result<(), ServerError> {
+pub fn handle_meta_list_tables(connection: &mut Connection, global_tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>) -> Result<(), ServerError> {
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
@@ -300,7 +306,7 @@ pub fn handle_meta_list_tables(connection: &mut Connection, global_tables: Arc<M
     };
     connection.stream.flush()?;
 
-    let mutex_binding = global_tables.lock().unwrap();
+    let mutex_binding = global_tables.read().unwrap();
     let mut memory_table_names: Vec<&KeyString> = mutex_binding.keys().collect();
 
     let mut disk_table_names = Vec::new();
@@ -338,7 +344,7 @@ pub fn handle_meta_list_tables(connection: &mut Connection, global_tables: Arc<M
 }
 
 /// Handles the request for a list of keys with associated binary blobs
-pub fn handle_meta_list_key_values(connection: &mut Connection, global_kv_table: Arc<Mutex<HashMap<KeyString, Value>>>) -> Result<(), ServerError> {
+pub fn handle_meta_list_key_values(connection: &mut Connection, global_kv_table: Arc<RwLock<HashMap<KeyString, RwLock<Value>>>>) -> Result<(), ServerError> {
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
@@ -346,7 +352,7 @@ pub fn handle_meta_list_key_values(connection: &mut Connection, global_kv_table:
     };
     connection.stream.flush()?;
 
-    let mutex_binding = global_kv_table.lock().unwrap();
+    let mutex_binding = global_kv_table.read().unwrap();
 
     let mut memory_table_names: Vec<&KeyString> = mutex_binding.keys().collect();
 

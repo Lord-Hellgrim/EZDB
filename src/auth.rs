@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     fmt,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, RwLock},
 };
 
 use serde::{Deserialize, Serialize};
@@ -133,16 +133,17 @@ pub fn user_has_permission(
     table_name: &str,
     action: &str,
     username: &str,
-    users: Arc<Mutex<HashMap<KeyString, User>>>,
+    users: Arc<RwLock<HashMap<KeyString, RwLock<User>>>>,
 ) -> bool {
     let permission = match Permission::from_str(action) {
         Some(action) => action,
         None => return false,
     };
-    let user_lock = users.lock().unwrap();
-    let user = user_lock
-        .get(username)
-        .expect("We already know the user exists");
+    let user = users.read().unwrap();
+    let user = match user.get(username) {
+        Some(u) => u.read().unwrap(),
+        None => return false,
+    };
 
     if user.admin {
         return true;
@@ -160,7 +161,7 @@ pub fn user_has_permission(
 #[derive(Debug, Clone)]
 pub enum AuthenticationError {
     WrongUser(String),
-    WrongPassword(Vec<u8>),
+    WrongPassword,
     TooLong,
     Permission,
 }
@@ -171,7 +172,7 @@ impl fmt::Display for AuthenticationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             AuthenticationError::WrongUser(_) => write!(f, "IU"),
-            AuthenticationError::WrongPassword(_) => write!(f, "IP"),
+            AuthenticationError::WrongPassword => write!(f, "IP"),
             AuthenticationError::TooLong => write!(f, "LA"),
             AuthenticationError::Permission => write!(f, "NP"),
         }
