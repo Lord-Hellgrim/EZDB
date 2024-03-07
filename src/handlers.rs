@@ -1,6 +1,6 @@
 use std::{collections::HashMap, io::Write, sync::{Arc, RwLock}};
 
-use crate::{networking_utilities::*, db_structure::{ColumnTable, Value}, auth::User};
+use crate::{auth::User, db_structure::{ColumnTable, Value}, networking_utilities::*, server_networking::WriteThreadMessage};
 
 use smartstring::{SmartString, LazyCompact};
 use crate::PATH_SEP;
@@ -8,7 +8,7 @@ use crate::PATH_SEP;
 pub type KeyString = SmartString<LazyCompact>;
 
 /// Handles a download request from a client. A download request is a request for a whole table with no filters.
-pub fn handle_download_request(connection: &mut Connection, name: &str, global_tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>) -> Result<(), ServerError> {
+pub fn handle_download_request(connection: &mut Connection, name: &str, global_tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>, disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>) -> Result<(), ServerError> {
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e.kind()));},
@@ -37,7 +37,7 @@ pub fn handle_download_request(connection: &mut Connection, name: &str, global_t
 }
 
 /// Handles an upload request from a client. An upload request uploads a whole csv string that will be parsed into a ColumnTable.
-pub fn handle_upload_request(connection: &mut Connection, name: &str, global_tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>) -> Result<String, ServerError> {
+pub fn handle_upload_request(connection: &mut Connection, name: &str, global_tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>, disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>) -> Result<String, ServerError> {
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote OK as {n} bytes"),
@@ -82,7 +82,7 @@ pub fn handle_upload_request(connection: &mut Connection, name: &str, global_tab
     
 /// Handles an update request from a client. Executes a .update method on the designated table.
 /// This will be rewritten to use EZQL soon
-pub fn handle_update_request(connection: &mut Connection, name: &str, global_tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>) -> Result<String, ServerError> {
+pub fn handle_update_request(connection: &mut Connection, name: &str, global_tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>, disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>) -> Result<String, ServerError> {
     
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
@@ -111,7 +111,7 @@ pub fn handle_update_request(connection: &mut Connection, name: &str, global_tab
 }
 
 /// This will be totally rewritten to handle EZQL. Don't worry about this garbage.
-pub fn handle_query_request(connection: &mut Connection, name: &str, query: &str, global_tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>) -> Result<String, ServerError> {
+pub fn handle_query_request(connection: &mut Connection, name: &str, query: &str, global_tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>, disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>) -> Result<String, ServerError> {
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e.kind()));},
@@ -146,7 +146,7 @@ pub fn handle_query_request(connection: &mut Connection, name: &str, query: &str
 }
 
 /// This will be rewritten to use EZQL soon.
-pub fn handle_delete_request(connection: &mut Connection, name: &str, query: &str, global_tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>) -> Result<String, ServerError> {
+pub fn handle_delete_request(connection: &mut Connection, name: &str, query: &str, global_tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>, disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>) -> Result<String, ServerError> {
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e.kind()));},
@@ -183,7 +183,7 @@ pub fn handle_delete_request(connection: &mut Connection, name: &str, query: &st
 }
 
 /// Handles a create user request from a client. The user requesting the new user must have permission to create users
-pub fn handle_new_user_request(user_string: &str, users: Arc<RwLock<HashMap<KeyString, RwLock<User>>>>) -> Result<(), ServerError> {
+pub fn handle_new_user_request(user_string: &str, users: Arc<RwLock<HashMap<KeyString, RwLock<User>>>>, disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>) -> Result<(), ServerError> {
 
     let user: User = ron::from_str(user_string).unwrap();
 
@@ -196,7 +196,7 @@ pub fn handle_new_user_request(user_string: &str, users: Arc<RwLock<HashMap<KeyS
 }
 
 /// Handles a key value upload request.
-pub fn handle_kv_upload(connection: &mut Connection, name: &str, global_kv_table: Arc<RwLock<HashMap<KeyString, RwLock<Value>>>>) -> Result<(), ServerError> {
+pub fn handle_kv_upload(connection: &mut Connection, name: &str, global_kv_table: Arc<RwLock<HashMap<KeyString, RwLock<Value>>>>, disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>) -> Result<(), ServerError> {
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote OK as {n} bytes"),
@@ -231,7 +231,7 @@ pub fn handle_kv_upload(connection: &mut Connection, name: &str, global_kv_table
 }
 
 /// Overwrites an existing value. If no existing value has this key, return error.
-pub fn handle_kv_update(connection: &mut Connection, name: &str, global_kv_table: Arc<RwLock<HashMap<KeyString, RwLock<Value>>>>) -> Result<(), ServerError> {
+pub fn handle_kv_update(connection: &mut Connection, name: &str, global_kv_table: Arc<RwLock<HashMap<KeyString, RwLock<Value>>>>, disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>) -> Result<(), ServerError> {
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote OK as {n} bytes"),
@@ -263,7 +263,7 @@ pub fn handle_kv_update(connection: &mut Connection, name: &str, global_kv_table
 
 /// Handles a download request of a value associated with the given key. 
 /// Returns error if no value with that key exists or if user doesn't have permission.
-pub fn handle_kv_download(connection: &mut Connection, name: &str, global_kv_table: Arc<RwLock<HashMap<KeyString, RwLock<Value>>>>) -> Result<(), ServerError> {
+pub fn handle_kv_download(connection: &mut Connection, name: &str, global_kv_table: Arc<RwLock<HashMap<KeyString, RwLock<Value>>>>, disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>) -> Result<(), ServerError> {
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
@@ -296,7 +296,7 @@ pub fn handle_kv_download(connection: &mut Connection, name: &str, global_kv_tab
 }
 
 /// Handles the request for the list of tables.
-pub fn handle_meta_list_tables(connection: &mut Connection, global_tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>) -> Result<(), ServerError> {
+pub fn handle_meta_list_tables(connection: &mut Connection, global_tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>, disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>) -> Result<(), ServerError> {
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
@@ -342,7 +342,7 @@ pub fn handle_meta_list_tables(connection: &mut Connection, global_tables: Arc<R
 }
 
 /// Handles the request for a list of keys with associated binary blobs
-pub fn handle_meta_list_key_values(connection: &mut Connection, global_kv_table: Arc<RwLock<HashMap<KeyString, RwLock<Value>>>>) -> Result<(), ServerError> {
+pub fn handle_meta_list_key_values(connection: &mut Connection, global_kv_table: Arc<RwLock<HashMap<KeyString, RwLock<Value>>>>, disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>) -> Result<(), ServerError> {
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),

@@ -84,7 +84,7 @@ impl From<std::io::ErrorKind> for StrictError {
 }
 
 /// The struct that carries metadata relevant to a given table. More metadata will probably be added later.
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, PartialOrd, Clone, Debug)]
 pub struct Metadata {
     pub last_access: u64,
     pub times_accessed: u64,
@@ -130,7 +130,7 @@ pub enum DbType {
 }
 
 /// A single column in a database table.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub enum DbVec {
     Ints(Vec<i32>),
     Floats(Vec<f32>),
@@ -181,7 +181,7 @@ pub enum TableKey {
 /// The reason I chose to use a list of columns rather than a list of rows, is that it
 /// was much faster on all my benchmarks. I guess a list of columns is much more cache
 /// efficient. I am interested in feedback on this.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub struct ColumnTable {
     pub metadata: Metadata,
     pub name: KeyString,
