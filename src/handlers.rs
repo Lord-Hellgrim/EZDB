@@ -14,7 +14,7 @@ pub fn handle_download_request(connection: &mut Connection, name: &str, global_t
         Err(e) => {return Err(ServerError::Io(e.kind()));},
     };
 
-    let mut read_binding = global_tables.read().unwrap();
+    let read_binding = global_tables.read().unwrap();
     let requested_table = read_binding.get(name).expect("Instruction parser should have verified table");
     let requested_csv = requested_table.read().unwrap().to_string();
     println!("Requested_csv.len(): {}", requested_csv.len());
@@ -25,7 +25,6 @@ pub fn handle_download_request(connection: &mut Connection, name: &str, global_t
 
         // TODO: Need to implement logging. Can't lock the table to write to metadata.
         return Ok(());
-        todo!();
         // requested_table.metadata.last_access = get_current_time();
 
         // requested_table.metadata.times_accessed += 1;
@@ -51,7 +50,6 @@ pub fn handle_upload_request(connection: &mut Connection, name: &str, global_tab
 
     // Here we create a ColumnTable from the csv and supplied name
     println!("About to check for strictness");
-    let instant = std::time::Instant::now();
     match ColumnTable::from_csv_string(bytes_to_str(&csv)?, name, "test") {
         Ok(mut table) => {
             println!("About to write: {:x?}", "OK".as_bytes());
@@ -274,8 +272,8 @@ pub fn handle_kv_download(connection: &mut Connection, name: &str, global_kv_tab
     connection.stream.flush()?;
 
 
-    let mut mutex_binding = global_kv_table.read().unwrap();
-    let requested_value = mutex_binding.get(name).expect("Instruction parser should have verified table");
+    let read_binding = global_kv_table.read().unwrap();
+    let requested_value = read_binding.get(name).expect("Instruction parser should have verified table");
 
     // println!("Requested_value: {:x?}", requested_value.body);
 

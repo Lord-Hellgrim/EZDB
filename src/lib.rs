@@ -8,13 +8,14 @@ pub const PATH_SEP: char = '\\';
 pub const PATH_SEP: char = '/';
 
 
-pub mod db_structure;
-pub mod server_networking;
-pub mod client_networking;
-pub mod networking_utilities;
-pub mod auth;
-pub mod compression;
 // pub mod aes;
 pub mod aes_temp_crypto;
-pub mod handlers;
+pub mod auth;
+pub mod client_networking;
+pub mod compression;
+pub mod db_structure;
 pub mod ezql;
+pub mod handlers;
+pub mod logging;
+pub mod networking_utilities;
+pub mod server_networking;

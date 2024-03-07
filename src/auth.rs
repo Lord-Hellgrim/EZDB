@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     fmt,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, RwLock},
 };
 
 use serde::{Deserialize, Serialize};

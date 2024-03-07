@@ -158,13 +158,7 @@
 
 */
 
-
-use std::collections::btree_map::Range;
-
-use aes_gcm::Key;
 use smartstring::{LazyCompact, SmartString};
-
-use crate::networking_utilities::ServerError;
 
 pub type KeyString = SmartString<LazyCompact>;
 
@@ -220,9 +214,7 @@ impl Update {
     }
 
     pub fn from_str(s: &str) -> Result<Self, QueryError> {
-        let mut output = Update::blank();
-        let mut switch = false;
-        let mut buf = String::new();
+        let output: Update;
         let mut t = s.split_whitespace();
         if s.split_whitespace().count() < 3 {
             return Err(QueryError::InvalidUpdate)
@@ -299,6 +291,7 @@ impl UpdateOp {
 
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[allow(non_camel_case_types)]
 pub enum QueryType {
     SELECT,
     LEFT_JOIN,
@@ -346,9 +339,7 @@ impl Condition {
     }
 
     fn from_str(s: &str) -> Result<Self, QueryError> {
-        let mut output = Condition::blank();
-        let mut switch = false;
-        let mut buf = String::new();
+        let output: Condition;
         let mut t = s.split_whitespace();
         if s.split_whitespace().count() < 3 {
             return Err(QueryError::InvalidConditionFormat)

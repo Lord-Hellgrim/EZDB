@@ -7,7 +7,6 @@ use std::{
 use smartstring::{LazyCompact, SmartString};
 
 use crate::networking_utilities::*;
-use crate::ezql::*;
 
 use crate::PATH_SEP;
 
