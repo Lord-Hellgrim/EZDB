@@ -162,6 +162,9 @@ pub fn parse_instruction(instructions: &[u8], users: Arc<RwLock<HashMap<KeyStrin
         "MetaListKeyValues" => {
             Ok(Instruction::MetaListKeyValues)
         },
+        "MetaNewUser" => {
+            Ok(Instruction::NewUser(format!("")))
+        }
         _ => {return Err(ServerError::Instruction(InstructionError::Invalid(action.to_owned())));},
     }
 }
@@ -192,6 +195,8 @@ pub enum WriteThreadMessage {
     DropTable(KeyString),
     DeleteRows(DbVec),
     NewTable(ColumnTable),
+    NewKeyValue(KeyString, Value),
+    UpdateKeyValue(KeyString, Value),
     MetaNewUser(User),
 }
 
@@ -206,6 +211,8 @@ impl Display for WriteThreadMessage {
             WriteThreadMessage::DeleteRows(x) => writeln!(f, "{}", x),
             WriteThreadMessage::NewTable(x) => writeln!(f, "{}", x),
             WriteThreadMessage::MetaNewUser(x) => writeln!(f, "{}", ron::to_string(x).unwrap()),
+            WriteThreadMessage::NewKeyValue(key, value) => write!(f, "key: {}\nValue:\n{:x?}", key, value),
+            WriteThreadMessage::UpdateKeyValue(key, value) => write!(f, "key: {}\nValue:\n{:x?}", key, value),
             
         }
 
@@ -216,12 +223,12 @@ impl Display for WriteThreadMessage {
 /// The struct that carries data relevant to the running server. 
 /// Am trying to think of ways to reduce reliance on Arc<RwLock<T>>
 pub struct Server {
-    public_key: PublicKey,
+    pub public_key: PublicKey,
     private_key: StaticSecret,
-    listener: TcpListener,
-    tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>,
-    kv_list: Arc<RwLock<HashMap<KeyString, RwLock<Value>>>>,
-    users: Arc<RwLock<HashMap<KeyString, RwLock<User>>>>,
+    pub listener: TcpListener,
+    pub tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>,
+    pub kv_list: Arc<RwLock<HashMap<KeyString, RwLock<Value>>>>,
+    pub users: Arc<RwLock<HashMap<KeyString, RwLock<User>>>>,
 }
 
 /// The main loop of the server. Checks for incoming connections, parses their instructions, and handles them
@@ -323,13 +330,21 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                         match message_queue.pop() {
                             Some(m) => {
                                 let write_result = match m {
-                                    WriteThreadMessage::UpdateMetadata(metadata, table_name) => handle_message_metadata(outer_thread_server.clone(), metadata, table_name),
+                                    WriteThreadMessage::UpdateMetadata(metadata, table_name) => handle_message_update_metadata(outer_thread_server.clone(), metadata, table_name),
                                     WriteThreadMessage::UpdateTable(table_name, table) => handle_message_update_table(outer_thread_server.clone(), table_name, table),
-                                    WriteThreadMessage::LoadTable(table_name) => handle_message_load(outer_thread_server.clone(), table_name),
-                                    WriteThreadMessage::DropTable(table_name) => handle_message_drop(outer_thread_server.clone(), table_name),
-                                    WriteThreadMessage::DeleteRows(rows) => handle_message_delete(outer_thread_server.clone(), rows),
+                                    WriteThreadMessage::LoadTable(table_name) => handle_message_load_table(outer_thread_server.clone(), table_name),
+                                    WriteThreadMessage::DropTable(table_name) => handle_message_drop_table(outer_thread_server.clone(), table_name),
+                                    WriteThreadMessage::DeleteRows(rows) => handle_message_delete_rows(outer_thread_server.clone(), rows),
                                     WriteThreadMessage::NewTable(table) => handle_message_new_table(outer_thread_server.clone(), table),
                                     WriteThreadMessage::MetaNewUser(user) => handle_message_meta_new_user(outer_thread_server.clone(), user),
+                                    WriteThreadMessage::NewKeyValue(key, value) => handle_message_new_key_value(outer_thread_server.clone(), key, value),
+                                    WriteThreadMessage::UpdateKeyValue(key, value) => handle_message_update_key_value(outer_thread_server.clone(), key, value),
+                                
+                                };
+
+                                match write_result {
+                                    Ok(()) => continue,
+                                    Err(e) => println!("{}", e),
                                 };
                             }
                             None => {
@@ -511,9 +526,9 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                             }
                         },
                         Instruction::Upload(name) => {
-                            match handle_upload_request(&mut connection, 
-                                &name, 
-                                inner_thread_server.tables.clone(), 
+                            match handle_upload_request(
+                                &mut connection, 
+                                &name,
                                 inner_thread_message_sender
                             ) {
                                 Ok(_) => {
@@ -572,7 +587,9 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                             }
                         },
                         Instruction::NewUser(user_string) => {
-                            match handle_new_user_request(&user_string, 
+                            match handle_new_user_request(
+                                &mut connection, 
+                                &user_string, 
                                 inner_thread_server.users.clone(), 
                                 inner_thread_message_sender
                             ) {
@@ -588,8 +605,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                         Instruction::KvUpload(table_name) => {
                             match handle_kv_upload(
                                 &mut connection, 
-                                &table_name, 
-                                inner_thread_server.kv_list.clone(), 
+                                &table_name,
                                 inner_thread_message_sender
                             ) {
                                 Ok(_) => {

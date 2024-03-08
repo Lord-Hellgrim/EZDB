@@ -1,7 +1,7 @@
 use std::io::Write;
 use std::str::{self};
 
-use crate::auth::AuthenticationError;
+use crate::auth::{AuthenticationError, User};
 use crate::networking_utilities::*;
 use crate::PATH_SEP;
 
@@ -287,6 +287,36 @@ pub fn meta_list_key_values(
     let table_list = bytes_to_str(&value)?;
 
     Ok(table_list.to_owned())
+}
+
+pub fn meta_create_new_user(
+    user: User,
+    address: &str,
+    username: &str,
+    password: &str,
+) -> Result<(), ServerError> {
+
+    let mut connection = Connection::connect(address, username, password)?;
+
+    let user_string = match ron::to_string::<User>(&user) {
+        Ok(s) => s,
+        Err(e) => todo!(),
+    };
+
+    let response = instruction_send_and_confirm(Instruction::NewUser(user_string), &mut connection)?;
+
+    println!("Create new user - parsing response");
+    let confirmation: String = match parse_response(&response, &connection.user, "no table") {
+        Ok(s) => "OK".to_owned(),
+        Err(e) => return Err(e),
+    };
+    println!("confirmation: {}", confirmation);
+
+    if confirmation == "OK" {
+        Ok(())
+    } else {
+        return Err(ServerError::Confirmation(confirmation));
+    }
 }
 
 #[cfg(test)]

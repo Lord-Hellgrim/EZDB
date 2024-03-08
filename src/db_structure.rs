@@ -85,7 +85,7 @@ impl From<std::io::ErrorKind> for StrictError {
 
 
 /// The struct that carries metadata relevant to a given table. More metadata will probably be added later.
-#[derive(PartialEq, PartialOrd, Clone, Debug)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Debug)]
 pub struct Metadata {
     pub last_access: u64,
     pub times_accessed: u64,
@@ -461,6 +461,33 @@ impl ColumnTable {
         self.update(&insert_table)?;
 
         Ok(())
+    }
+
+    pub fn byte_size(&self) -> usize {
+
+        let mut total = 0;
+
+        total += self.metadata.created_by.as_bytes().len();
+        total += 16; // last accessed and times accessed are both u64 which are 8 bytes each
+
+        total += self.name.as_bytes().len();
+        for item in &self.header {
+            total += item.name.as_bytes().len();
+            total += 16; // DbType and TableKey are both raw enums which are 8 bytes in memory for the tag.
+        }
+        for column in &self.table {
+            match column {
+                DbVec::Ints(c) => total += c.len() * 4,
+                DbVec::Floats(c) => total += c.len() * 4,
+                DbVec::Texts(c) => {
+                    for item in c {
+                        total += item.as_bytes().len();
+                    }
+                },
+            }
+        }
+
+        total
     }
 
     /// utility function to get the index of the column with the primary key
@@ -1624,7 +1651,7 @@ fn merge_in_order<T: Clone + Display>(one: &[T], two: &[T], record_vec: &[u8]) -
 }
 
 /// This is the struct that carries the binary blob of the key/value pairs along with some metadata
-#[derive(PartialEq, Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Value {
     pub body: Vec<u8>,
     pub metadata: Metadata,

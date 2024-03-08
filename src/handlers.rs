@@ -1,6 +1,6 @@
 use std::{collections::HashMap, io::Write, sync::{Arc, RwLock}};
 
-use crate::{auth::User, db_structure::{ColumnTable, DbVec, Metadata, Value}, networking_utilities::*, server_networking::{Server, WriteThreadMessage}};
+use crate::{auth::User, db_structure::{ColumnTable, DbVec, Metadata, Value}, networking_utilities::*, server_networking::{Server, WriteThreadMessage, CONFIG_FOLDER}};
 
 use smartstring::{SmartString, LazyCompact};
 use crate::PATH_SEP;
@@ -35,17 +35,12 @@ pub fn handle_download_request(
         match disk_thread_sender.try_send(WriteThreadMessage::UpdateMetadata(metadelta, KeyString::from(name))) {
             Ok(_) => {},
             Err(e) => match e {
-                crossbeam_channel::TrySendError::Disconnected(e) => panic!("write thread has closed. Server is dead!!!"),
-                crossbeam_channel::TrySendError::Full(e) => todo!("I don't exactly know what to do here yet"),
+                crossbeam_channel::TrySendError::Disconnected(_e) => panic!("write thread has closed. Server is dead!!!"),
+                crossbeam_channel::TrySendError::Full(_e) => todo!("I don't exactly know what to do here yet"),
             }
         };
-        // TODO: Need to implement logging. Can't lock the table to write to metadata.
         return Ok(());
-        // requested_table.metadata.last_access = get_current_time();
-
-        // requested_table.metadata.times_accessed += 1;
-        // println!("metadata: {}", requested_table.metadata);
-
+        
     } else {
         return Err(ServerError::Confirmation(response))
     }
@@ -53,8 +48,9 @@ pub fn handle_download_request(
 }
 
 /// Handles an upload request from a client. An upload request uploads a whole csv string that will be parsed into a ColumnTable.
-pub fn handle_upload_request(connection: &mut Connection, 
-    name: &str, global_tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>, 
+pub fn handle_upload_request(
+    connection: &mut Connection, 
+    name: &str,
     disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>
 ) -> Result<String, ServerError> {
 
@@ -82,30 +78,13 @@ pub fn handle_upload_request(connection: &mut Connection,
             println!("Appending to global");
             println!("{:?}", &table.header);
 
-            let mut metadata = Metadata::new(&connection.user);
-
-            match disk_thread_sender.try_send(WriteThreadMessage::UpdateMetadata(metadata, KeyString::from(name))) {
-                Ok(_) => {},
-                Err(e) => match e {
-                    crossbeam_channel::TrySendError::Disconnected(e) => panic!("write thread has closed. Server is dead!!!"),
-                    crossbeam_channel::TrySendError::Full(e) => todo!("I don't exactly know what to do here yet"),
-                }
-            };
-
             match disk_thread_sender.try_send(WriteThreadMessage::NewTable(table)) {
                 Ok(_) => {},
                 Err(e) => match e {
-                    crossbeam_channel::TrySendError::Disconnected(e) => panic!("write thread has closed. Server is dead!!!"),
-                    crossbeam_channel::TrySendError::Full(e) => todo!("I don't exactly know what to do here yet"),
+                    crossbeam_channel::TrySendError::Disconnected(_e) => panic!("write thread has closed. Server is dead!!!"),
+                    crossbeam_channel::TrySendError::Full(_e) => todo!("I don't exactly know what to do here yet"),
                 }
             };
-            // table.metadata.last_access = get_current_time();
-            // table.metadata.created_by = KeyString::from(connection.user.clone());
-        
-            // table.metadata.times_accessed += 1;
-            
-            // global_tables.write().unwrap().insert(KeyString::from(table.name.clone()), RwLock::new(table));
-
         },
         Err(e) => match connection.stream.write(e.to_string().as_bytes()){
             Ok(_) => println!("Informed client of unstrictness"),
@@ -138,8 +117,8 @@ pub fn handle_update_request(connection: &mut Connection, name: &str, global_tab
                     connection.stream.write_all("OK".as_bytes())?;
                 },
                 Err(e) => match e {
-                    crossbeam_channel::TrySendError::Disconnected(e) => panic!("write thread has closed. Server is dead!!!"),
-                    crossbeam_channel::TrySendError::Full(e) => todo!("I don't exactly know what to do here yet"),
+                    crossbeam_channel::TrySendError::Disconnected(_e) => panic!("write thread has closed. Server is dead!!!"),
+                    crossbeam_channel::TrySendError::Full(_e) => todo!("I don't exactly know what to do here yet"),
                 }
             };
         },
@@ -194,8 +173,6 @@ pub fn handle_delete_request(connection: &mut Connection, name: &str, query: &st
         Err(e) => {return Err(ServerError::Io(e.kind()));},
     };
     connection.stream.flush()?;
-
-
     
     let mutex_binding = global_tables.write().unwrap();
     let requested_table = mutex_binding.get(name).expect("Instruction parser should have verified table");
@@ -225,20 +202,26 @@ pub fn handle_delete_request(connection: &mut Connection, name: &str, query: &st
 }
 
 /// Handles a create user request from a client. The user requesting the new user must have permission to create users
-pub fn handle_new_user_request(user_string: &str, users: Arc<RwLock<HashMap<KeyString, RwLock<User>>>>, disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>) -> Result<(), ServerError> {
+pub fn handle_new_user_request(connection: &mut Connection, user_string: &str, users: Arc<RwLock<HashMap<KeyString, RwLock<User>>>>, disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>) -> Result<(), ServerError> {
 
     let user: User = ron::from_str(user_string).unwrap();
 
-    let mut user_lock = users.write().unwrap();
-    user_lock.insert(KeyString::from(user.username.clone()), RwLock::new(user));
-
+    match disk_thread_sender.try_send(WriteThreadMessage::MetaNewUser(user)) {
+        Ok(_) => {
+            connection.stream.write_all("OK".as_bytes())?;
+        },
+        Err(e) => match e {
+            crossbeam_channel::TrySendError::Disconnected(_e) => panic!("write thread has closed. Server is dead!!!"),
+            crossbeam_channel::TrySendError::Full(_e) => todo!("I don't exactly know what to do here yet"),
+        }
+    };
 
     Ok(())
 
 }
 
 /// Handles a key value upload request.
-pub fn handle_kv_upload(connection: &mut Connection, name: &str, global_kv_table: Arc<RwLock<HashMap<KeyString, RwLock<Value>>>>, disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>) -> Result<(), ServerError> {
+pub fn handle_kv_upload(connection: &mut Connection, key: &str, disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>) -> Result<(), ServerError> {
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote OK as {n} bytes"),
@@ -246,11 +229,11 @@ pub fn handle_kv_upload(connection: &mut Connection, name: &str, global_kv_table
     };
     connection.stream.flush()?;
 
-
+    
     let value = receive_data(connection)?;
+    let value = Value::new(&connection.user, &value);
     // println!("value: {:?}", value);
 
-    // Here we create a ColumnTable from the csv and supplied name
     println!("About to check for strictness");
     match connection.stream.write("OK".as_bytes()) {
         Ok(_) => {
@@ -260,12 +243,16 @@ pub fn handle_kv_upload(connection: &mut Connection, name: &str, global_kv_table
     };
 
     println!("Appending to global");
+    match disk_thread_sender.try_send(WriteThreadMessage::NewKeyValue(KeyString::from(key), value)) {
+        Ok(_) => {
+            connection.stream.write_all("OK".as_bytes())?;
+        },
+        Err(e) => match e {
+            crossbeam_channel::TrySendError::Disconnected(_e) => panic!("write thread has closed. Server is dead!!!"),
+            crossbeam_channel::TrySendError::Full(_e) => todo!("I don't exactly know what to do here yet"),
+        }
+    };
     
-    let value = Value::new(&connection.user, &value);
-
-    let mut global_kv_table_lock = global_kv_table.write().unwrap();
-    global_kv_table_lock.insert(KeyString::from(name), RwLock::new(value));
-    println!("value from table: {:x?}", global_kv_table_lock.get(name).unwrap().read().unwrap().body);
 
 
     Ok(())
@@ -273,7 +260,7 @@ pub fn handle_kv_upload(connection: &mut Connection, name: &str, global_kv_table
 }
 
 /// Overwrites an existing value. If no existing value has this key, return error.
-pub fn handle_kv_update(connection: &mut Connection, name: &str, global_kv_table: Arc<RwLock<HashMap<KeyString, RwLock<Value>>>>, disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>) -> Result<(), ServerError> {
+pub fn handle_kv_update(connection: &mut Connection, key: &str, global_kv_table: Arc<RwLock<HashMap<KeyString, RwLock<Value>>>>, disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>) -> Result<(), ServerError> {
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote OK as {n} bytes"),
@@ -281,10 +268,11 @@ pub fn handle_kv_update(connection: &mut Connection, name: &str, global_kv_table
     };
     connection.stream.flush()?;
 
-
+    
     let value = receive_data(connection)?;
+    let value = Value::new(&connection.user, &value);
+    // println!("value: {:?}", value);
 
-    // Here we create a ColumnTable from the csv and supplied name
     println!("About to check for strictness");
     match connection.stream.write("OK".as_bytes()) {
         Ok(_) => {
@@ -294,13 +282,20 @@ pub fn handle_kv_update(connection: &mut Connection, name: &str, global_kv_table
     };
 
     println!("Appending to global");
+    match disk_thread_sender.try_send(WriteThreadMessage::NewKeyValue(KeyString::from(key), value)) {
+        Ok(_) => {
+            connection.stream.write_all("OK".as_bytes())?;
+        },
+        Err(e) => match e {
+            crossbeam_channel::TrySendError::Disconnected(_e) => panic!("write thread has closed. Server is dead!!!"),
+            crossbeam_channel::TrySendError::Full(_e) => todo!("I don't exactly know what to do here yet"),
+        }
+    };
     
-    let value = Value::new(&connection.user, &value);
-
-    global_kv_table.write().unwrap().insert(KeyString::from(name), RwLock::new(value));
 
 
     Ok(())
+
 }
 
 /// Handles a download request of a value associated with the given key. 
@@ -315,20 +310,23 @@ pub fn handle_kv_download(connection: &mut Connection, name: &str, global_kv_tab
 
 
     let read_binding = global_kv_table.read().unwrap();
-    let requested_value = read_binding.get(name).expect("Instruction parser should have verified table");
+    let requested_value = read_binding.get(name).expect("Instruction parser should have verified table").read().unwrap();
 
-    // println!("Requested_value: {:x?}", requested_value.body);
-
-    let response = data_send_and_confirm(connection, &requested_value.read().unwrap().body)?;
+    let response = data_send_and_confirm(connection, &requested_value.body)?;
 
     if response == "OK" {
 
-        // TODO: Implement proper logging to handle metadata. Can't lock the tables to write metadata.
+        let mut metadelta = requested_value.metadata.clone();
+        metadelta.times_accessed += 1;
+        metadelta.last_access = get_current_time();
 
-        // requested_value.metadata.last_access = get_current_time();
-
-        // requested_value.metadata.times_accessed += 1;
-        // println!("metadata: {}", requested_value.metadata.to_string());
+        match disk_thread_sender.try_send(WriteThreadMessage::UpdateMetadata(metadelta, KeyString::from(name))) {
+            Ok(_) => {},
+            Err(e) => match e {
+                crossbeam_channel::TrySendError::Disconnected(_e) => panic!("write thread has closed. Server is dead!!!"),
+                crossbeam_channel::TrySendError::Full(_e) => todo!("I don't exactly know what to do here yet"),
+            }
+        };
 
         return Ok(())
     } else {
@@ -433,34 +431,70 @@ pub fn handle_meta_list_key_values(connection: &mut Connection, global_kv_table:
 
 // ################################# MESSAGE HANDLERS ##########################################################
 
-pub fn handle_message_metadata(server_handle: Arc<Server>, metadata: Metadata, table_name: KeyString) -> Result<(), ServerError> {
+pub fn handle_message_update_metadata(server_handle: Arc<Server>, metadata: Metadata, table_name: KeyString) -> Result<(), ServerError> {
 
+    let global_tables = server_handle.tables.write().unwrap();
+    let mut table = match global_tables.get(&table_name) {
+        Some(t) => t.write().unwrap(),
+        None => todo!("Need to redesign error handling."),
+    };
 
+    table.metadata = metadata;
 
     Ok(())
 }
 
 pub fn handle_message_update_table(server_handle: Arc<Server>, table_name: KeyString, table: ColumnTable) -> Result<(), ServerError> {
 
-    Ok(())
-}
+    let global_tables = server_handle.tables.write().unwrap();
+    let mut source_table = match global_tables.get(&table_name) {
+        Some(t) => t.write().unwrap(),
+        None => todo!("Need to redesign error handling."),
+    };
 
-pub fn handle_message_load(server_handle: Arc<Server>, table_name: KeyString) -> Result<(), ServerError> {
-
-    Ok(())
-}
-
-pub fn handle_message_drop(server_handle: Arc<Server>, table_name: KeyString) -> Result<(), ServerError> {
+    source_table.update(&table)?;
 
     Ok(())
 }
 
-pub fn handle_message_delete(server_handle: Arc<Server>, rows: DbVec) -> Result<(), ServerError> {
+pub fn handle_message_load_table(server_handle: Arc<Server>, table_name: KeyString) -> Result<(), ServerError> {
+
+    let raw_table_exists = std::path::Path::new(&format!("{}/raw_tables/{}", CONFIG_FOLDER, table_name)).exists();
+    if raw_table_exists {
+        println!("Loading table from disk");
+        let disk_table = std::fs::read_to_string(format!("{}/raw_tables/{}", CONFIG_FOLDER, table_name))?;
+        let disk_table = ColumnTable::from_csv_string(&disk_table, &table_name, "temp")?;
+        {
+            let mut writer = server_handle.tables.write().unwrap();
+            writer.insert(KeyString::from(table_name), RwLock::new(disk_table));
+        }
+    } else {
+        return Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_string())));
+    }
+    Ok(())
+}
+
+pub fn handle_message_drop_table(server_handle: Arc<Server>, table_name: KeyString) -> Result<(), ServerError> {
+
+    Ok(())
+}
+
+pub fn handle_message_delete_rows(server_handle: Arc<Server>, rows: DbVec) -> Result<(), ServerError> {
 
     Ok(())
 }
 
 pub fn handle_message_new_table(server_handle: Arc<Server>, table: ColumnTable) -> Result<(), ServerError> {
+
+    Ok(())
+}
+
+pub fn handle_message_new_key_value(server_handle: Arc<Server>, key: KeyString, value: Value) -> Result<(), ServerError> {
+
+    Ok(())
+}
+
+pub fn handle_message_update_key_value(server_handle: Arc<Server>, key: KeyString, value: Value) -> Result<(), ServerError> {
 
     Ok(())
 }
