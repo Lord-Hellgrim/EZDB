@@ -53,7 +53,10 @@ pub fn handle_download_request(
 }
 
 /// Handles an upload request from a client. An upload request uploads a whole csv string that will be parsed into a ColumnTable.
-pub fn handle_upload_request(connection: &mut Connection, name: &str, global_tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>, disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>) -> Result<String, ServerError> {
+pub fn handle_upload_request(connection: &mut Connection, 
+    name: &str, global_tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>, 
+    disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>
+) -> Result<String, ServerError> {
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote OK as {n} bytes"),
@@ -78,12 +81,30 @@ pub fn handle_upload_request(connection: &mut Connection, name: &str, global_tab
 
             println!("Appending to global");
             println!("{:?}", &table.header);
-            table.metadata.last_access = get_current_time();
-            table.metadata.created_by = KeyString::from(connection.user.clone());
+
+            let mut metadata = Metadata::new(&connection.user);
+
+            match disk_thread_sender.try_send(WriteThreadMessage::UpdateMetadata(metadata, KeyString::from(name))) {
+                Ok(_) => {},
+                Err(e) => match e {
+                    crossbeam_channel::TrySendError::Disconnected(e) => panic!("write thread has closed. Server is dead!!!"),
+                    crossbeam_channel::TrySendError::Full(e) => todo!("I don't exactly know what to do here yet"),
+                }
+            };
+
+            match disk_thread_sender.try_send(WriteThreadMessage::NewTable(table)) {
+                Ok(_) => {},
+                Err(e) => match e {
+                    crossbeam_channel::TrySendError::Disconnected(e) => panic!("write thread has closed. Server is dead!!!"),
+                    crossbeam_channel::TrySendError::Full(e) => todo!("I don't exactly know what to do here yet"),
+                }
+            };
+            // table.metadata.last_access = get_current_time();
+            // table.metadata.created_by = KeyString::from(connection.user.clone());
         
-            table.metadata.times_accessed += 1;
+            // table.metadata.times_accessed += 1;
             
-            global_tables.write().unwrap().insert(KeyString::from(table.name.clone()), RwLock::new(table));
+            // global_tables.write().unwrap().insert(KeyString::from(table.name.clone()), RwLock::new(table));
 
         },
         Err(e) => match connection.stream.write(e.to_string().as_bytes()){
