@@ -48,7 +48,7 @@ impl Permission {
 /// The password field is a blake3 hash of the users password
 /// the can_upload field tracks whether the user should be allowed to upload tables or binary blobs
 /// the can_X fields are lists of tables / values on which X operation is allowed.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct User {
     pub username: KeyString,
     pub password: [u8; 32],

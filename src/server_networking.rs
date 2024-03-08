@@ -187,11 +187,12 @@ pub fn execute_single_EZQL_query(query: ezql::Query) -> Result<ColumnTable, Serv
 #[derive(Clone, PartialEq, PartialOrd)]
 pub enum WriteThreadMessage {
     UpdateMetadata(Metadata, KeyString), 
-    UpdateTable(ColumnTable),
+    UpdateTable(KeyString, ColumnTable),
     LoadTable(KeyString),
     DropTable(KeyString),
     DeleteRows(DbVec),
     NewTable(ColumnTable),
+    MetaNewUser(User),
 }
 
 impl Display for WriteThreadMessage {
@@ -199,11 +200,13 @@ impl Display for WriteThreadMessage {
 
         match self {
             WriteThreadMessage::UpdateMetadata(x, y) => writeln!(f, "{}:\n{}", y, x),
-            WriteThreadMessage::UpdateTable(x) => writeln!(f, "{}", x),
+            WriteThreadMessage::UpdateTable(name, table) => writeln!(f, "{}:\n{}", name, table),
             WriteThreadMessage::LoadTable(x) => writeln!(f, "{}", x),
             WriteThreadMessage::DropTable(x) => writeln!(f, "{}", x),
             WriteThreadMessage::DeleteRows(x) => writeln!(f, "{}", x),
             WriteThreadMessage::NewTable(x) => writeln!(f, "{}", x),
+            WriteThreadMessage::MetaNewUser(x) => writeln!(f, "{}", ron::to_string(x).unwrap()),
+            
         }
 
     }
@@ -321,11 +324,12 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                             Some(m) => {
                                 let write_result = match m {
                                     WriteThreadMessage::UpdateMetadata(metadata, table_name) => handle_message_metadata(outer_thread_server.clone(), metadata, table_name),
-                                    WriteThreadMessage::UpdateTable(table) => handle_message_update_table(outer_thread_server.clone(), table),
+                                    WriteThreadMessage::UpdateTable(table_name, table) => handle_message_update_table(outer_thread_server.clone(), table_name, table),
                                     WriteThreadMessage::LoadTable(table_name) => handle_message_load(outer_thread_server.clone(), table_name),
                                     WriteThreadMessage::DropTable(table_name) => handle_message_drop(outer_thread_server.clone(), table_name),
                                     WriteThreadMessage::DeleteRows(rows) => handle_message_delete(outer_thread_server.clone(), rows),
                                     WriteThreadMessage::NewTable(table) => handle_message_new_table(outer_thread_server.clone(), table),
+                                    WriteThreadMessage::MetaNewUser(user) => handle_message_meta_new_user(outer_thread_server.clone(), user),
                                 };
                             }
                             None => {

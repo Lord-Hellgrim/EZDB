@@ -129,14 +129,19 @@ pub fn handle_update_request(connection: &mut Connection, name: &str, global_tab
 
 
     let csv = receive_data(connection)?;
+    let csv = bytes_to_str(&csv)?;
 
-    let mut mutex_binding = global_tables.write().unwrap();
-
-    let requested_table = mutex_binding.get_mut(name).expect("Instruction parser should have verified existence of table");
-    
-    match requested_table.write().unwrap().update_from_csv(bytes_to_str(&csv)?) {
-        Ok(_) => {
-            connection.stream.write_all("OK".as_bytes())?;
+    match ColumnTable::from_csv_string(csv, "insert", "system") {
+        Ok(table) => {
+            match disk_thread_sender.try_send(WriteThreadMessage::UpdateTable(KeyString::from(name), table)) {
+                Ok(_) => {
+                    connection.stream.write_all("OK".as_bytes())?;
+                },
+                Err(e) => match e {
+                    crossbeam_channel::TrySendError::Disconnected(e) => panic!("write thread has closed. Server is dead!!!"),
+                    crossbeam_channel::TrySendError::Full(e) => todo!("I don't exactly know what to do here yet"),
+                }
+            };
         },
         Err(e) => {
             connection.stream.write_all(e.to_string().as_bytes())?;
@@ -435,7 +440,7 @@ pub fn handle_message_metadata(server_handle: Arc<Server>, metadata: Metadata, t
     Ok(())
 }
 
-pub fn handle_message_update_table(server_handle: Arc<Server>, table: ColumnTable) -> Result<(), ServerError> {
+pub fn handle_message_update_table(server_handle: Arc<Server>, table_name: KeyString, table: ColumnTable) -> Result<(), ServerError> {
 
     Ok(())
 }
@@ -456,6 +461,11 @@ pub fn handle_message_delete(server_handle: Arc<Server>, rows: DbVec) -> Result<
 }
 
 pub fn handle_message_new_table(server_handle: Arc<Server>, table: ColumnTable) -> Result<(), ServerError> {
+
+    Ok(())
+}
+
+pub fn handle_message_meta_new_user(server_handle: Arc<Server>, user: User) -> Result<(), ServerError> {
 
     Ok(())
 }
