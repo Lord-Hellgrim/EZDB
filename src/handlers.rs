@@ -1,6 +1,6 @@
 use std::{collections::HashMap, io::Write, sync::{Arc, RwLock}};
 
-use crate::{auth::User, db_structure::{ColumnTable, Value}, networking_utilities::*, server_networking::WriteThreadMessage};
+use crate::{auth::User, db_structure::{ColumnTable, DbVec, Metadata, Value}, networking_utilities::*, server_networking::{Server, WriteThreadMessage}};
 
 use smartstring::{SmartString, LazyCompact};
 use crate::PATH_SEP;
@@ -8,21 +8,37 @@ use crate::PATH_SEP;
 pub type KeyString = SmartString<LazyCompact>;
 
 /// Handles a download request from a client. A download request is a request for a whole table with no filters.
-pub fn handle_download_request(connection: &mut Connection, name: &str, global_tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>, disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>) -> Result<(), ServerError> {
+pub fn handle_download_request(
+    connection: &mut Connection, 
+    name: &str, 
+    global_tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>, 
+    disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>
+) -> Result<(), ServerError> {
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e.kind()));},
     };
 
-    let read_binding = global_tables.read().unwrap();
-    let requested_table = read_binding.get(name).expect("Instruction parser should have verified table");
-    let requested_csv = requested_table.read().unwrap().to_string();
+    let global_read_binding = global_tables.read().unwrap();
+    let requested_table = global_read_binding.get(name).expect("Instruction parser should have verified table").read().unwrap();
+    let requested_csv = requested_table.to_string();
     println!("Requested_csv.len(): {}", requested_csv.len());
 
     let response = data_send_and_confirm(connection, requested_csv.as_bytes())?;
 
     if response == "OK" {
-
+        
+        let mut metadelta = requested_table.metadata.clone();
+        metadelta.times_accessed += 1;
+        metadelta.last_access = get_current_time();
+        
+        match disk_thread_sender.try_send(WriteThreadMessage::UpdateMetadata(metadelta, KeyString::from(name))) {
+            Ok(_) => {},
+            Err(e) => match e {
+                crossbeam_channel::TrySendError::Disconnected(e) => panic!("write thread has closed. Server is dead!!!"),
+                crossbeam_channel::TrySendError::Full(e) => todo!("I don't exactly know what to do here yet"),
+            }
+        };
         // TODO: Need to implement logging. Can't lock the table to write to metadata.
         return Ok(());
         // requested_table.metadata.last_access = get_current_time();
@@ -385,4 +401,40 @@ pub fn handle_meta_list_key_values(connection: &mut Connection, global_kv_table:
         return Err(ServerError::Confirmation(response))
     }
 
+}
+
+
+
+// ################################# MESSAGE HANDLERS ##########################################################
+
+pub fn handle_message_metadata(server_handle: Arc<Server>, metadata: Metadata, table_name: KeyString) -> Result<(), ServerError> {
+
+
+
+    Ok(())
+}
+
+pub fn handle_message_update_table(server_handle: Arc<Server>, table: ColumnTable) -> Result<(), ServerError> {
+
+    Ok(())
+}
+
+pub fn handle_message_load(server_handle: Arc<Server>, table_name: KeyString) -> Result<(), ServerError> {
+
+    Ok(())
+}
+
+pub fn handle_message_drop(server_handle: Arc<Server>, table_name: KeyString) -> Result<(), ServerError> {
+
+    Ok(())
+}
+
+pub fn handle_message_delete(server_handle: Arc<Server>, rows: DbVec) -> Result<(), ServerError> {
+
+    Ok(())
+}
+
+pub fn handle_message_new_table(server_handle: Arc<Server>, table: ColumnTable) -> Result<(), ServerError> {
+
+    Ok(())
 }

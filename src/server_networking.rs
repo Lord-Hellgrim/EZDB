@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::Display;
 use std::io::{Write, Read};
 use std::net::TcpListener;
 use std::sync::{Arc, RwLock};
@@ -12,7 +13,7 @@ pub type KeyString = SmartString<LazyCompact>;
 use crate::aes_temp_crypto::decrypt_aes256;
 use crate::auth::{User, AuthenticationError, user_has_permission};
 use crate::networking_utilities::*;
-use crate::db_structure::{ColumnTable, StrictError, Value};
+use crate::db_structure::{ColumnTable, DbVec, Metadata, StrictError, Value};
 use crate::handlers::*;
 use crate::ezql;
 
@@ -185,9 +186,27 @@ pub fn execute_single_EZQL_query(query: ezql::Query) -> Result<ColumnTable, Serv
 
 #[derive(Clone, PartialEq, PartialOrd)]
 pub enum WriteThreadMessage {
+    UpdateMetadata(Metadata, KeyString), 
     UpdateTable(ColumnTable),
     LoadTable(KeyString),
     DropTable(KeyString),
+    DeleteRows(DbVec),
+    NewTable(ColumnTable),
+}
+
+impl Display for WriteThreadMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+
+        match self {
+            WriteThreadMessage::UpdateMetadata(x, y) => writeln!(f, "{}:\n{}", y, x),
+            WriteThreadMessage::UpdateTable(x) => writeln!(f, "{}", x),
+            WriteThreadMessage::LoadTable(x) => writeln!(f, "{}", x),
+            WriteThreadMessage::DropTable(x) => writeln!(f, "{}", x),
+            WriteThreadMessage::DeleteRows(x) => writeln!(f, "{}", x),
+            WriteThreadMessage::NewTable(x) => writeln!(f, "{}", x),
+        }
+
+    }
 }
 
 
@@ -290,12 +309,32 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                         crossbeam_channel::TryRecvError::Disconnected => {
                             panic!("No more senders! I don't know exactly what that means!!!")
                         },
-                        crossbeam_channel::TryRecvError::Empty => continue,
+                        crossbeam_channel::TryRecvError::Empty => (),
                     }
                 };
 
                 if cache_timer.elapsed().as_secs() > PROCESS_MESSAGES_INTERVAL {
                     cache_timer = std::time::Instant::now();
+                    
+                    loop {
+                        match message_queue.pop() {
+                            Some(m) => {
+                                let write_result = match m {
+                                    WriteThreadMessage::UpdateMetadata(metadata, table_name) => handle_message_metadata(outer_thread_server.clone(), metadata, table_name),
+                                    WriteThreadMessage::UpdateTable(table) => handle_message_update_table(outer_thread_server.clone(), table),
+                                    WriteThreadMessage::LoadTable(table_name) => handle_message_load(outer_thread_server.clone(), table_name),
+                                    WriteThreadMessage::DropTable(table_name) => handle_message_drop(outer_thread_server.clone(), table_name),
+                                    WriteThreadMessage::DeleteRows(rows) => handle_message_delete(outer_thread_server.clone(), rows),
+                                    WriteThreadMessage::NewTable(table) => handle_message_new_table(outer_thread_server.clone(), table),
+                                };
+                            }
+                            None => {
+                                println!("No messages in the last {} seconds", PROCESS_MESSAGES_INTERVAL);
+                                break
+                            },
+                        }
+                    }
+
                     println!("Background thread running good!...");
                     {
                         let data = outer_thread_server.tables.read().unwrap();

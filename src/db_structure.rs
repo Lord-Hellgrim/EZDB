@@ -83,6 +83,7 @@ impl From<std::io::ErrorKind> for StrictError {
     }
 }
 
+
 /// The struct that carries metadata relevant to a given table. More metadata will probably be added later.
 #[derive(PartialEq, PartialOrd, Clone, Debug)]
 pub struct Metadata {
@@ -135,6 +136,16 @@ pub enum DbVec {
     Ints(Vec<i32>),
     Floats(Vec<f32>),
     Texts(Vec<KeyString>),
+}
+
+impl Display for DbVec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DbVec::Ints(v) => write!(f, "{:?}", v),
+            DbVec::Floats(v) => write!(f, "{:?}", v),
+            DbVec::Texts(v) => write!(f, "{:?}", v),
+        }
+    }
 }
 
 impl DbVec {
