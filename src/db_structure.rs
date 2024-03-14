@@ -42,6 +42,22 @@ impl From<&str> for KeyString {
     }
 }
 
+impl From<&[u8]> for KeyString {
+    fn from(s: &[u8]) -> Self {
+
+        let mut inner = [0u8;64];
+
+        for i in 0..std::cmp::min(s.len(), 63) {
+            inner[i] = s[i];
+        }
+
+        KeyString {
+            inner
+        }
+
+    }
+}
+
 impl PartialEq for KeyString {
     fn eq(&self, other: &Self) -> bool {
         if self.as_bytes() == other.as_bytes() {
@@ -982,310 +998,6 @@ impl ColumnTable {
         Ok(())
     }
 
-
-    /// Executes a EZQL select query. See the EZQL spec in ezql.rs for more details.
-    /// Checks if the listed primary keys have relations that match all the Query conditions.
-    /// This method is very long mostly since it has to match all the different conditions.
-    // pub fn complex_query(&self, mut query: Query) -> Result<String, StrictError> {
-    //     let pk_index = self.get_primary_key_col_index();
-
-    //     let mut indexes = Vec::new();
-
-    //     match &self.table[pk_index] {
-    //         DbVec::Ints(col) => {
-    //             match query.primary_keys {
-    //                 RangeOrListorAll::List(list) => {
-    //                     let mut int_list = Vec::with_capacity(list.len());
-    //                     for item in &list {
-    //                         let temp = match item.parse::<i32>() {
-    //                             Ok(x) => x,
-    //                             Err(_) => return Err(StrictError::Query(item.to_string())),
-    //                         };
-    //                         int_list.push(temp);
-    //                     }
-    //                     int_list.sort();
-
-    //                     for item in int_list {
-    //                         match col.binary_search(&item) {
-    //                             Ok(i) => indexes.push(i),
-    //                             Err(_) => break,
-    //                         };
-    //                     }
-    //                 }
-    //                 RangeOrListorAll::Range(range) => {
-    //                     let range0 = match range[0].parse::<i32>() {
-    //                         Ok(x) => x,
-    //                         Err(_) => {
-    //                             return Err(StrictError::Query(format!(
-    //                                 "Could not parse '{}' as a i32",
-    //                                 range[0]
-    //                             )))
-    //                         }
-    //                     };
-    //                     let range1 = match range[1].parse::<i32>() {
-    //                         Ok(x) => x,
-    //                         Err(_) => {
-    //                             return Err(StrictError::Query(format!(
-    //                                 "Could not parse '{}' as a i32",
-    //                                 range[1]
-    //                             )))
-    //                         }
-    //                     };
-    //                     let start = col.binary_search(&range0).unwrap_or(0);
-    //                     let stop = col.binary_search(&range1).unwrap_or(col.len());
-
-    //                     indexes = (start..stop).collect();
-    //                 }
-    //                 RangeOrListorAll::All => indexes = (0..col.len()).collect(),
-    //             };
-    //         }
-    //         DbVec::Texts(col) => {
-    //             match query.primary_keys {
-    //                 RangeOrListorAll::List(mut list) => {
-    //                     list.sort();
-
-    //                     for item in list {
-    //                         match col.binary_search(&item) {
-    //                             Ok(i) => indexes.push(i),
-    //                             Err(_) => break,
-    //                         };
-    //                     }
-    //                 }
-    //                 RangeOrListorAll::Range(range) => {
-    //                     let start = col.binary_search(&range[0]).unwrap_or(0);
-    //                     let stop = col.binary_search(&range[1]).unwrap_or(col.len());
-
-    //                     indexes = (start..stop).collect();
-    //                 }
-    //                 RangeOrListorAll::All => indexes = (0..col.len()).collect(),
-    //             };
-    //         }
-    //         DbVec::Floats(_) => unreachable!("Should never have a float primary key"),
-    //     }
-
-    //     let mut keepers = Vec::with_capacity(indexes.len());
-
-    //     // Sort the conditions to keep the same col in memory if it is tested multiple times
-    //     query
-    //         .conditions
-    //         .sort_by(|a, b| a.attribute.cmp(&b.attribute));
-
-    //     for index in indexes {
-    //         let mut pass = true;
-
-    //         for condition in &query.conditions {
-    //             let col_index = match self
-    //                 .header
-    //                 .iter()
-    //                 .position(|x| x.name == condition.attribute)
-    //             {
-    //                 Some(x) => x,
-    //                 None => {
-    //                     return Err(StrictError::Query(format!(
-    //                         "Queried table does not have attribute {}",
-    //                         condition.attribute
-    //                     )))
-    //                 }
-    //             };
-
-    //             match &condition.test {
-    //                 Test::Contains(bar) => match &self.table[col_index] {
-    //                     DbVec::Floats(_) => {
-    //                         return Err(StrictError::Query(format!(
-    //                             "Cannot apply a 'contains' test on floats"
-    //                         )))
-    //                     }
-    //                     DbVec::Ints(_) => {
-    //                         return Err(StrictError::Query(format!(
-    //                             "Cannot apply a 'contains' test on ints"
-    //                         )))
-    //                     }
-    //                     DbVec::Texts(col) => {
-    //                         if col[index].contains(&bar.to_string()) {
-    //                             continue;
-    //                         } else {
-    //                             pass = false;
-    //                         }
-    //                     }
-    //                 },
-
-    //                 Test::Ends(bar) => match &self.table[col_index] {
-    //                     DbVec::Floats(_) => {
-    //                         return Err(StrictError::Query(format!(
-    //                             "Cannot apply a 'ends' test on floats"
-    //                         )))
-    //                     }
-    //                     DbVec::Ints(_) => {
-    //                         return Err(StrictError::Query(format!(
-    //                             "Cannot apply a 'ends' test on ints"
-    //                         )))
-    //                     }
-    //                     DbVec::Texts(col) => {
-    //                         if col[index].ends_with(&bar.to_string()) {
-    //                             continue;
-    //                         } else {
-    //                             pass = false;
-    //                         }
-    //                     }
-    //                 },
-
-    //                 Test::Equals(bar) => match &self.table[col_index] {
-    //                     DbVec::Floats(col) => {
-    //                         let bar = match bar.parse::<f32>() {
-    //                             Ok(n) => n,
-    //                             Err(_) => {
-    //                                 return Err(StrictError::Query(
-    //                                     format!("Could not parse '{}' as an f32", bar).to_owned(),
-    //                                 ))
-    //                             }
-    //                         };
-    //                         if col[index] == bar {
-    //                             continue;
-    //                         } else {
-    //                             pass = false;
-    //                         }
-    //                     }
-    //                     DbVec::Ints(col) => {
-    //                         let bar = match bar.parse::<i32>() {
-    //                             Ok(n) => n,
-    //                             Err(_) => {
-    //                                 return Err(StrictError::Query(
-    //                                     format!("Could not parse '{}' as an i32", bar).to_owned(),
-    //                                 ))
-    //                             }
-    //                         };
-    //                         if col[index] == bar {
-    //                             continue;
-    //                         } else {
-    //                             pass = false;
-    //                         }
-    //                     }
-    //                     DbVec::Texts(col) => {
-    //                         if col[index] == *bar {
-    //                             continue;
-    //                         } else {
-    //                             pass = false;
-    //                         }
-    //                     }
-    //                 },
-
-    //                 Test::Greater(bar) => match &self.table[col_index] {
-    //                     DbVec::Floats(col) => {
-    //                         let bar = match bar.parse::<f32>() {
-    //                             Ok(n) => n,
-    //                             Err(_) => {
-    //                                 return Err(StrictError::Query(
-    //                                     format!("Could not parse '{}' as an f32", bar).to_owned(),
-    //                                 ))
-    //                             }
-    //                         };
-    //                         if col[index] > bar {
-    //                             continue;
-    //                         } else {
-    //                             pass = false;
-    //                         }
-    //                     }
-    //                     DbVec::Ints(col) => {
-    //                         let bar = match bar.parse::<i32>() {
-    //                             Ok(n) => n,
-    //                             Err(_) => {
-    //                                 return Err(StrictError::Query(
-    //                                     format!("Could not parse '{}' as an i32", bar).to_owned(),
-    //                                 ))
-    //                             }
-    //                         };
-    //                         if col[index] > bar {
-    //                             continue;
-    //                         } else {
-    //                             pass = false;
-    //                         }
-    //                     }
-    //                     DbVec::Texts(col) => {
-    //                         if col[index] > *bar {
-    //                             continue;
-    //                         } else {
-    //                             pass = false;
-    //                         }
-    //                     }
-    //                 },
-
-    //                 Test::Less(bar) => match &self.table[col_index] {
-    //                     DbVec::Floats(col) => {
-    //                         let bar = match bar.parse::<f32>() {
-    //                             Ok(n) => n,
-    //                             Err(_) => {
-    //                                 return Err(StrictError::Query(
-    //                                     format!("Could not parse '{}' as an f32", bar).to_owned(),
-    //                                 ))
-    //                             }
-    //                         };
-    //                         if col[index] < bar {
-    //                             continue;
-    //                         } else {
-    //                             pass = false;
-    //                         }
-    //                     }
-    //                     DbVec::Ints(col) => {
-    //                         let bar = match bar.parse::<i32>() {
-    //                             Ok(n) => n,
-    //                             Err(_) => {
-    //                                 return Err(StrictError::Query(
-    //                                     format!("Could not parse '{}' as an i32", bar).to_owned(),
-    //                                 ))
-    //                             }
-    //                         };
-    //                         if col[index] < bar {
-    //                             continue;
-    //                         } else {
-    //                             pass = false;
-    //                         }
-    //                     }
-    //                     DbVec::Texts(col) => {
-    //                         if col[index] < *bar {
-    //                             continue;
-    //                         } else {
-    //                             pass = false;
-    //                         }
-    //                     }
-    //                 },
-
-    //                 Test::Starts(bar) => match &self.table[col_index] {
-    //                     DbVec::Floats(_) => {
-    //                         return Err(StrictError::Query(format!(
-    //                             "Cannot apply a 'ends' test on floats"
-    //                         )))
-    //                     }
-    //                     DbVec::Ints(_) => {
-    //                         return Err(StrictError::Query(format!(
-    //                             "Cannot apply a 'ends' test on ints"
-    //                         )))
-    //                     }
-    //                     DbVec::Texts(col) => {
-    //                         if col[index].starts_with(&bar.to_string()) {
-    //                             continue;
-    //                         } else {
-    //                             pass = false;
-    //                         }
-    //                     }
-    //                 },
-    //             }; // match condition.test
-    //         } // for condition in query.conditions {
-    //         if pass {
-    //             keepers.push(index);
-    //         }
-    //     } // Generating keepers
-
-    //     let mut output = String::new();
-    //     for keeper in keepers {
-    //         assert!(keeper < self.len());
-    //         output.push_str(&self.get_line(keeper).unwrap()); // should be safe to unwrap since the keepers are generated from self
-    //         output.push('\n');
-    //     }
-    //     output.pop();
-
-    //     Ok(output)
-    // }
-
     /// Deletes a range of rows by primary key from the table
     pub fn delete_range(&mut self, range: (&str, &str)) -> Result<(), StrictError> {
         // Up to but not including.
@@ -1510,6 +1222,12 @@ impl ColumnTable {
 
     /// Writes to EZ binary format
     pub fn write_to_raw_binary(&self) -> Vec<u8> {
+        /*
+            EZ binary format
+            X byte header\n\n
+
+
+         */
         let mut total_bytes = 0;
         for item in &self.header {
             total_bytes += item.name.as_bytes().len() + 6;
@@ -1567,8 +1285,7 @@ impl ColumnTable {
                 }
                 DbVec::Texts(col) => {
                     for item in col {
-                        output.extend_from_slice(&item.as_bytes());
-                        output.push(b';');
+                        output.extend_from_slice(item.raw());
                     }
                 }
             };
@@ -1648,32 +1365,11 @@ impl ColumnTable {
                     table.push(DbVec::Floats(v));
                 }
                 DbType::Text => {
-                    let mut pos = 0;
-                    let mut v = Vec::with_capacity(bin_length);
-                    let mut strbuf = Vec::with_capacity(24);
-                    while pos < bin_length {
-                        if bin_body[total] == b';' {
-                            match String::from_utf8(strbuf.clone()) {
-                                Ok(s) => v.push(KeyString::from(s.as_str())),
-                                Err(e) => {
-                                    return Err(StrictError::BinaryRead(format!(
-                                        "Invalid utf-8 in text column.\nError body: {}",
-                                        e
-                                    )))
-                                }
-                            };
-                            strbuf.clear();
-                            pos += 1;
-                            total += 1;
-                            continue;
-                        }
-
-                        strbuf.push(bin_body[total]);
-
-                        total += 1;
-                    }
-                    table.push(DbVec::Texts(v));
+                    let blob = &bin_body[total..total + (bin_length * 64)];
+                    let v: Vec<KeyString> = blob.chunks(64).map(|n| KeyString::from(n)).collect();
+                    total += bin_length * 64;
                     index += 1;
+                    table.push(DbVec::Texts(v));
                 }
             }
         }
@@ -1988,8 +1684,11 @@ mod tests {
         println!("string_t lent: {}", string_t.len());
         let translated_t = ColumnTable::read_raw_binary(&bint_t).unwrap();
 
+        println!("t:\n{}", t);
+        println!("tranlated_t:\n{}", translated_t);
+
         let string_transl_t = translated_t.to_string();
-        assert_eq!(string_t, string_transl_t);
+        assert_eq!(t, translated_t);
     }
 
     // TEST QUERIES ###############################################################################################################################################################################
