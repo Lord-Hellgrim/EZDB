@@ -158,9 +158,8 @@
 
 */
 
-use smartstring::{LazyCompact, SmartString};
+use crate::db_structure::KeyString;
 
-pub type KeyString = SmartString<LazyCompact>;
 
 #[derive(Debug, PartialEq)]
 pub enum QueryError {
@@ -253,9 +252,9 @@ impl Update {
 
             if acc.len() == 3 {
                 output = Update {
-                    attribute: KeyString::from(&acc[0]),
-                    Operator: UpdateOp::from_str(&acc[1])?,
-                    Value: KeyString::from(&acc[2]),
+                    attribute: KeyString::from(acc[0].as_str()),
+                    Operator: UpdateOp::from_str(acc[1].as_str())?,
+                    Value: KeyString::from(acc[2].as_str()),
                 };
             } else {
                 return Err(QueryError::InvalidUpdate)

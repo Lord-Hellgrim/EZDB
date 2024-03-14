@@ -13,6 +13,7 @@ use crate::aes_temp_crypto::{encrypt_aes256, decrypt_aes256};
 use crate::auth::AuthenticationError;
 use crate::compression;
 use crate::db_structure::StrictError;
+use crate::ezql::QueryError;
 
 
 pub const INSTRUCTION_BUFFER: usize = 1024;
@@ -96,6 +97,12 @@ impl From<aead::Error> for ServerError {
 impl From<ParseIntError> for ServerError {
     fn from(e: ParseIntError) -> Self {
         ServerError::ParseInt(e)
+    }
+}
+
+impl From<QueryError> for ServerError {
+    fn from(e: QueryError) -> Self {
+        ServerError::Query
     }
 }
 

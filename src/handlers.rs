@@ -1,11 +1,9 @@
 use std::{collections::HashMap, io::Write, sync::{Arc, RwLock}};
 
-use crate::{auth::User, db_structure::{ColumnTable, DbVec, Metadata, Value}, networking_utilities::*, server_networking::{Server, WriteThreadMessage, CONFIG_FOLDER}};
+use crate::{auth::User, db_structure::{ColumnTable, DbVec, KeyString, Metadata, Value}, networking_utilities::*, server_networking::{Server, WriteThreadMessage, CONFIG_FOLDER}};
 
-use smartstring::{SmartString, LazyCompact};
 use crate::PATH_SEP;
 
-pub type KeyString = SmartString<LazyCompact>;
 
 /// Handles a download request from a client. A download request is a request for a whole table with no filters.
 pub fn handle_download_request(
@@ -19,8 +17,19 @@ pub fn handle_download_request(
         Err(e) => {return Err(ServerError::Io(e.kind()));},
     };
 
+    
+    let timer = std::time::Instant::now();
+    while timer.elapsed().as_secs() < 5 {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let global_read_binding = global_tables.read().unwrap();
+        if global_read_binding.contains_key(&KeyString::from(name)) {
+            break
+        }
+    }
     let global_read_binding = global_tables.read().unwrap();
-    let requested_table = global_read_binding.get(name).expect("Instruction parser should have verified table").read().unwrap();
+
+
+    let requested_table = global_read_binding.get(&KeyString::from(name)).expect("Instruction parser should have verified table").read().unwrap();
     let requested_csv = requested_table.to_string();
     println!("Requested_csv.len(): {}", requested_csv.len());
 
@@ -66,7 +75,7 @@ pub fn handle_upload_request(
     // Here we create a ColumnTable from the csv and supplied name
     println!("About to check for strictness");
     match ColumnTable::from_csv_string(bytes_to_str(&csv)?, name, "test") {
-        Ok(mut table) => {
+        Ok(table) => {
             println!("About to write: {:x?}", "OK".as_bytes());
             match connection.stream.write("OK".as_bytes()) {
                 Ok(_) => {
@@ -140,7 +149,7 @@ pub fn handle_query_request(connection: &mut Connection, name: &str, query: &str
     connection.stream.flush()?;
 
     let mutex_binding = global_tables.read().unwrap();
-    let requested_table = mutex_binding.get(name).expect("Instruction parser should have verified table");
+    let requested_table = mutex_binding.get(&KeyString::from(name)).expect("Instruction parser should have verified table");
     // PARSE INSTRUCTION
     let query_type: &str;
     match query.find("..") {
@@ -175,7 +184,7 @@ pub fn handle_delete_request(connection: &mut Connection, name: &str, query: &st
     connection.stream.flush()?;
     
     let mutex_binding = global_tables.write().unwrap();
-    let requested_table = mutex_binding.get(name).expect("Instruction parser should have verified table");
+    let requested_table = mutex_binding.get(&KeyString::from(name)).expect("Instruction parser should have verified table");
     // PARSE INSTRUCTION
     let query_type: &str;
     match query.find("..") {
@@ -310,7 +319,7 @@ pub fn handle_kv_download(connection: &mut Connection, name: &str, global_kv_tab
 
 
     let read_binding = global_kv_table.read().unwrap();
-    let requested_value = read_binding.get(name).expect("Instruction parser should have verified table").read().unwrap();
+    let requested_value = read_binding.get(&KeyString::from(name)).expect("Instruction parser should have verified table").read().unwrap();
 
     let response = data_send_and_confirm(connection, &requested_value.body)?;
 
@@ -350,7 +359,7 @@ pub fn handle_meta_list_tables(connection: &mut Connection, global_tables: Arc<R
     let mut disk_table_names = Vec::new();
     for file in std::fs::read_dir(format!("EZconfig{PATH_SEP}raw_tables")).unwrap() {
         match file {
-            Ok(f) => disk_table_names.push(KeyString::from(f.file_name().into_string().unwrap())),
+            Ok(f) => disk_table_names.push(KeyString::from(f.file_name().into_string().unwrap().as_str())),
             Err(e) => println!("error while reading directory entries: {e}"),
         }
     }
@@ -364,7 +373,7 @@ pub fn handle_meta_list_tables(connection: &mut Connection, global_tables: Arc<R
 
     let mut printer = String::new();
     for table_name in memory_table_names {
-        printer.push_str(table_name);
+        printer.push_str(table_name.as_str());
         printer.push('\n');
     }
 
@@ -397,7 +406,7 @@ pub fn handle_meta_list_key_values(connection: &mut Connection, global_kv_table:
     let mut disk_table_names = Vec::new();
     for file in std::fs::read_dir(format!("EZconfig{PATH_SEP}key_value")).unwrap() {
         match file {
-            Ok(f) => disk_table_names.push(KeyString::from(f.file_name().into_string().unwrap())),
+            Ok(f) => disk_table_names.push(KeyString::from(f.file_name().into_string().unwrap().as_str())),
             Err(e) => println!("error while reading directory entries: {e}"),
         }
     }
@@ -411,7 +420,7 @@ pub fn handle_meta_list_key_values(connection: &mut Connection, global_kv_table:
 
     let mut printer = String::new();
     for key in memory_table_names {
-        printer.push_str(key);
+        printer.push_str(key.as_str());
         printer.push('\n');
     }
 
@@ -463,7 +472,7 @@ pub fn handle_message_load_table(server_handle: Arc<Server>, table_name: KeyStri
     if raw_table_exists {
         println!("Loading table from disk");
         let disk_table = std::fs::read_to_string(format!("{}/raw_tables/{}", CONFIG_FOLDER, table_name))?;
-        let disk_table = ColumnTable::from_csv_string(&disk_table, &table_name, "temp")?;
+        let disk_table = ColumnTable::from_csv_string(&disk_table, table_name.as_str(), "temp")?;
         {
             let mut writer = server_handle.tables.write().unwrap();
             writer.insert(KeyString::from(table_name), RwLock::new(disk_table));
@@ -475,31 +484,46 @@ pub fn handle_message_load_table(server_handle: Arc<Server>, table_name: KeyStri
 }
 
 pub fn handle_message_drop_table(server_handle: Arc<Server>, table_name: KeyString) -> Result<(), ServerError> {
-
+    server_handle.tables.write().unwrap().remove(&table_name);
     Ok(())
 }
 
-pub fn handle_message_delete_rows(server_handle: Arc<Server>, rows: DbVec) -> Result<(), ServerError> {
+pub fn handle_message_delete_rows(server_handle: Arc<Server>, table_name: KeyString, rows: DbVec) -> Result<(), ServerError> {
+
+    let mut the_table = server_handle.tables.write().unwrap();
+    let mut mutatable = the_table.get_mut(&table_name).unwrap().write().unwrap();
+
+    mutatable.delete_by_vec(rows);
 
     Ok(())
 }
 
 pub fn handle_message_new_table(server_handle: Arc<Server>, table: ColumnTable) -> Result<(), ServerError> {
 
+    server_handle.tables.write().unwrap().insert(table.name.clone(), RwLock::new(table));
+
     Ok(())
 }
 
 pub fn handle_message_new_key_value(server_handle: Arc<Server>, key: KeyString, value: Value) -> Result<(), ServerError> {
+
+    server_handle.kv_list.write().unwrap().insert(key, RwLock::new(value));
+
 
     Ok(())
 }
 
 pub fn handle_message_update_key_value(server_handle: Arc<Server>, key: KeyString, value: Value) -> Result<(), ServerError> {
 
+    server_handle.kv_list.write().unwrap().entry(key).and_modify(|v| *v = RwLock::new(value));
+
     Ok(())
 }
 
 pub fn handle_message_meta_new_user(server_handle: Arc<Server>, user: User) -> Result<(), ServerError> {
+
+    server_handle.users.write().unwrap().insert(KeyString::from(user.username.as_str()), RwLock::new(user));
+
 
     Ok(())
 }

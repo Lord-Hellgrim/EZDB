@@ -5,24 +5,28 @@ use std::net::TcpListener;
 use std::sync::{Arc, RwLock};
 use std::str::{self};
 
-use smartstring::{SmartString, LazyCompact};
 use x25519_dalek::{StaticSecret, PublicKey};
-
-pub type KeyString = SmartString<LazyCompact>;
 
 use crate::aes_temp_crypto::decrypt_aes256;
 use crate::auth::{User, AuthenticationError, user_has_permission};
 use crate::networking_utilities::*;
-use crate::db_structure::{ColumnTable, DbVec, Metadata, StrictError, Value};
+use crate::db_structure::{ColumnTable, DbVec, KeyString, Metadata, StrictError, Value};
 use crate::handlers::*;
-use crate::ezql;
+use crate::ezql::{self, parse_EZQL};
 
 pub const CONFIG_FOLDER: &str = "EZconfig/";
 pub const MAX_PENDING_MESSAGES: usize = 10;
 pub const PROCESS_MESSAGES_INTERVAL: u64 = 10;   // The number of seconds that pass before the database processes all pending write messages.
 
 /// Parses the inctructions sent by the client. Will be rewritten soon to accomodate EZQL
-pub fn parse_instruction(instructions: &[u8], users: Arc<RwLock<HashMap<KeyString, RwLock<User>>>>, global_tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>, global_kv_table: Arc<RwLock<HashMap<KeyString, RwLock<Value>>>>, aes_key: &[u8]) -> Result<Instruction, ServerError> {
+pub fn parse_instruction(
+    instructions: &[u8], 
+    users: Arc<RwLock<HashMap<KeyString, RwLock<User>>>>, 
+    global_tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>, 
+    global_kv_table: Arc<RwLock<HashMap<KeyString, RwLock<Value>>>>, 
+    aes_key: &[u8],
+    instruction_sender: crossbeam_channel::Sender<WriteThreadMessage>
+) -> Result<Instruction, ServerError> {
 
     println!("Decrypting instructions");
     let ciphertext = &instructions[0..instructions.len()-12];
@@ -61,7 +65,8 @@ pub fn parse_instruction(instructions: &[u8], users: Arc<RwLock<HashMap<KeyStrin
     println!("parsing 4...");
     match action {
         "Querying" => {
-            if !global_tables.read().unwrap().contains_key(table_name) {
+            
+            if !global_tables.read().unwrap().contains_key(&KeyString::from(table_name)) {
                 return Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())));
             } else if user_has_permission(table_name, action, username, users) {
                 
@@ -79,16 +84,18 @@ pub fn parse_instruction(instructions: &[u8], users: Arc<RwLock<HashMap<KeyStrin
             }
         } 
         "Downloading" => {
-            if !global_tables.read().unwrap().contains_key(table_name) {
+            if !global_tables.read().unwrap().contains_key(&KeyString::from(table_name)) {
+
                 let raw_table_exists = std::path::Path::new(&format!("{}/raw_tables/{}", CONFIG_FOLDER, table_name)).exists();
                 if raw_table_exists {
-                    println!("Loading table from disk");
-                    let disk_table = std::fs::read_to_string(format!("{}/raw_tables/{}", CONFIG_FOLDER, table_name))?;
-                    let disk_table = ColumnTable::from_csv_string(&disk_table, table_name, "temp")?;
-                    {
-                        let mut writer = global_tables.write().unwrap();
-                        writer.insert(KeyString::from(table_name), RwLock::new(disk_table));
-                    }
+
+                    match instruction_sender.try_send(WriteThreadMessage::LoadTable(KeyString::from(table_name))) {
+                        Ok(_) => {},
+                        Err(e) => match e {
+                            crossbeam_channel::TrySendError::Disconnected(_e) => panic!("write thread has closed. Server is dead!!!"),
+                            crossbeam_channel::TrySendError::Full(_e) => todo!("I don't exactly know what to do here yet"),
+                        }
+                    };
                     Ok(Instruction::Download(table_name.to_owned()))
                 } else {
                     return Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())));
@@ -98,16 +105,17 @@ pub fn parse_instruction(instructions: &[u8], users: Arc<RwLock<HashMap<KeyStrin
             }
         },
         "Updating" => {
-            if !global_tables.read().unwrap().contains_key(table_name) {
+            if !global_tables.read().unwrap().contains_key(&KeyString::from(table_name)) {
                 let raw_table_exists = std::path::Path::new(&format!("{}/raw_tables/{}", CONFIG_FOLDER, table_name)).exists();
                 if raw_table_exists {
                     println!("Loading table from disk");
-                    let disk_table = std::fs::read_to_string(format!("{}/raw_tables/{}", CONFIG_FOLDER, table_name))?;
-                    let disk_table = ColumnTable::from_csv_string(&disk_table, table_name, "temp")?;
-                    {
-                        let mut writer = global_tables.write().unwrap();
-                        writer.insert(KeyString::from(table_name), RwLock::new(disk_table));
-                    }
+                    match instruction_sender.try_send(WriteThreadMessage::LoadTable(KeyString::from(table_name))) {
+                        Ok(_) => {},
+                        Err(e) => match e {
+                            crossbeam_channel::TrySendError::Disconnected(_e) => panic!("write thread has closed. Server is dead!!!"),
+                            crossbeam_channel::TrySendError::Full(_e) => todo!("I don't exactly know what to do here yet"),
+                        }
+                    };
                     Ok(Instruction::Update(table_name.to_owned()))
                 } else {
                     return Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())));
@@ -117,17 +125,18 @@ pub fn parse_instruction(instructions: &[u8], users: Arc<RwLock<HashMap<KeyStrin
             }
         },
         "Deleting" => {
-            if !global_tables.read().unwrap().contains_key(table_name) {
+            if !global_tables.read().unwrap().contains_key(&KeyString::from(table_name)) {
                 let raw_table_exists = std::path::Path::new(&format!("{}/raw_tables/{}", CONFIG_FOLDER, table_name)).exists();
                 if raw_table_exists {
                     println!("Loading table from disk");
-                    let disk_table = std::fs::read_to_string(format!("{}/raw_tables/{}", CONFIG_FOLDER, table_name))?;
-                    let disk_table = ColumnTable::from_csv_string(&disk_table, table_name, "temp")?;
-                    {
-                        let mut writer = global_tables.write().unwrap();
-                        writer.insert(KeyString::from(table_name), RwLock::new(disk_table));
-                    }
-                    Ok(Instruction::Download(table_name.to_owned()))
+                    match instruction_sender.try_send(WriteThreadMessage::LoadTable(KeyString::from(table_name))) {
+                        Ok(_) => {},
+                        Err(e) => match e {
+                            crossbeam_channel::TrySendError::Disconnected(_e) => panic!("write thread has closed. Server is dead!!!"),
+                            crossbeam_channel::TrySendError::Full(_e) => todo!("I don't exactly know what to do here yet"),
+                        }
+                    };
+                    Ok(Instruction::Delete(table_name.to_owned(), query.to_owned()))
                 } else {
                     return Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())));
                 }
@@ -136,22 +145,57 @@ pub fn parse_instruction(instructions: &[u8], users: Arc<RwLock<HashMap<KeyStrin
             }
         }
         "KvUpload" => {
-            if global_kv_table.read().unwrap().contains_key(table_name) {
+            if global_kv_table.read().unwrap().contains_key(&KeyString::from(table_name)) {
                 return Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' already exists. Use 'update' instead", table_name))));
+            } else if std::path::Path::new(&format!("{}/key_value/{}", CONFIG_FOLDER, table_name)).exists() {
+                match instruction_sender.try_send(WriteThreadMessage::LoadTable(KeyString::from(table_name))) {
+                    Ok(_) => {},
+                    Err(e) => match e {
+                        crossbeam_channel::TrySendError::Disconnected(_e) => panic!("write thread has closed. Server is dead!!!"),
+                        crossbeam_channel::TrySendError::Full(_e) => todo!("I don't exactly know what to do here yet"),
+                    }
+                };
+                Ok(Instruction::KvUpload(table_name.to_owned()))
             } else {
                 Ok(Instruction::KvUpload(table_name.to_owned()))
             }
         },
         "KvUpdate" => {
-            if !global_kv_table.read().unwrap().contains_key(table_name) {
-                return Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' does not exist. Use 'upload' instead", table_name))));
+            if !global_kv_table.read().unwrap().contains_key(&KeyString::from(table_name)) {
+
+                if std::path::Path::new(&format!("{}/key_value/{}", CONFIG_FOLDER, table_name)).exists() {
+                    match instruction_sender.try_send(WriteThreadMessage::LoadTable(KeyString::from(table_name))) {
+                        Ok(_) => {},
+                        Err(e) => match e {
+                            crossbeam_channel::TrySendError::Disconnected(_e) => panic!("write thread has closed. Server is dead!!!"),
+                            crossbeam_channel::TrySendError::Full(_e) => todo!("I don't exactly know what to do here yet"),
+                        }
+                    };
+                    Ok(Instruction::KvUpdate(table_name.to_owned()))
+                } else {
+                    return Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' does not exist. Use 'upload' instead", table_name))));
+                }
+
             } else {
                 Ok(Instruction::KvUpdate(table_name.to_owned()))
             }
         },
         "KvDownload" => {
-            if !global_kv_table.read().unwrap().contains_key(table_name) {
-                return Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry does not exist. You asked for '{}'", table_name))));
+            if !global_kv_table.read().unwrap().contains_key(&KeyString::from(table_name)) {
+
+                if std::path::Path::new(&format!("{}/key_value/{}", CONFIG_FOLDER, table_name)).exists() {
+                    match instruction_sender.try_send(WriteThreadMessage::LoadTable(KeyString::from(table_name))) {
+                        Ok(_) => {},
+                        Err(e) => match e {
+                            crossbeam_channel::TrySendError::Disconnected(_e) => panic!("write thread has closed. Server is dead!!!"),
+                            crossbeam_channel::TrySendError::Full(_e) => todo!("I don't exactly know what to do here yet"),
+                        }
+                    };
+                    Ok(Instruction::KvDownload(table_name.to_owned()))
+                } else {
+                    return Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' does not exist. Use 'upload' instead", table_name))));
+                }
+
             } else {
                 Ok(Instruction::KvDownload(table_name.to_owned()))
             }
@@ -163,7 +207,7 @@ pub fn parse_instruction(instructions: &[u8], users: Arc<RwLock<HashMap<KeyStrin
             Ok(Instruction::MetaListKeyValues)
         },
         "MetaNewUser" => {
-            Ok(Instruction::NewUser(format!("")))
+            Ok(Instruction::NewUser(username.to_owned()))
         }
         _ => {return Err(ServerError::Instruction(InstructionError::Invalid(action.to_owned())));},
     }
@@ -193,7 +237,7 @@ pub enum WriteThreadMessage {
     UpdateTable(KeyString, ColumnTable),
     LoadTable(KeyString),
     DropTable(KeyString),
-    DeleteRows(DbVec),
+    DeleteRows(KeyString, DbVec),
     NewTable(ColumnTable),
     NewKeyValue(KeyString, Value),
     UpdateKeyValue(KeyString, Value),
@@ -208,7 +252,7 @@ impl Display for WriteThreadMessage {
             WriteThreadMessage::UpdateTable(name, table) => writeln!(f, "{}:\n{}", name, table),
             WriteThreadMessage::LoadTable(x) => writeln!(f, "{}", x),
             WriteThreadMessage::DropTable(x) => writeln!(f, "{}", x),
-            WriteThreadMessage::DeleteRows(x) => writeln!(f, "{}", x),
+            WriteThreadMessage::DeleteRows(x, y) => writeln!(f, "{}:\n{}", x, y),
             WriteThreadMessage::NewTable(x) => writeln!(f, "{}", x),
             WriteThreadMessage::MetaNewUser(x) => writeln!(f, "{}", ron::to_string(x).unwrap()),
             WriteThreadMessage::NewKeyValue(key, value) => write!(f, "key: {}\nValue:\n{:x?}", key, value),
@@ -270,7 +314,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                 continue
             }
             let temp_user: User = ron::from_str(line).unwrap();
-            server.users.write().unwrap().insert(temp_user.username.clone(), RwLock::new(temp_user));
+            server.users.write().unwrap().insert(KeyString::from(temp_user.username.as_str()), RwLock::new(temp_user));
         }
     } else {
         println!("config does not exist");
@@ -334,7 +378,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                                     WriteThreadMessage::UpdateTable(table_name, table) => handle_message_update_table(outer_thread_server.clone(), table_name, table),
                                     WriteThreadMessage::LoadTable(table_name) => handle_message_load_table(outer_thread_server.clone(), table_name),
                                     WriteThreadMessage::DropTable(table_name) => handle_message_drop_table(outer_thread_server.clone(), table_name),
-                                    WriteThreadMessage::DeleteRows(rows) => handle_message_delete_rows(outer_thread_server.clone(), rows),
+                                    WriteThreadMessage::DeleteRows(table_name, rows) => handle_message_delete_rows(outer_thread_server.clone(), table_name, rows),
                                     WriteThreadMessage::NewTable(table) => handle_message_new_table(outer_thread_server.clone(), table),
                                     WriteThreadMessage::MetaNewUser(user) => handle_message_meta_new_user(outer_thread_server.clone(), user),
                                     WriteThreadMessage::NewKeyValue(key, value) => handle_message_new_key_value(outer_thread_server.clone(), key, value),
@@ -377,7 +421,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                         let data = outer_thread_server.kv_list.read().unwrap();
                         for (key, value) in data.iter() {
                             let locked_value = value.read().unwrap();
-                            match locked_value.save_to_disk_raw(key, CONFIG_FOLDER) {
+                            match locked_value.save_to_disk_raw(key.as_str(), CONFIG_FOLDER) {
                                 Ok(_) => (),
                                 Err(e) => println!("Unable to save value of key '{}' because: {}",key, e),
                             };
@@ -468,10 +512,10 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                 
                 let mut connection: Connection;
                 {
-                    if !&inner_thread_server.users.read().unwrap().contains_key(username) {
+                    if !&inner_thread_server.users.read().unwrap().contains_key(&KeyString::from(username)) {
                         println!("Username:\n\t{}\n...is wrong", username);
                         return Err(ServerError::Authentication(AuthenticationError::WrongUser(format!("Username: '{}' does not exist", username))));
-                    } else if &inner_thread_server.users.read().unwrap()[username].read().unwrap().password != &password {
+                    } else if &inner_thread_server.users.read().unwrap()[&KeyString::from(username)].read().unwrap().password != &password {
                         // println!("thread_users_lock[username].password: {:?}", user_lock.password);
                         // println!("password: {:?}", password);
                         // println!("Password hash:\n\t{:?}\n...is wrong", password);
@@ -507,7 +551,15 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                 // println!("Instruction buffer[0..50]: {:x?}", &buffer[0..50]);
                 let instructions = &buffer[0..instruction_size];
                 println!("Parsing instructions...");
-                match parse_instruction(instructions, inner_thread_server.users.clone(), inner_thread_server.tables.clone(), inner_thread_server.kv_list.clone(), &connection.aes_key) {
+                let instruction_sender = inner_thread_message_sender.clone();
+                match parse_instruction(
+                    instructions, 
+                    inner_thread_server.users.clone(), 
+                    inner_thread_server.tables.clone(), 
+                    inner_thread_server.kv_list.clone(), 
+                    &connection.aes_key, 
+                    instruction_sender
+                ) {
                     Ok(i) => match i {
                         
                         Instruction::Download(name) => {

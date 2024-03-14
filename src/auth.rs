@@ -6,11 +6,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use smartstring::{LazyCompact, SmartString};
-
-use crate::networking_utilities::blake3_hash;
-
-pub type KeyString = SmartString<LazyCompact>;
+use crate::{db_structure::KeyString, networking_utilities::blake3_hash};
 
 /// Defines a permission a user has to interact with a given table
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,7 +46,7 @@ impl Permission {
 /// the can_X fields are lists of tables / values on which X operation is allowed.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct User {
-    pub username: KeyString,
+    pub username: String,
     pub password: [u8; 32],
     pub admin: bool,
     pub can_upload: bool,
@@ -63,7 +59,7 @@ impl User {
     /// Create new standard non-admin user with no permissions
     pub fn new(username: &str, password: &str) -> User {
         User {
-            username: KeyString::from(username),
+            username: String::from(username),
             password: blake3_hash(password.as_bytes()),
             admin: false,
             can_upload: false,
@@ -76,7 +72,7 @@ impl User {
     /// Create admin user. Admin user by default have all permissions. May disable this later.
     pub fn admin(username: &str, password: &str) -> User {
         User {
-            username: KeyString::from(username),
+            username: String::from(username),
             password: blake3_hash(password.as_bytes()),
             admin: true,
             can_upload: true,
@@ -140,7 +136,7 @@ pub fn user_has_permission(
         None => return false,
     };
     let user = users.read().unwrap();
-    let user = match user.get(username) {
+    let user = match user.get(&KeyString::from(username)) {
         Some(u) => u.read().unwrap(),
         None => return false,
     };
