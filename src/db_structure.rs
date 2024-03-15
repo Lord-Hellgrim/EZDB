@@ -5,7 +5,7 @@ use std::{
 };
 
 use aes_gcm::Key;
-use smartstring::{LazyCompact, SmartString, };
+// use smartstring::{LazyCompact, SmartString, };
 
 use crate::networking_utilities::*;
 
@@ -214,6 +214,8 @@ pub struct Metadata {
     pub last_access: u64,
     pub times_accessed: u64,
     pub created_by: KeyString,
+    pub size_of_table: u32,
+
 }
 
 impl fmt::Display for Metadata {
@@ -233,6 +235,7 @@ impl Metadata {
             last_access: get_current_time(),
             times_accessed: 0,
             created_by: KeyString::from(client),
+            size_of_table: 0,
         }
     }
 }

@@ -9,6 +9,7 @@ use x25519_dalek::{StaticSecret, PublicKey};
 
 use crate::aes_temp_crypto::decrypt_aes256;
 use crate::auth::{User, AuthenticationError, user_has_permission};
+use crate::disk_utilities::DiskTable;
 use crate::networking_utilities::*;
 use crate::db_structure::{ColumnTable, DbVec, KeyString, Metadata, StrictError, Value};
 use crate::handlers::*;
@@ -273,6 +274,7 @@ pub struct Server {
     pub tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>,
     pub kv_list: Arc<RwLock<HashMap<KeyString, RwLock<Value>>>>,
     pub users: Arc<RwLock<HashMap<KeyString, RwLock<User>>>>,
+    pub disk_tables: Arc<RwLock<HashMap<String, DiskTable>>>,
 }
 
 /// The main loop of the server. Checks for incoming connections, parses their instructions, and handles them
@@ -294,6 +296,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
         let global_tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>> = Arc::new(RwLock::new(HashMap::new()));
         let global_kv_table: Arc<RwLock<HashMap<KeyString, RwLock<Value>>>> = Arc::new(RwLock::new(HashMap::new()));
         let users: Arc<RwLock<HashMap<KeyString, RwLock<User>>>> = Arc::new(RwLock::new(HashMap::new()));
+        let disk_tables = Arc::new(RwLock::new(HashMap::new()));
 
         let server = Arc::new(Server {
             public_key: server_public_key,
@@ -302,6 +305,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
             tables: global_tables,
             kv_list: global_kv_table,
             users: users,
+            disk_tables: disk_tables,
         });
 
     
@@ -440,7 +444,6 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                 Err(e) => {return Err(ServerError::Io(e.kind()));},
             };
             println!("Accepted connection from: {}", client_address);        
-            
 
             let inner_thread_server = server.clone();
             let inner_thread_message_sender = write_message_sender.clone();
