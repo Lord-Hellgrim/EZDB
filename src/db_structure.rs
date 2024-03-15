@@ -1222,12 +1222,7 @@ impl ColumnTable {
 
     /// Writes to EZ binary format
     pub fn write_to_raw_binary(&self) -> Vec<u8> {
-        /*
-            EZ binary format
-            X byte header\n\n
-
-
-         */
+        
         let mut total_bytes = 0;
         for item in &self.header {
             total_bytes += item.name.as_bytes().len() + 6;
@@ -1292,6 +1287,7 @@ impl ColumnTable {
         }
         output
     }
+
 
     /// Reads an EZ binary formatted file to a ColumnTable, checking for strictness.
     pub fn read_raw_binary(binary: &[u8]) -> Result<ColumnTable, StrictError> {

@@ -17,17 +17,11 @@ pub fn handle_download_request(
         Err(e) => {return Err(ServerError::Io(e.kind()));},
     };
 
-    
-    let timer = std::time::Instant::now();
-    while timer.elapsed().as_secs() < 5 {
-        std::thread::sleep(std::time::Duration::from_millis(500));
-        let global_read_binding = global_tables.read().unwrap();
-        if global_read_binding.contains_key(&KeyString::from(name)) {
-            break
-        }
-    }
     let global_read_binding = global_tables.read().unwrap();
 
+    if !global_read_binding.contains_key(&KeyString::from(name)) {
+        
+    }
 
     let requested_table = global_read_binding.get(&KeyString::from(name)).expect("Instruction parser should have verified table").read().unwrap();
     let requested_csv = requested_table.to_string();

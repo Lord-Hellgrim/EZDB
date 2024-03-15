@@ -14,6 +14,7 @@ pub mod auth;
 pub mod client_networking;
 pub mod compression;
 pub mod db_structure;
+pub mod disk_utilities;
 pub mod ezql;
 pub mod handlers;
 pub mod logging;
