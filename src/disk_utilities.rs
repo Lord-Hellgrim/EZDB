@@ -1,12 +1,44 @@
+use std::collections::{BTreeMap, HashMap};
 use std::fs::{create_dir, File};
 use std::sync::RwLock;
 
-use crate::db_structure::{HeaderItem, KeyString, Metadata};
+use crate::db_structure::{HeaderItem, KeyString, Metadata, Value};
 use crate::{db_structure::ColumnTable, server_networking::CONFIG_FOLDER};
 use crate::PATH_SEP;
 
 pub const BIN_TABLE_DIR: &'static str = "Binary_tables";
+pub const MAX_BUFFERPOOL_SIZE: usize = 4_294_967_296;   // 4gb
 
+
+pub struct BufferPool {
+    max_size: usize,
+    pub tables: HashMap<KeyString, RwLock<ColumnTable>>,
+    pub values: HashMap<KeyString, RwLock<Value>>,
+    naughty_list: Vec<KeyString>,
+}
+
+impl BufferPool {
+    pub fn with_max_size(max_size: usize) -> BufferPool {
+        let tables = HashMap::new();
+        let values = HashMap::new();
+        let naughty_list = Vec::new();
+
+        BufferPool {
+            max_size,
+            tables,
+            values,
+            naughty_list,
+        }
+
+    }
+
+    pub fn max_size(&self) -> usize {
+        self.max_size
+    }
+}
+
+
+#[derive(Debug)]
 pub struct DiskTable {
     pub name: KeyString,
     pub header: Vec<HeaderItem>,
@@ -26,6 +58,7 @@ pub fn write_table_to_binary_directory(table: &ColumnTable) -> Result<DiskTable,
     }
 
     create_dir(format!("{CONFIG_FOLDER}{PATH_SEP}{}", table.name.as_str()))?;
+
 
     
 

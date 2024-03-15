@@ -5,6 +5,7 @@ use std::{
 };
 
 use aes_gcm::Key;
+use ron::value::Float;
 // use smartstring::{LazyCompact, SmartString, };
 
 use crate::networking_utilities::*;
@@ -214,8 +215,8 @@ pub struct Metadata {
     pub last_access: u64,
     pub times_accessed: u64,
     pub created_by: KeyString,
-    pub size_of_table: u32,
-
+    size_of_table: usize,
+    size_of_row: usize,
 }
 
 impl fmt::Display for Metadata {
@@ -236,8 +237,55 @@ impl Metadata {
             times_accessed: 0,
             created_by: KeyString::from(client),
             size_of_table: 0,
+            size_of_row: 0,
         }
     }
+
+    pub fn from_table(client: &str, header: &Vec<HeaderItem>, table: &Vec<DbVec>) -> Metadata {
+        let size_of_row = header.iter().fold(0, |acc: usize, x| {
+            match x.kind {
+                DbType::Float => acc + 4,
+                DbType::Int => acc +4,
+                DbType::Text => acc + 64,
+            }
+        });
+
+        let size_of_table = table.iter().fold(0, |acc: usize, x| {
+            match x {
+                DbVec::Ints(v) => acc + v.len() * 4,
+                DbVec::Floats(v) => acc + v.len() * 4,
+                DbVec::Texts(v) => acc + v.len() * 64,
+            }
+        });
+
+        Metadata {
+            last_access: get_current_time(),
+            times_accessed: 0,
+            created_by: KeyString::from(client),
+            size_of_table,
+            size_of_row,
+        }
+    }
+
+    #[inline]
+    pub fn update_size(&mut self, header: &Vec<HeaderItem>, table: &Vec<DbVec>) {
+        self.size_of_row = header.iter().fold(0, |acc: usize, x| {
+            match x.kind {
+                DbType::Float => acc + 4,
+                DbType::Int => acc +4,
+                DbType::Text => acc + 64,
+            }
+        });
+
+        self.size_of_table = table.iter().fold(0, |acc: usize, x| {
+            match x {
+                DbVec::Ints(v) => acc + v.len() * 4,
+                DbVec::Floats(v) => acc + v.len() * 4,
+                DbVec::Texts(v) => acc + v.len() * 64,
+            }
+        });
+    }
+
 }
 
 
@@ -572,7 +620,7 @@ impl ColumnTable {
         }
 
         let mut output = ColumnTable {
-            metadata: Metadata::new(created_by),
+            metadata: Metadata::from_table(created_by, &header, &result),
             name: KeyString::from(table_name),
             header: header,
             table: result,
@@ -684,6 +732,9 @@ impl ColumnTable {
                 },
             }
         }
+
+        self.metadata.update_size(&self.header, &self.table);
+
         Ok(())
     }
 
@@ -1074,6 +1125,8 @@ impl ColumnTable {
             };
         }
 
+        self.metadata.update_size(&self.header, &self.table);
+
         Ok(())
     }
 
@@ -1124,6 +1177,8 @@ impl ColumnTable {
                 }
             };
         }
+
+        self.metadata.update_size(&self.header, &self.table);
 
         Ok(())
     }
@@ -1182,6 +1237,8 @@ impl ColumnTable {
                 }
             };
         }
+
+        self.metadata.update_size(&self.header, &self.table);
 
         Ok(())
     }
