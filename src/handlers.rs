@@ -436,7 +436,7 @@ pub fn handle_meta_list_key_values(connection: &mut Connection, global_kv_table:
 
 pub fn handle_message_update_metadata(server_handle: Arc<Server>, metadata: Metadata, table_name: KeyString) -> Result<(), ServerError> {
 
-    let global_tables = server_handle.tables.write().unwrap();
+    let global_tables = server_handle.buffer_pool.tables.write().unwrap();
     let mut table = match global_tables.get(&table_name) {
         Some(t) => t.write().unwrap(),
         None => todo!("Need to redesign error handling."),
@@ -449,7 +449,7 @@ pub fn handle_message_update_metadata(server_handle: Arc<Server>, metadata: Meta
 
 pub fn handle_message_update_table(server_handle: Arc<Server>, table_name: KeyString, table: ColumnTable) -> Result<(), ServerError> {
 
-    let global_tables = server_handle.tables.write().unwrap();
+    let global_tables = server_handle.buffer_pool.tables.write().unwrap();
     let mut source_table = match global_tables.get(&table_name) {
         Some(t) => t.write().unwrap(),
         None => todo!("Need to redesign error handling."),
@@ -468,7 +468,7 @@ pub fn handle_message_load_table(server_handle: Arc<Server>, table_name: KeyStri
         let disk_table = std::fs::read_to_string(format!("{}/raw_tables/{}", CONFIG_FOLDER, table_name))?;
         let disk_table = ColumnTable::from_csv_string(&disk_table, table_name.as_str(), "temp")?;
         {
-            let mut writer = server_handle.tables.write().unwrap();
+            let mut writer = server_handle.buffer_pool.tables.write().unwrap();
             writer.insert(KeyString::from(table_name), RwLock::new(disk_table));
         }
     } else {
@@ -478,13 +478,13 @@ pub fn handle_message_load_table(server_handle: Arc<Server>, table_name: KeyStri
 }
 
 pub fn handle_message_drop_table(server_handle: Arc<Server>, table_name: KeyString) -> Result<(), ServerError> {
-    server_handle.tables.write().unwrap().remove(&table_name);
+    server_handle.buffer_pool.tables.write().unwrap().remove(&table_name);
     Ok(())
 }
 
 pub fn handle_message_delete_rows(server_handle: Arc<Server>, table_name: KeyString, rows: DbVec) -> Result<(), ServerError> {
 
-    let mut the_table = server_handle.tables.write().unwrap();
+    let mut the_table = server_handle.buffer_pool.tables.write().unwrap();
     let mut mutatable = the_table.get_mut(&table_name).unwrap().write().unwrap();
 
     mutatable.delete_by_vec(rows);
@@ -494,14 +494,14 @@ pub fn handle_message_delete_rows(server_handle: Arc<Server>, table_name: KeyStr
 
 pub fn handle_message_new_table(server_handle: Arc<Server>, table: ColumnTable) -> Result<(), ServerError> {
 
-    server_handle.tables.write().unwrap().insert(table.name.clone(), RwLock::new(table));
+    server_handle.buffer_pool.tables.write().unwrap().insert(table.name.clone(), RwLock::new(table));
 
     Ok(())
 }
 
 pub fn handle_message_new_key_value(server_handle: Arc<Server>, key: KeyString, value: Value) -> Result<(), ServerError> {
 
-    server_handle.kv_list.write().unwrap().insert(key, RwLock::new(value));
+    server_handle.buffer_pool.values .write().unwrap().insert(key, RwLock::new(value));
 
 
     Ok(())
@@ -509,7 +509,7 @@ pub fn handle_message_new_key_value(server_handle: Arc<Server>, key: KeyString, 
 
 pub fn handle_message_update_key_value(server_handle: Arc<Server>, key: KeyString, value: Value) -> Result<(), ServerError> {
 
-    server_handle.kv_list.write().unwrap().entry(key).and_modify(|v| *v = RwLock::new(value));
+    server_handle.buffer_pool.values.write().unwrap().entry(key).and_modify(|v| *v = RwLock::new(value));
 
     Ok(())
 }

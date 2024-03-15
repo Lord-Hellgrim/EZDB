@@ -286,6 +286,14 @@ impl Metadata {
         });
     }
 
+    pub fn size_of_table(&self) -> usize {
+        self.size_of_table
+    }
+
+    pub fn size_of_row(&self) -> usize {
+        self.size_of_row
+    }
+
 }
 
 
@@ -738,7 +746,7 @@ impl ColumnTable {
         Ok(())
     }
 
-    /// Utility function to get the database columns.
+    /// Utility function to get the length of the database columns.
     pub fn len(&self) -> usize {
         match &self.table[0] {
             DbVec::Floats(col) => col.len(),
@@ -1052,6 +1060,31 @@ impl ColumnTable {
         Ok(())
     }
 
+    pub fn create_subtable(&self, start: usize, stop: usize) -> Vec<DbVec> {
+
+        assert!(stop < self.len());
+        assert!(stop > start);
+
+        let mut subtable = Vec::with_capacity(self.table.len());
+
+        for v in self.table.iter() {
+            match v {
+                DbVec::Ints(column) => {
+                    subtable.push(DbVec::Ints(column[start..stop].to_vec()));
+                },
+                DbVec::Floats(column) => {
+                    subtable.push(DbVec::Floats(column[start..stop].to_vec()));
+                },
+                DbVec::Texts(column) => {
+                    subtable.push(DbVec::Texts(column[start..stop].to_vec()));
+                },
+            }
+        }
+        
+        subtable
+
+    }
+
     /// Deletes a range of rows by primary key from the table
     pub fn delete_range(&mut self, range: (&str, &str)) -> Result<(), StrictError> {
         // Up to but not including.
@@ -1284,46 +1317,41 @@ impl ColumnTable {
     pub fn write_to_raw_binary(&self) -> Vec<u8> {
         
         let mut total_bytes = 0;
-        for item in &self.header {
-            total_bytes += item.name.as_bytes().len() + 6;
-        }
 
         let length = self.len();
         // println!("length: {}", length);
         for item in &self.table {
             match item {
                 DbVec::Texts(col) => {
-                    for thing in col {
-                        total_bytes += thing.as_bytes().len() + 1;
-                    }
+                    total_bytes += length * 64;
                 }
                 _ => {
-                    total_bytes += length * 4 + 1;
+                    total_bytes += length * 4;
                 }
             };
         }
 
         let mut output: Vec<u8> = Vec::with_capacity(total_bytes);
 
-        for item in &self.header {
-            let kind = match item.kind {
-                DbType::Int => b'i',
-                DbType::Float => b'f',
-                DbType::Text => b't',
-            };
-            output.push(kind);
-            let name = item.name.as_bytes();
-            output.extend_from_slice(name);
-            match &item.key {
-                TableKey::Primary => output.push(b'P'),
-                TableKey::None => output.push(b'N'),
-                TableKey::Foreign => output.push(b'F'),
-            }
-            output.push(b';');
-        }
-        output.pop();
-        output.push(b'\n');
-        output.extend_from_slice(&(self.len() as u32).to_le_bytes());
+        // for item in &self.header {
+        //     let kind = match item.kind {
+        //         DbType::Int => b'i',
+        //         DbType::Float => b'f',
+        //         DbType::Text => b't',
+        //     };
+        //     output.push(kind);
+        //     let name = item.name.as_bytes();
+        //     output.extend_from_slice(name);
+        //     match &item.key {
+        //         TableKey::Primary => output.push(b'P'),
+        //         TableKey::None => output.push(b'N'),
+        //         TableKey::Foreign => output.push(b'F'),
+        //     }
+        //     output.push(b';');
+        // }
+        // output.pop();
+        // output.push(b'\n');
+        // output.extend_from_slice(&(self.len() as u32).to_le_bytes());
 
         for column in &self.table {
             match &column {
@@ -1437,6 +1465,71 @@ impl ColumnTable {
             table: table,
         })
     }
+}
+
+pub fn write_subtable_to_raw_binary(subtable: Vec<DbVec>) -> Vec<u8> {
+    let mut total_bytes = 0;
+
+        let length = match &subtable[0] {
+            DbVec::Ints(col) => col.len(),
+            DbVec::Floats(col) => col.len(),
+            DbVec::Texts(col) => col.len(),
+        };
+        // println!("length: {}", length);
+        for item in subtable.iter() {
+            match item {
+                DbVec::Texts(col) => {
+                    total_bytes += length * 64;
+                }
+                _ => {
+                    total_bytes += length * 4;
+                }
+            };
+        }
+
+        let mut output: Vec<u8> = Vec::with_capacity(total_bytes);
+
+        // for item in &self.header {
+        //     let kind = match item.kind {
+        //         DbType::Int => b'i',
+        //         DbType::Float => b'f',
+        //         DbType::Text => b't',
+        //     };
+        //     output.push(kind);
+        //     let name = item.name.as_bytes();
+        //     output.extend_from_slice(name);
+        //     match &item.key {
+        //         TableKey::Primary => output.push(b'P'),
+        //         TableKey::None => output.push(b'N'),
+        //         TableKey::Foreign => output.push(b'F'),
+        //     }
+        //     output.push(b';');
+        // }
+        // output.pop();
+        // output.push(b'\n');
+        // output.extend_from_slice(&(self.len() as u32).to_le_bytes());
+
+        for column in subtable.iter() {
+            match &column {
+                DbVec::Floats(col) => {
+                    for item in col {
+                        output.extend_from_slice(&item.to_le_bytes());
+                    }
+                }
+                &DbVec::Ints(col) => {
+                    for item in col {
+                        // println!("item: {}", item);
+                        output.extend_from_slice(&item.to_le_bytes());
+                    }
+                }
+                DbVec::Texts(col) => {
+                    for item in col {
+                        output.extend_from_slice(item.raw());
+                    }
+                }
+            };
+        }
+        output
 }
 
 /// Helper function for the table sorting.
@@ -1813,9 +1906,15 @@ mod tests {
         ]);
 
         table.copy_lines(&mut target, &line_keys);
+        
+    }
 
-        
-        
+    #[test]
+    fn test_subtable() {
+        let table_string = std::fs::read_to_string(&format!("testlarge.csv")).unwrap();
+        let table = ColumnTable::from_csv_string(&table_string, "basic_test", "test").unwrap();
+        let subtable = table.create_subtable(0, 7515);
+        println!("{}", subtable[0]);
     }
 
 }

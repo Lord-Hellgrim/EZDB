@@ -9,7 +9,7 @@ use x25519_dalek::{StaticSecret, PublicKey};
 
 use crate::aes_temp_crypto::decrypt_aes256;
 use crate::auth::{User, AuthenticationError, user_has_permission};
-use crate::disk_utilities::DiskTable;
+use crate::disk_utilities::{BufferPool, DiskTable, MAX_BUFFERPOOL_SIZE};
 use crate::networking_utilities::*;
 use crate::db_structure::{ColumnTable, DbVec, KeyString, Metadata, StrictError, Value};
 use crate::handlers::*;
@@ -271,8 +271,7 @@ pub struct Server {
     pub public_key: PublicKey,
     private_key: StaticSecret,
     pub listener: TcpListener,
-    pub tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>,
-    pub kv_list: Arc<RwLock<HashMap<KeyString, RwLock<Value>>>>,
+    pub buffer_pool: BufferPool,
     pub users: Arc<RwLock<HashMap<KeyString, RwLock<User>>>>,
     pub disk_tables: Arc<RwLock<HashMap<String, DiskTable>>>,
 }
@@ -293,8 +292,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
             Err(e) => {return Err(ServerError::Io(e.kind()));},
         };
 
-        let global_tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>> = Arc::new(RwLock::new(HashMap::new()));
-        let global_kv_table: Arc<RwLock<HashMap<KeyString, RwLock<Value>>>> = Arc::new(RwLock::new(HashMap::new()));
+        let buffer_pool = BufferPool::with_max_size(MAX_BUFFERPOOL_SIZE);
         let users: Arc<RwLock<HashMap<KeyString, RwLock<User>>>> = Arc::new(RwLock::new(HashMap::new()));
         let disk_tables = Arc::new(RwLock::new(HashMap::new()));
 
@@ -302,8 +300,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
             public_key: server_public_key,
             private_key: server_private_key,
             listener: l,
-            tables: global_tables,
-            kv_list: global_kv_table,
+            buffer_pool,
             users: users,
             disk_tables: disk_tables,
         });
@@ -404,7 +401,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
 
                     println!("Background thread running good!...");
                     {
-                        let data = outer_thread_server.tables.read().unwrap();
+                        let data = outer_thread_server.buffer_pool.tables.read().unwrap();
                         for (name, table) in data.iter() {
                             let locked_table = table.read().unwrap();
                             match locked_table.save_to_disk_csv(CONFIG_FOLDER) {
@@ -422,7 +419,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                     }
         
                     {
-                        let data = outer_thread_server.kv_list.read().unwrap();
+                        let data = outer_thread_server.buffer_pool.values.read().unwrap();
                         for (key, value) in data.iter() {
                             let locked_value = value.read().unwrap();
                             match locked_value.save_to_disk_raw(key.as_str(), CONFIG_FOLDER) {
@@ -558,8 +555,8 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                 match parse_instruction(
                     instructions, 
                     inner_thread_server.users.clone(), 
-                    inner_thread_server.tables.clone(), 
-                    inner_thread_server.kv_list.clone(), 
+                    inner_thread_server.buffer_pool.tables.clone(), 
+                    inner_thread_server.buffer_pool.values.clone(), 
                     &connection.aes_key, 
                     instruction_sender
                 ) {
@@ -569,7 +566,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                             match handle_download_request(
                                 &mut connection, 
                                 &name, 
-                                inner_thread_server.tables.clone(), 
+                                inner_thread_server.buffer_pool.tables.clone(), 
                                 inner_thread_message_sender
                             ) {
                                 Ok(_) => {
@@ -598,7 +595,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                             match handle_update_request(
                                 &mut connection, 
                                 &name, 
-                                inner_thread_server.tables.clone(), 
+                                inner_thread_server.buffer_pool.tables.clone(), 
                                 inner_thread_message_sender
                             ) {
                                 Ok(_) => {
@@ -614,7 +611,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                                 &mut connection, 
                                 &table_name, 
                                 &query, 
-                                inner_thread_server.tables.clone(), 
+                                inner_thread_server.buffer_pool.tables.clone(), 
                                 inner_thread_message_sender
                             ) {
                                 Ok(_) => {
@@ -630,7 +627,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                                 &mut connection, 
                                 &table_name, 
                                 &query, 
-                                inner_thread_server.tables.clone(), 
+                                inner_thread_server.buffer_pool.tables.clone(), 
                                 inner_thread_message_sender
                             ) {
                                 Ok(_) => {
@@ -675,7 +672,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                             match handle_kv_update(
                                 &mut connection, 
                                 &table_name, 
-                                inner_thread_server.kv_list.clone(), 
+                                inner_thread_server.buffer_pool.values.clone(), 
                                 inner_thread_message_sender
                             ) {
                                 Ok(_) => {
@@ -690,7 +687,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                             match handle_kv_download(
                                 &mut connection, 
                                 &table_name, 
-                                inner_thread_server.kv_list.clone(), 
+                                inner_thread_server.buffer_pool.values.clone(), 
                                 inner_thread_message_sender
                             ) {
                                 Ok(_) => {
@@ -704,7 +701,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                         Instruction::MetaListTables => {
                             match handle_meta_list_tables(
                                 &mut connection, 
-                                inner_thread_server.tables.clone(), 
+                                inner_thread_server.buffer_pool.tables.clone(), 
                                 inner_thread_message_sender
                             ) {
                                 Ok(_) => {
@@ -718,7 +715,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                         Instruction::MetaListKeyValues => {
                             match handle_meta_list_key_values(
                                 &mut connection, 
-                                inner_thread_server.kv_list.clone(), 
+                                inner_thread_server.buffer_pool.values.clone(), 
                                 inner_thread_message_sender
                             ) {
                                 Ok(_) => {
