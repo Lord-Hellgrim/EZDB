@@ -345,9 +345,9 @@ impl DbVec {
 /// a forreign key or just a regular ol' entry
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub struct HeaderItem {
-    name: KeyString,
-    kind: DbType,
-    key: TableKey,
+    pub name: KeyString,
+    pub kind: DbType,
+    pub key: TableKey,
 }
 
 impl HeaderItem {
@@ -1060,9 +1060,9 @@ impl ColumnTable {
         Ok(())
     }
 
-    pub fn create_subtable(&self, start: usize, stop: usize) -> Vec<DbVec> {
+    pub fn create_subtable(&self, start: usize, stop: usize) -> ColumnTable {
 
-        assert!(stop < self.len());
+        assert!(stop <= self.len());
         assert!(stop > start);
 
         let mut subtable = Vec::with_capacity(self.table.len());
@@ -1081,7 +1081,12 @@ impl ColumnTable {
             }
         }
         
-        subtable
+        ColumnTable {
+            name: KeyString::from("subtable"),
+            header: self.header.clone(),
+            metadata: self.metadata.clone(),
+            table: subtable,
+        }
 
     }
 
@@ -1467,16 +1472,16 @@ impl ColumnTable {
     }
 }
 
-pub fn write_subtable_to_raw_binary(subtable: Vec<DbVec>) -> Vec<u8> {
+pub fn write_subtable_to_raw_binary(subtable: ColumnTable) -> Vec<u8> {
     let mut total_bytes = 0;
 
-        let length = match &subtable[0] {
+        let length = match &subtable.table[0] {
             DbVec::Ints(col) => col.len(),
             DbVec::Floats(col) => col.len(),
             DbVec::Texts(col) => col.len(),
         };
         // println!("length: {}", length);
-        for item in subtable.iter() {
+        for item in subtable.table.iter() {
             match item {
                 DbVec::Texts(col) => {
                     total_bytes += length * 64;
@@ -1509,7 +1514,7 @@ pub fn write_subtable_to_raw_binary(subtable: Vec<DbVec>) -> Vec<u8> {
         // output.push(b'\n');
         // output.extend_from_slice(&(self.len() as u32).to_le_bytes());
 
-        for column in subtable.iter() {
+        for column in subtable.table.iter() {
             match &column {
                 DbVec::Floats(col) => {
                     for item in col {
@@ -1914,7 +1919,7 @@ mod tests {
         let table_string = std::fs::read_to_string(&format!("testlarge.csv")).unwrap();
         let table = ColumnTable::from_csv_string(&table_string, "basic_test", "test").unwrap();
         let subtable = table.create_subtable(0, 7515);
-        println!("{}", subtable[0]);
+        println!("{}", subtable);
     }
 
 }
