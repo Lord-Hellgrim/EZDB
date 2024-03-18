@@ -1389,105 +1389,53 @@ impl EZTable {
 
 
     /// Reads an EZ binary formatted file to a ColumnTable, checking for strictness.
-    pub fn read_raw_binary(binary: &[u8]) -> Result<EZTable, StrictError> {
-        let mut binter = binary.iter();
-        let first_newline = binter.position(|n| *n == b'\n').unwrap();
-        let bin_header = &binary[0..first_newline];
-        let bin_length = &binary[first_newline + 1..first_newline + 5];
-        let bin_body = &binary[first_newline + 5..];
+    pub fn read_raw_binary(&mut self, binary: &[u8]) -> Result<(), StrictError> {
+        let bin_length = &binary[..4];
+        let bin_body = &binary[4..];
 
         let bin_length = u32_from_le_slice(bin_length) as usize;
         // println!("bin_length: {}", bin_length);
 
-        let mut header = Vec::new();
-
-        for item in bin_header.split(|n| n == &b';') {
-            let kind = match item.first().unwrap() {
-                b'i' => DbType::Int,
-                b'f' => DbType::Float,
-                b't' => DbType::Text,
-                x => unreachable!("the first byte of a header item should never be {:x?}", x),
-            };
-            let key = match item.last().unwrap() {
-                b'P' => TableKey::Primary,
-                b'N' => TableKey::None,
-                b'F' => TableKey::Foreign,
-                x => unreachable!("The last byte of a header item should never be {:x?}", x),
-            };
-            let name = match std::str::from_utf8(&item[1..item.len() - 1]) {
-                Ok(n) => n,
-                Err(e) => {
-                    return Err(StrictError::BinaryRead(format!(
-                        "Utf8 error while parsing header item name.\nError body: {}",
-                        e
-                    )))
-                }
-            };
-            let header_item = HeaderItem {
-                kind: kind,
-                name: KeyString::from(name),
-                key: key,
-            };
-
-            header.push(header_item);
-        }
-
-        // dbg!(&header);
-
-        let mut table: Vec<DbVec> = Vec::with_capacity(header.len());
+        self.table = Vec::new();
 
         let mut total = 0;
-        let mut index = 0;
-        while index < header.len() {
+        for index in 0..self.header.len() {
             // println!("total: {}", total);
-            match header[index].kind {
+            match self.header[index].kind {
                 DbType::Int => {
                     let blob = &bin_body[total..total + (bin_length * 4)];
-                    // println!("blob: {:x?}", blob);
                     let v = blob.chunks(4).map(|n| i32_from_le_slice(n)).collect();
-                    // for x in &v {
-                    // println!("x: {}", x);
-                    // }
                     total += bin_length * 4;
-                    index += 1;
-                    table.push(DbVec::Ints(v));
+                    self.table.push(DbVec::Ints(v));
                 }
                 DbType::Float => {
                     let blob = &bin_body[total..total + (bin_length * 4)];
                     let v: Vec<f32> = blob.chunks(4).map(|n| f32_from_le_slice(n)).collect();
                     total += bin_length * 4;
-                    index += 1;
-                    table.push(DbVec::Floats(v));
+                    self.table.push(DbVec::Floats(v));
                 }
                 DbType::Text => {
                     let blob = &bin_body[total..total + (bin_length * 64)];
                     let v: Vec<KeyString> = blob.chunks(64).map(|n| KeyString::from(n)).collect();
                     total += bin_length * 64;
-                    index += 1;
-                    table.push(DbVec::Texts(v));
+                    self.table.push(DbVec::Texts(v));
                 }
             }
         }
 
-        Ok(EZTable {
-            metadata: Metadata::new("test"),
-            name: KeyString::from("test"),
-            header: header,
-            table: table,
-        })
+        Ok(())
+
     }
 
-    pub fn read_raw_binary_file(&mut self, path: &str) -> Result<EZTable, StrictError> {
+    pub fn read_raw_binary_file(&mut self, path: &str) -> Result<(), StrictError> {
         
-        let mut table: Vec<DbVec> = Vec::with_capacity(self.header.len());
-
         let mut file = File::open(path)?;
-        let mut total: u64 = 0;
-        let mut index = 0;
+
+        self.table = Vec::new();
 
         const BUF_LEN: usize = 1024;
         let mut buf = [0u8; BUF_LEN];
-        file.read_exact(&mut buf[..4]);
+        file.read_exact(&mut buf[..4])?;
         let column_length = u32_from_le_slice(&buf[..4]) as usize;
 
         for index in 0..self.header.len() {
@@ -1496,43 +1444,43 @@ impl EZTable {
                     let mut remainder: usize = column_length * 4;
                     let mut v = Vec::with_capacity(remainder as usize);
                     while remainder > BUF_LEN {
-                        file.read_exact(&mut buf);
+                        file.read_exact(&mut buf)?;
                         v.extend_from_slice(&buf);
                         remainder -= BUF_LEN
                     }
-                    file.read_exact(&mut buf[..remainder as usize]);
+                    file.read_exact(&mut buf[..remainder as usize])?;
                     v.extend_from_slice(&buf);
 
                     let v: Vec<i32> = v.chunks(4).map(|slice| i32_from_le_slice(slice)).collect();
-
+                    self.table.push(DbVec::Ints(v));
                 },
                 DbType::Float => {
                     let mut remainder = column_length * 4;
                     let mut v = Vec::with_capacity(remainder as usize);
                     while remainder > BUF_LEN {
-                        file.read_exact(&mut buf);
+                        file.read_exact(&mut buf)?;
                         v.extend_from_slice(&buf);
                         remainder -= BUF_LEN
                     }
-                    file.read_exact(&mut buf[..remainder as usize]);
+                    file.read_exact(&mut buf[..remainder as usize])?;
                     v.extend_from_slice(&buf);
 
                     let v: Vec<f32> = v.chunks(4).map(|slice| f32_from_le_slice(slice)).collect();
-
+                    self.table.push(DbVec::Floats(v));
                 },
                 DbType::Text => {
                     let mut remainder = column_length * 64;
                     let mut v = Vec::with_capacity(remainder as usize);
                     while remainder > BUF_LEN {
-                        file.read_exact(&mut buf);
+                        file.read_exact(&mut buf)?;
                         v.extend_from_slice(&buf);
                         remainder -= BUF_LEN
                     }
-                    file.read_exact(&mut buf[..remainder as usize]);
+                    file.read_exact(&mut buf[..remainder as usize])?;
                     v.extend_from_slice(&buf);
 
                     let v: Vec<KeyString> = v.chunks(64).map(|slice| KeyString::from(slice)).collect();
-
+                    self.table.push(DbVec::Texts(v));
                 },
             }
         }
@@ -1545,12 +1493,7 @@ impl EZTable {
 pub fn write_subtable_to_raw_binary(subtable: EZTable) -> Vec<u8> {
     let mut total_bytes = 0;
 
-        let length = match &subtable.table[0] {
-            DbVec::Ints(col) => col.len(),
-            DbVec::Floats(col) => col.len(),
-            DbVec::Texts(col) => col.len(),
-        };
-        // println!("length: {}", length);
+        let length = subtable.len();
         for item in subtable.table.iter() {
             match item {
                 DbVec::Texts(_) => {
@@ -1902,17 +1845,11 @@ mod tests {
         ))
         .unwrap();
         let t = EZTable::from_csv_string(&input, "test", "test").unwrap();
-        let bint_t = t.write_to_raw_binary();
-        let string_t = t.to_string();
-        println!("bin_t lent: {}", bint_t.len());
-        println!("string_t lent: {}", string_t.len());
-        let translated_t = EZTable::read_raw_binary(&bint_t).unwrap();
-
-        println!("t:\n{}", t);
-        println!("tranlated_t:\n{}", translated_t);
-
-        let string_transl_t = translated_t.to_string();
-        assert_eq!(t, translated_t);
+        let bin_t = t.write_to_raw_binary();
+        let mut trans_t = t.clone();
+        trans_t.table = Vec::new();
+        trans_t.read_raw_binary(&bin_t).unwrap();
+        assert_eq!(t, trans_t);
     }
 
     // TEST QUERIES ###############################################################################################################################################################################
