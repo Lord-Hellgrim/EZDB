@@ -350,6 +350,25 @@ pub struct HeaderItem {
     pub key: TableKey,
 }
 
+impl Display for HeaderItem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut printer = String::new();
+        printer.push_str(self.name.as_str());
+        printer.push(',');
+        match self.kind {
+            DbType::Float => printer.push('f'),
+            DbType::Int => printer.push('i'),
+            DbType::Text => printer.push('t'),
+        }
+        match &self.key {
+            TableKey::Primary => printer.push_str("-P"),
+            TableKey::Foreign => printer.push_str("-F"),
+            TableKey::None => printer.push_str("-N"),
+        }
+        write!(f, "{}", printer)
+    }
+}
+
 impl HeaderItem {
     pub fn new() -> HeaderItem {
         HeaderItem {
@@ -389,18 +408,7 @@ impl Display for ColumnTable {
         let mut printer = String::new();
 
         for item in &self.header {
-            printer.push_str(item.name.as_str());
-            printer.push(',');
-            match item.kind {
-                DbType::Float => printer.push('f'),
-                DbType::Int => printer.push('i'),
-                DbType::Text => printer.push('t'),
-            }
-            match &item.key {
-                TableKey::Primary => printer.push_str("-P"),
-                TableKey::Foreign => printer.push_str("-F"),
-                TableKey::None => printer.push_str("-N"),
-            }
+            printer.push_str(&item.to_string());
             printer.push(';');
         }
         printer.pop();

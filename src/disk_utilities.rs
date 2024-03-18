@@ -51,6 +51,13 @@ pub struct DiskTable {
     pub chunks: Vec<RwLock<File>>,
 }
 
+pub fn alternate_write(table: &ColumnTable) -> Result<(), std::io::Error> {
+
+    let header_bytes: Vec<u8> = Vec::with_capacity(table.header.len() * 66);
+
+
+    Ok(())
+}
 
 pub fn write_table_to_binary_directory(table: &ColumnTable) -> Result<(), std::io::Error> {
 
@@ -68,6 +75,15 @@ pub fn write_table_to_binary_directory(table: &ColumnTable) -> Result<(), std::i
         return Err(std::io::Error::new(std::io::ErrorKind::WriteZero, "The table that was attempted to write to disk was empty"))
     }
     
+    let mut header_file_path = path_str.clone();
+    header_file_path.push_str(&format!("{PATH_SEP}header"));
+    let mut header_file = File::create(header_file_path)?;
+    let mut full_header = String::new();
+    for head in &table.header {
+        full_header.push_str(&head.to_string());
+        full_header.push(';');
+    }
+    full_header.pop();
 
     let mut start = 0;
     let rows_per_chunk = CHUNK_SIZE / table.metadata.size_of_row();
@@ -103,7 +119,6 @@ pub fn write_table_to_binary_directory(table: &ColumnTable) -> Result<(), std::i
         
     }
     
-    let len = table.len();
     let subtable = table.create_subtable(start, table.len());
     
     let mut chunk_path = path_str.clone();
