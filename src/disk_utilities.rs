@@ -5,8 +5,10 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{self, Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
+use serde::Serialize;
+
 use crate::db_structure::{write_subtable_to_raw_binary, DbType, DbVec, HeaderItem, KeyString, Metadata, StrictError, Value};
-use crate::networking_utilities::{f32_from_le_slice, i32_from_le_slice};
+use crate::networking_utilities::{f32_from_le_slice, i32_from_le_slice, ServerError};
 use crate::{db_structure::EZTable, server_networking::CONFIG_FOLDER};
 use crate::PATH_SEP;
 
@@ -17,6 +19,7 @@ pub const CHUNK_SIZE: usize = 1_000_000;                // 1mb
 
 pub struct BufferPool {
     max_size: usize,
+    current_size: usize,
     pub tables: Arc<RwLock<HashMap<KeyString, RwLock<EZTable>>>>,
     pub values: Arc<RwLock<HashMap<KeyString, RwLock<Value>>>>,
 }
@@ -28,6 +31,7 @@ impl BufferPool {
 
         BufferPool {
             max_size,
+            current_size: 0,
             tables,
             values,
         }
@@ -36,6 +40,56 @@ impl BufferPool {
 
     pub fn max_size(&self) -> usize {
         self.max_size
+    }
+
+    pub fn add_table(&mut self, table: EZTable) -> Result<(), ServerError> {
+
+        if self.current_size + table.metadata.size_of_table() > self.max_size {
+            return Err(ServerError::NoMoreBufferSpace(table.metadata.size_of_table()))
+        }
+
+        self.tables.write().unwrap().insert(table.name, RwLock::new(table));
+
+        Ok(())
+    }
+
+    pub fn clear_space(&mut self) -> Result<(), ServerError> {
+        
+        let mut lru = u64::MAX;
+        let mut lru_key = KeyString::new();
+        {
+            let tables = self.tables.read().unwrap();
+            for key in tables.keys() {
+                let temp = tables[key].read().unwrap().metadata.last_access;
+                if temp < lru {
+                    lru_key = key.clone();
+                    lru = temp;
+                }
+            }
+        }
+        let mut key_is_value = false;
+        {
+            let values = self.values.read().unwrap();
+            for key in values.keys() {
+                let temp = values[key].read().unwrap().metadata.last_access;
+                if temp < lru {
+                    key_is_value = true;
+                    lru_key = key.clone();
+                    lru = temp;
+                }
+            }
+        }
+
+        if key_is_value {
+            let values = self.values.write().unwrap();
+            let disk_data = values[&lru_key].write().unwrap().write_to_raw_binary();
+
+            values[&lru_key].write().unwrap().body = Vec::new();
+        }
+        
+
+        Ok(())
+        
     }
 }
 

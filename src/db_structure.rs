@@ -1228,7 +1228,7 @@ impl EZTable {
         Ok(())
     }
 
-    pub fn delete_by_vec(&mut self, mut key_list: DbVec) -> Result<(), StrictError> {
+    pub fn delete_by_vec(&mut self, key_list: DbVec) -> Result<(), StrictError> {
         let primary_index = self.get_primary_key_col_index();
 
         let mut indexes = Vec::with_capacity(key_list.len());
@@ -1265,7 +1265,7 @@ impl EZTable {
                     }
                 }
             },
-            DbVec::Floats(column) => return Err(StrictError::FloatPrimaryKey)
+            DbVec::Floats(_) => return Err(StrictError::FloatPrimaryKey)
         }
 
         let imut = self.columns.iter_mut();
@@ -1483,6 +1483,8 @@ impl EZTable {
         }
 
         let mut metadata = Metadata::new(metadata_created_by.as_str());
+        metadata.last_access = metadata_last_access;
+        metadata.times_accessed = metadata_times_accessed;
         metadata.size_of_row = header.iter().fold(0, |acc: usize, x| {
             match x.kind {
                 DbType::Float => acc + 4,
@@ -1509,67 +1511,7 @@ impl EZTable {
         Ok(new_table)
     }
 
-    pub fn read_raw_binary_file(&mut self, path: &str) -> Result<(), StrictError> {
-        
-        let mut file = File::open(path)?;
-
-        self.columns = Vec::new();
-
-        const BUF_LEN: usize = 1024;
-        let mut buf = [0u8; BUF_LEN];
-        file.read_exact(&mut buf[..4])?;
-        let column_length = u32_from_le_slice(&buf[..4]) as usize;
-
-        for index in 0..self.header.len() {
-            match self.header[index].kind {
-                DbType::Int => {
-                    let mut remainder: usize = column_length * 4;
-                    let mut v = Vec::with_capacity(remainder as usize);
-                    while remainder > BUF_LEN {
-                        file.read_exact(&mut buf)?;
-                        v.extend_from_slice(&buf);
-                        remainder -= BUF_LEN
-                    }
-                    file.read_exact(&mut buf[..remainder as usize])?;
-                    v.extend_from_slice(&buf);
-
-                    let v: Vec<i32> = v.chunks(4).map(|slice| i32_from_le_slice(slice)).collect();
-                    self.columns.push(DbVec::Ints(v));
-                },
-                DbType::Float => {
-                    let mut remainder = column_length * 4;
-                    let mut v = Vec::with_capacity(remainder as usize);
-                    while remainder > BUF_LEN {
-                        file.read_exact(&mut buf)?;
-                        v.extend_from_slice(&buf);
-                        remainder -= BUF_LEN
-                    }
-                    file.read_exact(&mut buf[..remainder as usize])?;
-                    v.extend_from_slice(&buf);
-
-                    let v: Vec<f32> = v.chunks(4).map(|slice| f32_from_le_slice(slice)).collect();
-                    self.columns.push(DbVec::Floats(v));
-                },
-                DbType::Text => {
-                    let mut remainder = column_length * 64;
-                    let mut v = Vec::with_capacity(remainder as usize);
-                    while remainder > BUF_LEN {
-                        file.read_exact(&mut buf)?;
-                        v.extend_from_slice(&buf);
-                        remainder -= BUF_LEN
-                    }
-                    file.read_exact(&mut buf[..remainder as usize])?;
-                    v.extend_from_slice(&buf);
-
-                    let v: Vec<KeyString> = v.chunks(64).map(|slice| KeyString::from(slice)).collect();
-                    self.columns.push(DbVec::Texts(v));
-                },
-            }
-        }
-
-        todo!()        
-
-    }
+    
 }
 
 pub fn write_subtable_to_raw_binary(subtable: EZTable) -> Vec<u8> {
@@ -1779,33 +1721,36 @@ impl Value {
     }
 
     /// Saves the binary blob to disk in a file named key.
-    pub fn save_to_disk_raw(&self, key: &str, path: &str) -> Result<(), StrictError> {
-        let file_name = key;
+    pub fn write_to_raw_binary(&self) -> Vec<u8> {
+        let mut output = Vec::with_capacity(self.body.len() + 80);
 
-        let metadata = &self.metadata.to_string();
+        // WRITING METADATA
+        output.extend_from_slice(self.metadata.created_by.raw());
+        output.extend_from_slice(&self.metadata.last_access.to_le_bytes());
+        output.extend_from_slice(&self.metadata.times_accessed.to_le_bytes());
 
-        let mut value_file =
-            match std::fs::File::create(&format!("{}key_value/{}", path, file_name)) {
-                Ok(f) => f,
-                Err(e) => return Err(StrictError::Io(e)),
-            };
+        output.extend_from_slice(&self.body);
 
-        let mut meta_file =
-            match std::fs::File::create(&format!("{}key_value-metadata/{}", path, file_name)) {
-                Ok(f) => f,
-                Err(e) => return Err(StrictError::Io(e)),
-            };
+        output
+    }
 
-        match value_file.write_all(&self.body) {
-            Ok(_) => (),
-            Err(e) => println!("Error while writing to disk. Error was:\n{}", e),
-        };
-        match meta_file.write_all(metadata.as_bytes()) {
-            Ok(_) => (),
-            Err(e) => println!("Error while writing to disk. Error was:\n{}", e),
-        };
+    pub fn read_raw_binary(binary: &[u8]) -> Value {
 
-        Ok(())
+        let metadata_created_by = KeyString::from(&binary[0..64]);
+        let metadata_last_access = u64_from_le_slice(&binary[64..72]);
+        let metadata_times_accessed = u64_from_le_slice(&binary[72..80]);
+
+        let mut metadata = Metadata::new(metadata_created_by.as_str());
+        metadata.last_access = metadata_last_access;
+        metadata.times_accessed = metadata_times_accessed;
+        metadata.size_of_row = 0;
+
+        let body = &binary[80..];
+
+        Value {
+            body: body.to_vec(),
+            metadata,
+        }
     }
 }
 

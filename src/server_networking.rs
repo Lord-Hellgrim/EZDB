@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::io::{Write, Read};
 use std::net::TcpListener;
+use std::os::unix::fs::MetadataExt;
 use std::sync::{Arc, RwLock};
 use std::str::{self};
 
@@ -14,6 +15,7 @@ use crate::networking_utilities::*;
 use crate::db_structure::{EZTable, DbVec, KeyString, Metadata, StrictError, Value};
 use crate::handlers::*;
 use crate::ezql::{self, parse_EZQL};
+use crate::PATH_SEP;
 
 pub const CONFIG_FOLDER: &str = "EZconfig/";
 pub const MAX_PENDING_MESSAGES: usize = 10;
@@ -233,14 +235,20 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
             let temp_user: User = ron::from_str(line).unwrap();
             server.users.write().unwrap().insert(KeyString::from(temp_user.username.as_str()), RwLock::new(temp_user));
         }
+
+        let tables_on_disk = std::fs::read_dir(&format!("EZconfig{PATH_SEP}raw_tables"))?;
+        let write_lock = server.buffer_pool.tables.write().unwrap();
+        for table in tables_on_disk {
+            let table = table?;
+            if table.metadata()?.size()
+        }
+
     } else {
         println!("config does not exist");
         let temp = ron::to_string(&User::admin("admin", "admin")).unwrap();
         std::fs::create_dir("EZconfig").expect("Need IO access to initialize database");
         std::fs::create_dir("EZconfig/raw_tables").expect("Need IO access to initialize database");
-        std::fs::create_dir("EZconfig/raw_tables-metadata").expect("Need IO access to initialize database");
         std::fs::create_dir("EZconfig/key_value").expect("Need IO access to initialize database");
-        std::fs::create_dir("EZconfig/key_value-metadata").expect("Need IO access to initialize database");
         let mut user_file = match std::fs::File::create(format!("{CONFIG_FOLDER}.users")) {
             Ok(f) => f,
             Err(e) => return Err(ServerError::Strict(StrictError::Io(e))),

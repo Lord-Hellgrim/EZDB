@@ -19,10 +19,6 @@ pub fn handle_download_request(
 
     let global_read_binding = global_tables.read().unwrap();
 
-    if !global_read_binding.contains_key(&KeyString::from(name)) {
-        
-    }
-
     let requested_table = global_read_binding.get(&KeyString::from(name)).expect("Instruction parser should have verified table").read().unwrap();
     let requested_csv = requested_table.to_string();
     println!("Requested_csv.len(): {}", requested_csv.len());
