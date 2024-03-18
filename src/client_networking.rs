@@ -324,7 +324,7 @@ mod tests {
     #![allow(unused)]
     use std::{fs::remove_file, path::Path};
 
-    use crate::db_structure::ColumnTable;
+    use crate::db_structure::EZTable;
 
     use super::*;
 
@@ -399,7 +399,7 @@ mod tests {
         let password = "admin";
         let table = download_table(address, username, password, name).unwrap();
         println!("{:?}", table);
-        let good_table = ColumnTable::from_csv_string(
+        let good_table = EZTable::from_csv_string(
             &std::fs::read_to_string(format!("test_files{PATH_SEP}good_csv.txt")).unwrap(),
             "good_table",
             "test",

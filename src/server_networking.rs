@@ -11,7 +11,7 @@ use crate::aes_temp_crypto::decrypt_aes256;
 use crate::auth::{User, AuthenticationError, user_has_permission};
 use crate::disk_utilities::{BufferPool, DiskTable, MAX_BUFFERPOOL_SIZE};
 use crate::networking_utilities::*;
-use crate::db_structure::{ColumnTable, DbVec, KeyString, Metadata, StrictError, Value};
+use crate::db_structure::{EZTable, DbVec, KeyString, Metadata, StrictError, Value};
 use crate::handlers::*;
 use crate::ezql::{self, parse_EZQL};
 
@@ -23,7 +23,7 @@ pub const PROCESS_MESSAGES_INTERVAL: u64 = 10;   // The number of seconds that p
 pub fn parse_instruction(
     instructions: &[u8], 
     users: Arc<RwLock<HashMap<KeyString, RwLock<User>>>>, 
-    global_tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>, 
+    global_tables: Arc<RwLock<HashMap<KeyString, RwLock<EZTable>>>>, 
     global_kv_table: Arc<RwLock<HashMap<KeyString, RwLock<Value>>>>, 
     aes_key: &[u8],
     instruction_sender: crossbeam_channel::Sender<WriteThreadMessage>
@@ -216,7 +216,7 @@ pub fn parse_instruction(
 
 // Need to redesign the server multithreading before I continue. If I have to lock the "table of tables" for each query,
 // then there's no point to multithreading.
-pub fn execute_single_EZQL_query(query: ezql::Query) -> Result<ColumnTable, ServerError> {
+pub fn execute_single_EZQL_query(query: ezql::Query) -> Result<EZTable, ServerError> {
 
     match query.query_type {
         ezql::QueryType::DELETE => todo!(),
@@ -235,11 +235,11 @@ pub fn execute_single_EZQL_query(query: ezql::Query) -> Result<ColumnTable, Serv
 #[derive(Clone, PartialEq, PartialOrd)]
 pub enum WriteThreadMessage {
     UpdateMetadata(Metadata, KeyString), 
-    UpdateTable(KeyString, ColumnTable),
+    UpdateTable(KeyString, EZTable),
     LoadTable(KeyString),
     DropTable(KeyString),
     DeleteRows(KeyString, DbVec),
-    NewTable(ColumnTable),
+    NewTable(EZTable),
     NewKeyValue(KeyString, Value),
     UpdateKeyValue(KeyString, Value),
     MetaNewUser(User),
@@ -327,7 +327,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
         std::fs::create_dir("EZconfig/key_value-metadata").expect("Need IO access to initialize database");
         let mut user_file = match std::fs::File::create(format!("{CONFIG_FOLDER}.users")) {
             Ok(f) => f,
-            Err(e) => return Err(ServerError::Strict(StrictError::Io(e.kind()))),
+            Err(e) => return Err(ServerError::Strict(StrictError::Io(e))),
         };
         match user_file.write_all(temp.as_bytes()) {
             Ok(_) => (),

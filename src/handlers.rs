@@ -1,6 +1,6 @@
 use std::{collections::HashMap, io::Write, sync::{Arc, RwLock}};
 
-use crate::{auth::User, db_structure::{ColumnTable, DbVec, KeyString, Metadata, Value}, networking_utilities::*, server_networking::{Server, WriteThreadMessage, CONFIG_FOLDER}};
+use crate::{auth::User, db_structure::{EZTable, DbVec, KeyString, Metadata, Value}, networking_utilities::*, server_networking::{Server, WriteThreadMessage, CONFIG_FOLDER}};
 
 use crate::PATH_SEP;
 
@@ -9,7 +9,7 @@ use crate::PATH_SEP;
 pub fn handle_download_request(
     connection: &mut Connection, 
     name: &str, 
-    global_tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>, 
+    global_tables: Arc<RwLock<HashMap<KeyString, RwLock<EZTable>>>>, 
     disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>
 ) -> Result<(), ServerError> {
     match connection.stream.write("OK".as_bytes()) {
@@ -68,7 +68,7 @@ pub fn handle_upload_request(
 
     // Here we create a ColumnTable from the csv and supplied name
     println!("About to check for strictness");
-    match ColumnTable::from_csv_string(bytes_to_str(&csv)?, name, "test") {
+    match EZTable::from_csv_string(bytes_to_str(&csv)?, name, "test") {
         Ok(table) => {
             println!("About to write: {:x?}", "OK".as_bytes());
             match connection.stream.write("OK".as_bytes()) {
@@ -101,7 +101,7 @@ pub fn handle_upload_request(
     
 /// Handles an update request from a client. Executes a .update method on the designated table.
 /// This will be rewritten to use EZQL soon
-pub fn handle_update_request(connection: &mut Connection, name: &str, global_tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>, disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>) -> Result<String, ServerError> {
+pub fn handle_update_request(connection: &mut Connection, name: &str, global_tables: Arc<RwLock<HashMap<KeyString, RwLock<EZTable>>>>, disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>) -> Result<String, ServerError> {
     
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
@@ -113,7 +113,7 @@ pub fn handle_update_request(connection: &mut Connection, name: &str, global_tab
     let csv = receive_data(connection)?;
     let csv = bytes_to_str(&csv)?;
 
-    match ColumnTable::from_csv_string(csv, "insert", "system") {
+    match EZTable::from_csv_string(csv, "insert", "system") {
         Ok(table) => {
             match disk_thread_sender.try_send(WriteThreadMessage::UpdateTable(KeyString::from(name), table)) {
                 Ok(_) => {
@@ -135,7 +135,7 @@ pub fn handle_update_request(connection: &mut Connection, name: &str, global_tab
 }
 
 /// This will be totally rewritten to handle EZQL. Don't worry about this garbage.
-pub fn handle_query_request(connection: &mut Connection, name: &str, query: &str, global_tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>, disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>) -> Result<String, ServerError> {
+pub fn handle_query_request(connection: &mut Connection, name: &str, query: &str, global_tables: Arc<RwLock<HashMap<KeyString, RwLock<EZTable>>>>, disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>) -> Result<String, ServerError> {
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e.kind()));},
@@ -170,7 +170,7 @@ pub fn handle_query_request(connection: &mut Connection, name: &str, query: &str
 }
 
 /// This will be rewritten to use EZQL soon.
-pub fn handle_delete_request(connection: &mut Connection, name: &str, query: &str, global_tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>, disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>) -> Result<String, ServerError> {
+pub fn handle_delete_request(connection: &mut Connection, name: &str, query: &str, global_tables: Arc<RwLock<HashMap<KeyString, RwLock<EZTable>>>>, disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>) -> Result<String, ServerError> {
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e.kind()));},
@@ -339,7 +339,7 @@ pub fn handle_kv_download(connection: &mut Connection, name: &str, global_kv_tab
 }
 
 /// Handles the request for the list of tables.
-pub fn handle_meta_list_tables(connection: &mut Connection, global_tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>, disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>) -> Result<(), ServerError> {
+pub fn handle_meta_list_tables(connection: &mut Connection, global_tables: Arc<RwLock<HashMap<KeyString, RwLock<EZTable>>>>, disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>) -> Result<(), ServerError> {
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
@@ -447,7 +447,7 @@ pub fn handle_message_update_metadata(server_handle: Arc<Server>, metadata: Meta
     Ok(())
 }
 
-pub fn handle_message_update_table(server_handle: Arc<Server>, table_name: KeyString, table: ColumnTable) -> Result<(), ServerError> {
+pub fn handle_message_update_table(server_handle: Arc<Server>, table_name: KeyString, table: EZTable) -> Result<(), ServerError> {
 
     let global_tables = server_handle.buffer_pool.tables.write().unwrap();
     let mut source_table = match global_tables.get(&table_name) {
@@ -466,7 +466,7 @@ pub fn handle_message_load_table(server_handle: Arc<Server>, table_name: KeyStri
     if raw_table_exists {
         println!("Loading table from disk");
         let disk_table = std::fs::read_to_string(format!("{}/raw_tables/{}", CONFIG_FOLDER, table_name))?;
-        let disk_table = ColumnTable::from_csv_string(&disk_table, table_name.as_str(), "temp")?;
+        let disk_table = EZTable::from_csv_string(&disk_table, table_name.as_str(), "temp")?;
         {
             let mut writer = server_handle.buffer_pool.tables.write().unwrap();
             writer.insert(KeyString::from(table_name), RwLock::new(disk_table));
@@ -492,7 +492,7 @@ pub fn handle_message_delete_rows(server_handle: Arc<Server>, table_name: KeyStr
     Ok(())
 }
 
-pub fn handle_message_new_table(server_handle: Arc<Server>, table: ColumnTable) -> Result<(), ServerError> {
+pub fn handle_message_new_table(server_handle: Arc<Server>, table: EZTable) -> Result<(), ServerError> {
 
     server_handle.buffer_pool.tables.write().unwrap().insert(table.name.clone(), RwLock::new(table));
 

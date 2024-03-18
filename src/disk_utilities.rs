@@ -7,7 +7,7 @@ use std::sync::{Arc, RwLock};
 
 use crate::db_structure::{write_subtable_to_raw_binary, DbType, DbVec, HeaderItem, KeyString, Metadata, StrictError, Value};
 use crate::networking_utilities::{f32_from_le_slice, i32_from_le_slice};
-use crate::{db_structure::ColumnTable, server_networking::CONFIG_FOLDER};
+use crate::{db_structure::EZTable, server_networking::CONFIG_FOLDER};
 use crate::PATH_SEP;
 
 pub const BIN_TABLE_DIR: &'static str = "Binary_tables";
@@ -17,22 +17,19 @@ pub const CHUNK_SIZE: usize = 1_000_000;                // 1mb
 
 pub struct BufferPool {
     max_size: usize,
-    pub tables: Arc<RwLock<HashMap<KeyString, RwLock<ColumnTable>>>>,
+    pub tables: Arc<RwLock<HashMap<KeyString, RwLock<EZTable>>>>,
     pub values: Arc<RwLock<HashMap<KeyString, RwLock<Value>>>>,
-    naughty_list: Vec<KeyString>,
 }
 
 impl BufferPool {
     pub fn with_max_size(max_size: usize) -> BufferPool {
         let tables = Arc::new(RwLock::new(HashMap::new()));
         let values = Arc::new(RwLock::new(HashMap::new()));
-        let naughty_list = Vec::new();
 
         BufferPool {
             max_size,
             tables,
             values,
-            naughty_list,
         }
 
     }
@@ -48,18 +45,25 @@ pub struct DiskTable {
     pub name: KeyString,
     pub header: Vec<HeaderItem>,
     pub metadata: Metadata,
-    pub chunks: Vec<RwLock<File>>,
+    pub file: RwLock<File>,
+    pub pages: Vec<Page>,
 }
 
-pub fn alternate_write(table: &ColumnTable) -> Result<(), std::io::Error> {
+#[derive(Debug)]
+pub struct Page {
+    is_dirty: bool,
+    offset: u64,
+    size: u64,
+}
 
-    let header_bytes: Vec<u8> = Vec::with_capacity(table.header.len() * 66);
+pub fn alternate_write(table: &EZTable) -> Result<(), std::io::Error> {
+
 
 
     Ok(())
 }
 
-pub fn write_table_to_binary_directory(table: &ColumnTable) -> Result<(), std::io::Error> {
+pub fn write_table_to_binary_directory(table: &EZTable) -> Result<(), std::io::Error> {
 
     let path_str = format!("{CONFIG_FOLDER}{PATH_SEP}{BIN_TABLE_DIR}{PATH_SEP}{}", table.name.as_str());
 
@@ -141,12 +145,9 @@ pub fn write_table_to_binary_directory(table: &ColumnTable) -> Result<(), std::i
     Ok(())
 }
 
-pub fn read_binary_table_chunk_into_memory(table_file: &str, header: &Vec<HeaderItem>, metadata: &Metadata) -> Result<ColumnTable, StrictError> {
+pub fn read_binary_table_chunk_into_memory(table_file: &str, header: &Vec<HeaderItem>, metadata: &Metadata) -> Result<EZTable, StrictError> {
 
-    let mut file = match File::open(table_file) {
-        Ok(f) => f,
-        Err(e) => return Err(StrictError::Io(e.kind())),
-    };
+    let mut file = File::open(table_file)?;
 
     let file_size = file.metadata().unwrap().size();
     let length = file_size / metadata.size_of_row() as u64;
@@ -160,10 +161,7 @@ pub fn read_binary_table_chunk_into_memory(table_file: &str, header: &Vec<Header
         match header[index].kind {
             DbType::Int => {
                 let amount_to_read = (length * 4) as usize;
-                match file.read_exact(&mut buf[..amount_to_read]) {
-                    Ok(_) => (),
-                    Err(e) => return Err(StrictError::Io(e.kind())),
-                };
+                file.read_exact(&mut buf[..amount_to_read])?;
                 let v: Vec<i32> = buf[..(length * 4) as usize]
                     .chunks(4)
                     .map(|chunk| i32_from_le_slice(chunk))
@@ -173,10 +171,7 @@ pub fn read_binary_table_chunk_into_memory(table_file: &str, header: &Vec<Header
             },
             DbType::Float => {
                 let amount_to_read = (length * 4) as usize;
-                match file.read_exact(&mut buf[..amount_to_read]) {
-                    Ok(_) => (),
-                    Err(e) => return Err(StrictError::Io(e.kind())),
-                };
+                file.read_exact(&mut buf[..amount_to_read])?;
                 let v: Vec<f32> = buf[..(length * 4) as usize]
                     .chunks(4)
                     .map(|chunk| f32_from_le_slice(chunk))
@@ -186,10 +181,7 @@ pub fn read_binary_table_chunk_into_memory(table_file: &str, header: &Vec<Header
             },
             DbType::Text => {
                 let amount_to_read = (length * 64) as usize;
-                match file.read_exact(&mut buf[..amount_to_read]) {
-                    Ok(_) => (),
-                    Err(e) => return Err(StrictError::Io(e.kind())),
-                };
+                file.read_exact(&mut buf[..amount_to_read])?;
                 let v: Vec<KeyString> = buf[..(length * 64) as usize]
                     .chunks(64)
                     .map(|chunk| KeyString::from(chunk))
@@ -199,14 +191,11 @@ pub fn read_binary_table_chunk_into_memory(table_file: &str, header: &Vec<Header
             },
         }
         index += 1;
-        match file.seek(SeekFrom::Start(total_bytes as u64)) {
-            Ok(_) => (),
-            Err(e) => return Err(StrictError::Io(e.kind())),
-        };
+        file.seek(SeekFrom::Start(total_bytes as u64))?;
     }
 
     Ok(
-        ColumnTable {
+        EZTable {
             name: KeyString::from("test"),
             metadata: metadata.clone(),
             header: header.clone(),
@@ -224,7 +213,7 @@ mod tests {
     #[test]
     fn bin_dir_basic_test() {
         let table_string = std::fs::read_to_string(&format!("testlarge.csv")).unwrap();
-        let table = ColumnTable::from_csv_string(&table_string, "basic_test", "test").unwrap();
+        let table = EZTable::from_csv_string(&table_string, "basic_test", "test").unwrap();
         // write_table_to_binary_directory(&table).unwrap();
         let chunks = "/home/hellgrim/code/rust/EZDB/EZconfig/Binary_tables/basic_test";
         let mut chunks = std::fs::read_dir(chunks).unwrap();
