@@ -53,7 +53,7 @@ fn my_benchmark(c: &mut Criterion) {
     let string_t = t.to_string();
     println!("bin_t lent: {}", bint_t.len());
     println!("string_t lent: {}", string_t.len());
-    group.bench_function("binary", |b| b.iter(|| EZTable::read_raw_binary(&bint_t)));
+    // group.bench_function("binary", |b| b.iter(|| EZTable::read_raw_binary(&bint_t)));
     group.bench_function("csv", |b| b.iter(|| EZTable::from_csv_string(&string_t, "test", "test")));
 
     group.bench_function("compress string miniz_oxide", |b| b.iter(|| miniz_compress(string_t.as_bytes())));

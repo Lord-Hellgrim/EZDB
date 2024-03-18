@@ -26,7 +26,7 @@ pub fn parse_instruction(
     global_tables: Arc<RwLock<HashMap<KeyString, RwLock<EZTable>>>>, 
     global_kv_table: Arc<RwLock<HashMap<KeyString, RwLock<Value>>>>, 
     aes_key: &[u8],
-    instruction_sender: crossbeam_channel::Sender<HeavyThreadMessage>
+    instruction_sender: crossbeam_channel::Sender<WriteThreadMessage>
 ) -> Result<Instruction, ServerError> {
 
     println!("Decrypting instructions");
@@ -103,57 +103,22 @@ pub fn parse_instruction(
         "KvUpload" => {
             if global_kv_table.read().unwrap().contains_key(&KeyString::from(table_name)) {
                 return Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' already exists. Use 'update' instead", table_name))));
-            } else if std::path::Path::new(&format!("{}/key_value/{}", CONFIG_FOLDER, table_name)).exists() {
-                match instruction_sender.try_send(HeavyThreadMessage::LoadTable(KeyString::from(table_name))) {
-                    Ok(_) => {},
-                    Err(e) => match e {
-                        crossbeam_channel::TrySendError::Disconnected(_e) => panic!("write thread has closed. Server is dead!!!"),
-                        crossbeam_channel::TrySendError::Full(_e) => todo!("I don't exactly know what to do here yet"),
-                    }
-                };
-                Ok(Instruction::KvUpload(table_name.to_owned()))
             } else {
                 Ok(Instruction::KvUpload(table_name.to_owned()))
             }
         },
         "KvUpdate" => {
-            if !global_kv_table.read().unwrap().contains_key(&KeyString::from(table_name)) {
-
-                if std::path::Path::new(&format!("{}/key_value/{}", CONFIG_FOLDER, table_name)).exists() {
-                    match instruction_sender.try_send(HeavyThreadMessage::LoadTable(KeyString::from(table_name))) {
-                        Ok(_) => {},
-                        Err(e) => match e {
-                            crossbeam_channel::TrySendError::Disconnected(_e) => panic!("write thread has closed. Server is dead!!!"),
-                            crossbeam_channel::TrySendError::Full(_e) => todo!("I don't exactly know what to do here yet"),
-                        }
-                    };
-                    Ok(Instruction::KvUpdate(table_name.to_owned()))
-                } else {
-                    return Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' does not exist. Use 'upload' instead", table_name))));
-                }
-
-            } else {
+            if global_kv_table.read().unwrap().contains_key(&KeyString::from(table_name)) {
                 Ok(Instruction::KvUpdate(table_name.to_owned()))
+            } else {
+                return Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' does not exist. Use 'upload' instead", table_name))));
             }
         },
         "KvDownload" => {
-            if !global_kv_table.read().unwrap().contains_key(&KeyString::from(table_name)) {
-
-                if std::path::Path::new(&format!("{}/key_value/{}", CONFIG_FOLDER, table_name)).exists() {
-                    match instruction_sender.try_send(HeavyThreadMessage::LoadTable(KeyString::from(table_name))) {
-                        Ok(_) => {},
-                        Err(e) => match e {
-                            crossbeam_channel::TrySendError::Disconnected(_e) => panic!("write thread has closed. Server is dead!!!"),
-                            crossbeam_channel::TrySendError::Full(_e) => todo!("I don't exactly know what to do here yet"),
-                        }
-                    };
-                    Ok(Instruction::KvDownload(table_name.to_owned()))
-                } else {
-                    return Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' does not exist. Use 'upload' instead", table_name))));
-                }
-
-            } else {
+            if global_kv_table.read().unwrap().contains_key(&KeyString::from(table_name)) {
                 Ok(Instruction::KvDownload(table_name.to_owned()))
+            } else {
+                return Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' does not exist. Use 'upload' instead", table_name))));
             }
         },
         "MetaListTables" => {
@@ -188,7 +153,7 @@ pub fn execute_single_EZQL_query(query: ezql::Query) -> Result<EZTable, ServerEr
 }
 
 #[derive(Clone, PartialEq, PartialOrd)]
-pub enum HeavyThreadMessage {
+pub enum WriteThreadMessage {
     UpdateMetadata(Metadata, KeyString), 
     DropTable(KeyString),
     MetaNewUser(User),
@@ -199,17 +164,17 @@ pub enum HeavyThreadMessage {
     UpdateTable(KeyString, EZTable),
 }
 
-impl Display for HeavyThreadMessage {
+impl Display for WriteThreadMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            HeavyThreadMessage::UpdateMetadata(x, y) => writeln!(f, "{}:\n{}", y, x),
-            HeavyThreadMessage::UpdateTable(name, table) => writeln!(f, "{}:\n{}", name, table),
-            HeavyThreadMessage::DropTable(x) => writeln!(f, "{}", x),
-            HeavyThreadMessage::DeleteRows(x, y) => writeln!(f, "{}:\n{}", x, y),
-            HeavyThreadMessage::NewTable(x) => writeln!(f, "{}", x),
-            HeavyThreadMessage::MetaNewUser(x) => writeln!(f, "{}", ron::to_string(x).unwrap()),
-            HeavyThreadMessage::NewKeyValue(key, value) => write!(f, "key: {}\nValue:\n{:x?}", key, value),
-            HeavyThreadMessage::UpdateKeyValue(key, value) => write!(f, "key: {}\nValue:\n{:x?}", key, value),
+            WriteThreadMessage::UpdateMetadata(x, y) => writeln!(f, "{}:\n{}", y, x),
+            WriteThreadMessage::UpdateTable(name, table) => writeln!(f, "{}:\n{}", name, table),
+            WriteThreadMessage::DropTable(x) => writeln!(f, "{}", x),
+            WriteThreadMessage::DeleteRows(x, y) => writeln!(f, "{}:\n{}", x, y),
+            WriteThreadMessage::NewTable(x) => writeln!(f, "{}", x),
+            WriteThreadMessage::MetaNewUser(x) => writeln!(f, "{}", ron::to_string(x).unwrap()),
+            WriteThreadMessage::NewKeyValue(key, value) => write!(f, "key: {}\nValue:\n{:x?}", key, value),
+            WriteThreadMessage::UpdateKeyValue(key, value) => write!(f, "key: {}\nValue:\n{:x?}", key, value),
         }
 
     }
@@ -300,12 +265,12 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
 
     let _full_scope: Result<(), ServerError> = std::thread::scope(|outer_scope| {
         
-        let (write_message_sender, write_message_receiver) = crossbeam_channel::unbounded::<HeavyThreadMessage>();
+        let (write_message_sender, write_message_receiver) = crossbeam_channel::unbounded::<WriteThreadMessage>();
         
         let writer_thread = 
         outer_scope.spawn(move || {
 
-            let mut message_queue: Vec<HeavyThreadMessage> = Vec::new();
+            let mut message_queue: Vec<WriteThreadMessage> = Vec::new();
             let mut cache_timer = std::time::Instant::now();
             loop {
 
@@ -326,15 +291,14 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                         match message_queue.pop() {
                             Some(m) => {
                                 let write_result = match m {
-                                    HeavyThreadMessage::UpdateMetadata(metadata, table_name) => handle_message_update_metadata(outer_thread_server.clone(), metadata, table_name),
-                                    HeavyThreadMessage::UpdateTable(table_name, table) => handle_message_update_table(outer_thread_server.clone(), table_name, table),
-                                    HeavyThreadMessage::LoadTable(table_name) => handle_message_load_table(outer_thread_server.clone(), table_name),
-                                    HeavyThreadMessage::DropTable(table_name) => handle_message_drop_table(outer_thread_server.clone(), table_name),
-                                    HeavyThreadMessage::DeleteRows(table_name, rows) => handle_message_delete_rows(outer_thread_server.clone(), table_name, rows),
-                                    HeavyThreadMessage::NewTable(table) => handle_message_new_table(outer_thread_server.clone(), table),
-                                    HeavyThreadMessage::MetaNewUser(user) => handle_message_meta_new_user(outer_thread_server.clone(), user),
-                                    HeavyThreadMessage::NewKeyValue(key, value) => handle_message_new_key_value(outer_thread_server.clone(), key, value),
-                                    HeavyThreadMessage::UpdateKeyValue(key, value) => handle_message_update_key_value(outer_thread_server.clone(), key, value),
+                                    WriteThreadMessage::UpdateMetadata(metadata, table_name) => handle_message_update_metadata(outer_thread_server.clone(), metadata, table_name),
+                                    WriteThreadMessage::UpdateTable(table_name, table) => handle_message_update_table(outer_thread_server.clone(), table_name, table),
+                                    WriteThreadMessage::DropTable(table_name) => handle_message_drop_table(outer_thread_server.clone(), table_name),
+                                    WriteThreadMessage::DeleteRows(table_name, rows) => handle_message_delete_rows(outer_thread_server.clone(), table_name, rows),
+                                    WriteThreadMessage::NewTable(table) => handle_message_new_table(outer_thread_server.clone(), table),
+                                    WriteThreadMessage::MetaNewUser(user) => handle_message_meta_new_user(outer_thread_server.clone(), user),
+                                    WriteThreadMessage::NewKeyValue(key, value) => handle_message_new_key_value(outer_thread_server.clone(), key, value),
+                                    WriteThreadMessage::UpdateKeyValue(key, value) => handle_message_update_key_value(outer_thread_server.clone(), key, value),
                                 
                                 };
 

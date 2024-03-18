@@ -341,6 +341,14 @@ pub fn u32_from_le_slice(slice: &[u8]) -> u32 {
     u32::from_le_bytes(l)
 }
 
+/// Creates a u64 from a &[u8] of length 8. Panics if len is different than 8.
+#[inline]
+pub fn u64_from_le_slice(slice: &[u8]) -> u64 {
+    assert!(slice.len() == 8);
+    let l: [u8;8] = [ slice[0], slice[1], slice[2], slice[3], slice[4], slice[5], slice[6], slice[7] ];
+    u64::from_le_bytes(l)
+}
+
 /// Creates a u32 from a &[u8] of length 4. Panics if len is different than 4.
 #[inline]
 pub fn f32_from_le_slice(slice: &[u8]) -> f32 {   

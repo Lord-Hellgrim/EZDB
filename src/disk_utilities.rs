@@ -100,7 +100,7 @@ pub fn write_table_to_binary_directory(table: &EZTable) -> Result<(), std::io::E
         // println!("{}..={}", start, stop);
         
         let mut chunk_path = path_str.clone();
-        match &table.table[table.get_primary_key_col_index()] {
+        match &table.columns[table.get_primary_key_col_index()] {
             DbVec::Ints(v) => {
                 // println!("{}..={}", v[start], v[stop]);
                 chunk_path.push_str(&format!("{PATH_SEP}{}..={}", v[start], v[stop]))
@@ -126,7 +126,7 @@ pub fn write_table_to_binary_directory(table: &EZTable) -> Result<(), std::io::E
     let subtable = table.create_subtable(start, table.len());
     
     let mut chunk_path = path_str.clone();
-    match &table.table[table.get_primary_key_col_index()] {
+    match &table.columns[table.get_primary_key_col_index()] {
         DbVec::Ints(v) => {
             chunk_path.push_str(&format!("{PATH_SEP}{}..={}", v[start], v.last().unwrap()))
         },
@@ -199,7 +199,7 @@ pub fn read_binary_table_chunk_into_memory(table_file: &str, header: &Vec<Header
             name: KeyString::from("test"),
             metadata: metadata.clone(),
             header: header.clone(),
-            table,
+            columns: table,
         }
     )
 }
@@ -228,10 +228,10 @@ mod tests {
             read_table.update(&temp_table).unwrap();
         }
 
-        for (index, column) in table.table.iter().enumerate() {
+        for (index, column) in table.columns.iter().enumerate() {
             match column {
                 DbVec::Ints(col) => {
-                    match &read_table.table[index] {
+                    match &read_table.columns[index] {
                         DbVec::Ints(read_col) => {
                             for i in 0.. col.len() {
                                 if col[i] != read_col[i] {
@@ -243,7 +243,7 @@ mod tests {
                     }
                 },
                 DbVec::Floats(col) => {
-                    match &read_table.table[index] {
+                    match &read_table.columns[index] {
                         DbVec::Floats(read_col) => {
                             for i in 0.. col.len() {
                                 if col[i] != read_col[i] {
@@ -255,7 +255,7 @@ mod tests {
                     }
                 },
                 DbVec::Texts(col) => {
-                    match &read_table.table[index] {
+                    match &read_table.columns[index] {
                         DbVec::Texts(read_col) => {
                             for i in 0.. col.len() {
                                 if col[i] != read_col[i] {
@@ -276,6 +276,6 @@ mod tests {
         // table_file.write(read_table.to_string().as_bytes());
 
 
-        assert_eq!(read_table.table, table.table);
+        assert_eq!(read_table.columns, table.columns);
     }
 }
