@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::BTreeMap,
     fmt,
     sync::{Arc, RwLock},
 };
@@ -129,7 +129,7 @@ pub fn user_has_permission(
     table_name: &str,
     action: &str,
     username: &str,
-    users: Arc<RwLock<HashMap<KeyString, RwLock<User>>>>,
+    users: Arc<RwLock<BTreeMap<KeyString, RwLock<User>>>>,
 ) -> bool {
     let permission = match Permission::from_str(action) {
         Some(action) => action,

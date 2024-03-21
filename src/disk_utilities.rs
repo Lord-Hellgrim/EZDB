@@ -1,11 +1,9 @@
-use std::collections::{BTreeMap, HashMap};
-use std::fs::{create_dir, File};
+use std::collections::BTreeMap;
+use std::fs::{create_dir, read_dir, File, ReadDir};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::MetadataExt;
-use std::path::{self, Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, RwLock};
-
-use serde::Serialize;
 
 use crate::db_structure::{write_subtable_to_raw_binary, DbType, DbVec, HeaderItem, KeyString, Metadata, StrictError, Value};
 use crate::networking_utilities::{f32_from_le_slice, i32_from_le_slice, ServerError};
@@ -13,83 +11,120 @@ use crate::{db_structure::EZTable, server_networking::CONFIG_FOLDER};
 use crate::PATH_SEP;
 
 pub const BIN_TABLE_DIR: &'static str = "Binary_tables";
-pub const MAX_BUFFERPOOL_SIZE: usize = 4_000_000_000;   // 4gb
+pub const MAX_BUFFERPOOL_SIZE: u64 = 4_000_000_000;   // 4gb
 pub const CHUNK_SIZE: usize = 1_000_000;                // 1mb
 
 
 pub struct BufferPool {
-    max_size: usize,
-    current_size: usize,
-    pub tables: Arc<RwLock<HashMap<KeyString, RwLock<EZTable>>>>,
-    pub values: Arc<RwLock<HashMap<KeyString, RwLock<Value>>>>,
+    max_size: u64,
+    pub tables: Arc<RwLock<BTreeMap<KeyString, RwLock<EZTable>>>>,
+    pub values: Arc<RwLock<BTreeMap<KeyString, RwLock<Value>>>>,
+    pub files: BTreeMap<KeyString, File>,
 }
 
 impl BufferPool {
-    pub fn with_max_size(max_size: usize) -> BufferPool {
-        let tables = Arc::new(RwLock::new(HashMap::new()));
-        let values = Arc::new(RwLock::new(HashMap::new()));
+    pub fn init_tables(max_size: u64, path: &str) -> Result<BufferPool, ServerError> {
+        let mut buffer_pool = BufferPool::empty(MAX_BUFFERPOOL_SIZE);
+
+        let data_dir = read_dir(path)?;
+
+        for file in data_dir{
+            let file = file?;
+            let file_size = file.metadata()?.size();
+            if file_size + buffer_pool.occupied_buffer() > buffer_pool.max_size {
+                break;
+            }
+
+            let name = file.file_name().into_string().unwrap();
+            let mut table_file = File::open(file.path())?;
+
+            let mut binary = Vec::with_capacity(file_size as usize);
+            table_file.read_to_end(&mut binary)?;
+
+            let table = EZTable::read_raw_binary(&name, &binary)?;
+            buffer_pool.add_table(table, table_file)?;
+
+        }
+
+        Ok(buffer_pool)
+    }
+
+    pub fn empty(max_size: u64) -> BufferPool {
+        let tables = Arc::new(RwLock::new(BTreeMap::new()));
+        let values = Arc::new(RwLock::new(BTreeMap::new()));
+        let files = BTreeMap::new();
 
         BufferPool {
             max_size,
-            current_size: 0,
             tables,
             values,
+            files,
         }
 
     }
 
-    pub fn max_size(&self) -> usize {
+    pub fn occupied_buffer(&self) -> u64 {
+        let mut output: u64 = 0;
+        for table in self.tables.read().unwrap().values() {
+            output += table.read().unwrap().byte_size() as u64;
+        }
+
+        output
+    }
+
+    pub fn max_size(&self) -> u64 {
         self.max_size
     }
 
-    pub fn add_table(&mut self, table: EZTable) -> Result<(), ServerError> {
+    pub fn add_table(&mut self, table: EZTable, table_file: File) -> Result<(), ServerError> {
 
-        if self.current_size + table.metadata.size_of_table() > self.max_size {
+        if self.occupied_buffer() + table.metadata.size_of_table() as u64 > self.max_size {
             return Err(ServerError::NoMoreBufferSpace(table.metadata.size_of_table()))
         }
 
-        self.tables.write().unwrap().insert(table.name, RwLock::new(table));
+        self.files.insert(table.name.clone(), table_file);
+        self.tables.write().unwrap().insert(table.name.clone(), RwLock::new(table));
+
 
         Ok(())
     }
 
-    pub fn clear_space(&mut self) -> Result<(), ServerError> {
+    pub fn clear_space(&mut self, space_to_clear: u64) -> Result<(), ServerError> {
         
-        let mut lru = u64::MAX;
-        let mut lru_key = KeyString::new();
-        {
-            let tables = self.tables.read().unwrap();
-            for key in tables.keys() {
-                let temp = tables[key].read().unwrap().metadata.last_access;
-                if temp < lru {
-                    lru_key = key.clone();
-                    lru = temp;
-                }
-            }
-        }
-        let mut key_is_value = false;
-        {
-            let values = self.values.read().unwrap();
-            for key in values.keys() {
-                let temp = values[key].read().unwrap().metadata.last_access;
-                if temp < lru {
-                    key_is_value = true;
-                    lru_key = key.clone();
-                    lru = temp;
-                }
-            }
+        let lru_table = self.tables
+            .read()
+            .unwrap()
+            .values()
+            .map(|n| {
+                let x = n.read().unwrap();
+                (x.metadata.last_access, x.name.clone())
+            })
+            .min_by(|x, y| x.0.cmp(&y.0))
+            .unwrap();
+
+        let lru_value = self.values
+            .read()
+            .unwrap()
+            .values()
+            .map(|n| {
+                let x = n.read().unwrap();
+                (x.metadata.last_access, x.name.clone())
+            })
+            .min_by(|x, y| x.0.cmp(&y.0))
+            .unwrap();
+
+        if lru_table.0 < lru_value.0 {
+            let disk_data = self.tables.read().unwrap()[&lru_table.1].read().unwrap().write_to_raw_binary();
+            self.files.get_mut(&lru_table.1).unwrap().write_all(&disk_data)?;
+            self.tables.write().unwrap()[&lru_table.1].write().unwrap().clear();
         }
 
-        if key_is_value {
-            let values = self.values.write().unwrap();
-            let disk_data = values[&lru_key].write().unwrap().write_to_raw_binary();
-
-            values[&lru_key].write().unwrap().body = Vec::new();
+        if self.occupied_buffer() as u64 + space_to_clear < self.max_size as u64 {   
+            Ok(())
+        } else {
+            self.clear_space(space_to_clear)
         }
-        
-
-        Ok(())
-        
+            
     }
 }
 

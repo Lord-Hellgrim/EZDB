@@ -656,11 +656,7 @@ impl EZTable {
     pub fn byte_size(&self) -> usize {
 
         let mut total = 0;
-
-        total += self.metadata.created_by.as_bytes().len();
-        total += 16; // last accessed and times accessed are both u64 which are 8 bytes each
-
-        total += self.name.as_bytes().len();
+        
         for item in &self.header {
             total += item.name.as_bytes().len();
             total += 16; // DbType and TableKey are both raw enums which are 8 bytes in memory for the tag.
@@ -669,11 +665,7 @@ impl EZTable {
             match column {
                 DbVec::Ints(c) => total += c.len() * 4,
                 DbVec::Floats(c) => total += c.len() * 4,
-                DbVec::Texts(c) => {
-                    for item in c {
-                        total += item.as_bytes().len();
-                    }
-                },
+                DbVec::Texts(c) => total += c.len() * 64,
             }
         }
 
@@ -1293,6 +1285,22 @@ impl EZTable {
         self.delete_list(Vec::from([query]))
     }
 
+    pub fn clear(&mut self) {
+        for column in self.columns.iter_mut() {
+            match column {
+                DbVec::Ints(col) => {
+                    *col = Vec::with_capacity(0);
+                },
+                DbVec::Floats(col) => {
+                    *col = Vec::with_capacity(0);
+                },
+                DbVec::Texts(col) => {
+                    *col = Vec::with_capacity(0);
+                },
+            }
+        }
+    }
+
     /// Writes this table to disk as a csv.
     pub fn save_to_disk_csv(&self, path: &str) -> Result<(), StrictError> {
         let file_name = &self.name;
@@ -1706,15 +1714,17 @@ fn merge_in_order<T: Clone + Display>(one: &[T], two: &[T], record_vec: &[u8]) -
 /// This is the struct that carries the binary blob of the key/value pairs along with some metadata
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub struct Value {
+    pub name: KeyString,
     pub body: Vec<u8>,
     pub metadata: Metadata,
 }
 
 impl Value {
-    pub fn new(creator: &str, body: &[u8]) -> Value {
+    pub fn new(name: &str, creator: &str, body: &[u8]) -> Value {
         let mut body = Vec::from(body);
         body.shrink_to_fit();
         Value {
+            name: KeyString::from(name),
             body: body,
             metadata: Metadata::new(creator),
         }
@@ -1734,7 +1744,7 @@ impl Value {
         output
     }
 
-    pub fn read_raw_binary(binary: &[u8]) -> Value {
+    pub fn read_raw_binary(name: &str, binary: &[u8]) -> Value {
 
         let metadata_created_by = KeyString::from(&binary[0..64]);
         let metadata_last_access = u64_from_le_slice(&binary[64..72]);
@@ -1748,6 +1758,7 @@ impl Value {
         let body = &binary[80..];
 
         Value {
+            name: KeyString::from(name),
             body: body.to_vec(),
             metadata,
         }

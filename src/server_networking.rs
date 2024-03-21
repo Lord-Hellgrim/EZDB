@@ -1,8 +1,7 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fmt::Display;
 use std::io::{Write, Read};
 use std::net::TcpListener;
-use std::os::unix::fs::MetadataExt;
 use std::sync::{Arc, RwLock};
 use std::str::{self};
 
@@ -24,9 +23,9 @@ pub const PROCESS_MESSAGES_INTERVAL: u64 = 10;   // The number of seconds that p
 /// Parses the inctructions sent by the client. Will be rewritten soon to accomodate EZQL
 pub fn parse_instruction(
     instructions: &[u8], 
-    users: Arc<RwLock<HashMap<KeyString, RwLock<User>>>>, 
-    global_tables: Arc<RwLock<HashMap<KeyString, RwLock<EZTable>>>>, 
-    global_kv_table: Arc<RwLock<HashMap<KeyString, RwLock<Value>>>>, 
+    users: Arc<RwLock<BTreeMap<KeyString, RwLock<User>>>>, 
+    global_tables: Arc<RwLock<BTreeMap<KeyString, RwLock<EZTable>>>>, 
+    global_kv_table: Arc<RwLock<BTreeMap<KeyString, RwLock<Value>>>>, 
     aes_key: &[u8],
     instruction_sender: crossbeam_channel::Sender<WriteThreadMessage>
 ) -> Result<Instruction, ServerError> {
@@ -190,8 +189,8 @@ pub struct Server {
     private_key: StaticSecret,
     pub listener: TcpListener,
     pub buffer_pool: BufferPool,
-    pub users: Arc<RwLock<HashMap<KeyString, RwLock<User>>>>,
-    pub disk_tables: Arc<RwLock<HashMap<String, DiskTable>>>,
+    pub users: Arc<RwLock<BTreeMap<KeyString, RwLock<User>>>>,
+    pub disk_tables: Arc<RwLock<BTreeMap<String, DiskTable>>>,
 }
 
 /// The main loop of the server. Checks for incoming connections, parses their instructions, and handles them
@@ -210,9 +209,9 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
             Err(e) => {return Err(ServerError::Io(e.kind()));},
         };
 
-        let buffer_pool = BufferPool::with_max_size(MAX_BUFFERPOOL_SIZE);
-        let users: Arc<RwLock<HashMap<KeyString, RwLock<User>>>> = Arc::new(RwLock::new(HashMap::new()));
-        let disk_tables = Arc::new(RwLock::new(HashMap::new()));
+        let buffer_pool = BufferPool::empty(MAX_BUFFERPOOL_SIZE);
+        let users: Arc<RwLock<BTreeMap<KeyString, RwLock<User>>>> = Arc::new(RwLock::new(BTreeMap::new()));
+        let disk_tables = Arc::new(RwLock::new(BTreeMap::new()));
 
         let server = Arc::new(Server {
             public_key: server_public_key,
@@ -240,7 +239,6 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
         let write_lock = server.buffer_pool.tables.write().unwrap();
         for table in tables_on_disk {
             let table = table?;
-            if table.metadata()?.size()
         }
 
     } else {
@@ -345,10 +343,10 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                         let data = outer_thread_server.buffer_pool.values.read().unwrap();
                         for (key, value) in data.iter() {
                             let locked_value = value.read().unwrap();
-                            match locked_value.save_to_disk_raw(key.as_str(), CONFIG_FOLDER) {
-                                Ok(_) => (),
-                                Err(e) => println!("Unable to save value of key '{}' because: {}",key, e),
-                            };
+                            // match locked_value.save_to_disk_raw(key.as_str(), CONFIG_FOLDER) {
+                            //     Ok(_) => (),
+                            //     Err(e) => println!("Unable to save value of key '{}' because: {}",key, e),
+                            // };
                         }
                     }
                 }
