@@ -4,6 +4,7 @@ use std::io::{Write, Read};
 use std::net::TcpListener;
 use std::sync::{Arc, RwLock};
 use std::str::{self};
+use std::time::Duration;
 
 use x25519_dalek::{StaticSecret, PublicKey};
 
@@ -188,9 +189,8 @@ pub struct Server {
     pub public_key: PublicKey,
     private_key: StaticSecret,
     pub listener: TcpListener,
-    pub buffer_pool: BufferPool,
+    pub buffer_pool: Arc<RwLock<BufferPool>>,
     pub users: Arc<RwLock<BTreeMap<KeyString, RwLock<User>>>>,
-    pub disk_tables: Arc<RwLock<BTreeMap<String, DiskTable>>>,
 }
 
 /// The main loop of the server. Checks for incoming connections, parses their instructions, and handles them
@@ -211,15 +211,13 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
 
         let buffer_pool = BufferPool::empty(MAX_BUFFERPOOL_SIZE);
         let users: Arc<RwLock<BTreeMap<KeyString, RwLock<User>>>> = Arc::new(RwLock::new(BTreeMap::new()));
-        let disk_tables = Arc::new(RwLock::new(BTreeMap::new()));
 
-        let server = Arc::new(Server {
+        let mut server = Arc::new(Server {
             public_key: server_public_key,
             private_key: server_private_key,
             listener: l,
             buffer_pool,
             users: users,
-            disk_tables: disk_tables,
         });
 
     
@@ -235,11 +233,10 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
             server.users.write().unwrap().insert(KeyString::from(temp_user.username.as_str()), RwLock::new(temp_user));
         }
 
-        let tables_on_disk = std::fs::read_dir(&format!("EZconfig{PATH_SEP}raw_tables"))?;
-        let write_lock = server.buffer_pool.tables.write().unwrap();
-        for table in tables_on_disk {
-            let table = table?;
-        }
+        let tables_on_disk_path = &format!("EZconfig{PATH_SEP}raw_tables");
+        server.buffer_pool.init_tables(tables_on_disk_path)?;
+
+
 
     } else {
         println!("config does not exist");
@@ -268,89 +265,28 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
 
     let outer_thread_server = server.clone();
 
-
     let _full_scope: Result<(), ServerError> = std::thread::scope(|outer_scope| {
         
         let (write_message_sender, write_message_receiver) = crossbeam_channel::unbounded::<WriteThreadMessage>();
         
         let writer_thread = 
         outer_scope.spawn(move || {
+            std::thread::sleep(Duration::from_secs(10));
 
-            let mut message_queue: Vec<WriteThreadMessage> = Vec::new();
-            let mut cache_timer = std::time::Instant::now();
-            loop {
-
-                match write_message_receiver.try_recv() {
-                    Ok(m) => message_queue.push(m),
-                    Err(e) => match e {
-                        crossbeam_channel::TryRecvError::Disconnected => {
-                            panic!("No more senders! I don't know exactly what that means!!!")
-                        },
-                        crossbeam_channel::TryRecvError::Empty => (),
-                    }
-                };
-
-                if cache_timer.elapsed().as_secs() > PROCESS_MESSAGES_INTERVAL {
-                    cache_timer = std::time::Instant::now();
-                    
-                    loop {
-                        match message_queue.pop() {
-                            Some(m) => {
-                                let write_result = match m {
-                                    WriteThreadMessage::UpdateMetadata(metadata, table_name) => handle_message_update_metadata(outer_thread_server.clone(), metadata, table_name),
-                                    WriteThreadMessage::UpdateTable(table_name, table) => handle_message_update_table(outer_thread_server.clone(), table_name, table),
-                                    WriteThreadMessage::DropTable(table_name) => handle_message_drop_table(outer_thread_server.clone(), table_name),
-                                    WriteThreadMessage::DeleteRows(table_name, rows) => handle_message_delete_rows(outer_thread_server.clone(), table_name, rows),
-                                    WriteThreadMessage::NewTable(table) => handle_message_new_table(outer_thread_server.clone(), table),
-                                    WriteThreadMessage::MetaNewUser(user) => handle_message_meta_new_user(outer_thread_server.clone(), user),
-                                    WriteThreadMessage::NewKeyValue(key, value) => handle_message_new_key_value(outer_thread_server.clone(), key, value),
-                                    WriteThreadMessage::UpdateKeyValue(key, value) => handle_message_update_key_value(outer_thread_server.clone(), key, value),
-                                
-                                };
-
-                                match write_result {
-                                    Ok(()) => continue,
-                                    Err(e) => println!("{}", e),
-                                };
-                            }
-                            None => {
-                                println!("No messages in the last {} seconds", PROCESS_MESSAGES_INTERVAL);
-                                break
-                            },
-                        }
-                    }
-
-                    println!("Background thread running good!...");
-                    {
-                        let data = outer_thread_server.buffer_pool.tables.read().unwrap();
-                        for (name, table) in data.iter() {
-                            let locked_table = table.read().unwrap();
-                            match locked_table.save_to_disk_csv(CONFIG_FOLDER) {
-                                Ok(_) => (),
-                                Err(e) => println!("Unable to save table {} because: {}", name, e),
-                            };
-                        }
-                        let user_lock = outer_thread_server.users.read().unwrap();
-                        let mut printer = String::new();
-                        for (_, user) in user_lock.iter() {
-                            printer.push_str(&ron::to_string(&user).unwrap());
-                            printer.push('\n');
-                        }
-                        printer.pop();
-                    }
-        
-                    {
-                        let data = outer_thread_server.buffer_pool.values.read().unwrap();
-                        for (key, value) in data.iter() {
-                            let locked_value = value.read().unwrap();
-                            // match locked_value.save_to_disk_raw(key.as_str(), CONFIG_FOLDER) {
-                            //     Ok(_) => (),
-                            //     Err(e) => println!("Unable to save value of key '{}' because: {}",key, e),
-                            // };
-                        }
-                    }
-                }
+            for table in outer_thread_server.buffer_pool.tables.read().unwrap().values() {
+                let table_lock = table.read().unwrap();
+                let table_file = outer_thread_server.buffer_pool.files
+                .write()
+                .unwrap()
+                .get_mut(&table_lock.name)
+                .unwrap()
+                .write()
+                .unwrap()
+                .write_all(&table_lock.write_to_raw_binary())
+                ;
             }
+
+            
         }); // Thread that writes in memory tables to disk
 
 

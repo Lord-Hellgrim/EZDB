@@ -1,8 +1,9 @@
 use std::collections::BTreeMap;
-use std::fs::{create_dir, read_dir, File, ReadDir};
+use std::fs::{create_dir, read_dir, File};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
+use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, RwLock};
 
 use crate::db_structure::{write_subtable_to_raw_binary, DbType, DbVec, HeaderItem, KeyString, Metadata, StrictError, Value};
@@ -11,27 +12,26 @@ use crate::{db_structure::EZTable, server_networking::CONFIG_FOLDER};
 use crate::PATH_SEP;
 
 pub const BIN_TABLE_DIR: &'static str = "Binary_tables";
-pub const MAX_BUFFERPOOL_SIZE: u64 = 4_000_000_000;   // 4gb
+pub const MAX_BUFFERPOOL_SIZE: AtomicU64 = AtomicU64::new(4_000_000_000);   // 4gb
 pub const CHUNK_SIZE: usize = 1_000_000;                // 1mb
 
 
 pub struct BufferPool {
-    max_size: u64,
+    max_size: AtomicU64,
     pub tables: Arc<RwLock<BTreeMap<KeyString, RwLock<EZTable>>>>,
     pub values: Arc<RwLock<BTreeMap<KeyString, RwLock<Value>>>>,
-    pub files: BTreeMap<KeyString, File>,
+    pub files: Arc<RwLock<BTreeMap<KeyString, RwLock<File>>>>,
 }
 
 impl BufferPool {
-    pub fn init_tables(max_size: u64, path: &str) -> Result<BufferPool, ServerError> {
-        let mut buffer_pool = BufferPool::empty(MAX_BUFFERPOOL_SIZE);
+    pub fn init_tables(&mut self, path: &str) -> Result<(), ServerError> {
 
         let data_dir = read_dir(path)?;
 
         for file in data_dir{
             let file = file?;
             let file_size = file.metadata()?.size();
-            if file_size + buffer_pool.occupied_buffer() > buffer_pool.max_size {
+            if file_size + self.occupied_buffer() > self.max_size() {
                 break;
             }
 
@@ -42,17 +42,40 @@ impl BufferPool {
             table_file.read_to_end(&mut binary)?;
 
             let table = EZTable::read_raw_binary(&name, &binary)?;
-            buffer_pool.add_table(table, table_file)?;
-
+            self.add_table(table, table_file)?;
         }
 
-        Ok(buffer_pool)
+        Ok(())
     }
 
-    pub fn empty(max_size: u64) -> BufferPool {
+    pub fn init_values(&mut self, path: &str) -> Result<(), ServerError> {
+        
+        let data_dir = read_dir(path)?;
+
+        for file in data_dir{
+            let file = file?;
+            let file_size = file.metadata()?.size();
+            if file_size + self.occupied_buffer() > self.max_size() {
+                break;
+            }
+
+            let name = file.file_name().into_string().unwrap();
+            let mut value_file = File::open(file.path())?;
+
+            let mut binary = Vec::with_capacity(file_size as usize);
+            value_file.read_to_end(&mut binary)?;
+
+            let value = EZTable::read_raw_binary(&name, &binary)?;
+            self.add_table(value, value_file)?;
+        }
+        
+        Ok(())
+    }
+
+    pub fn empty(max_size: AtomicU64) -> BufferPool {
         let tables = Arc::new(RwLock::new(BTreeMap::new()));
         let values = Arc::new(RwLock::new(BTreeMap::new()));
-        let files = BTreeMap::new();
+        let files = Arc::new(RwLock::new(BTreeMap::new()));
 
         BufferPool {
             max_size,
@@ -73,16 +96,16 @@ impl BufferPool {
     }
 
     pub fn max_size(&self) -> u64 {
-        self.max_size
+        self.max_size.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     pub fn add_table(&mut self, table: EZTable, table_file: File) -> Result<(), ServerError> {
 
-        if self.occupied_buffer() + table.metadata.size_of_table() as u64 > self.max_size {
+        if self.occupied_buffer() + table.metadata.size_of_table() as u64 > self.max_size() {
             return Err(ServerError::NoMoreBufferSpace(table.metadata.size_of_table()))
         }
 
-        self.files.insert(table.name.clone(), table_file);
+        self.files.write().unwrap().insert(table.name.clone(), RwLock::new(table_file));
         self.tables.write().unwrap().insert(table.name.clone(), RwLock::new(table));
 
 
@@ -115,11 +138,11 @@ impl BufferPool {
 
         if lru_table.0 < lru_value.0 {
             let disk_data = self.tables.read().unwrap()[&lru_table.1].read().unwrap().write_to_raw_binary();
-            self.files.get_mut(&lru_table.1).unwrap().write_all(&disk_data)?;
+            self.files.write().unwrap().get_mut(&lru_table.1).unwrap().write().unwrap().write_all(&disk_data)?;
             self.tables.write().unwrap()[&lru_table.1].write().unwrap().clear();
         }
 
-        if self.occupied_buffer() as u64 + space_to_clear < self.max_size as u64 {   
+        if self.occupied_buffer() as u64 + space_to_clear < self.max_size() {   
             Ok(())
         } else {
             self.clear_space(space_to_clear)
