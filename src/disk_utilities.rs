@@ -24,7 +24,7 @@ pub struct BufferPool {
 }
 
 impl BufferPool {
-    pub fn init_tables(&mut self, path: &str) -> Result<(), ServerError> {
+    pub fn init_tables(&self, path: &str) -> Result<(), ServerError> {
 
         let data_dir = read_dir(path)?;
 
@@ -48,7 +48,7 @@ impl BufferPool {
         Ok(())
     }
 
-    pub fn init_values(&mut self, path: &str) -> Result<(), ServerError> {
+    pub fn init_values(&self, path: &str) -> Result<(), ServerError> {
         
         let data_dir = read_dir(path)?;
 
@@ -99,7 +99,7 @@ impl BufferPool {
         self.max_size.load(std::sync::atomic::Ordering::Relaxed)
     }
 
-    pub fn add_table(&mut self, table: EZTable, table_file: File) -> Result<(), ServerError> {
+    pub fn add_table(&self, table: EZTable, table_file: File) -> Result<(), ServerError> {
 
         if self.occupied_buffer() + table.metadata.size_of_table() as u64 > self.max_size() {
             return Err(ServerError::NoMoreBufferSpace(table.metadata.size_of_table()))

@@ -254,18 +254,13 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
             listener: l,
         });
 
-        let database = Database::init();
+        let database = Arc::new(Database::init()?);
 
 
     println!("config does not exist");
-    let temp = ron::to_string(&User::admin("admin", "admin")).unwrap();
     std::fs::create_dir("EZconfig").expect("Need IO access to initialize database");
     std::fs::create_dir("EZconfig/raw_tables").expect("Need IO access to initialize database");
     std::fs::create_dir("EZconfig/key_value").expect("Need IO access to initialize database");
-    let mut user_file = match std::fs::File::create(format!("{CONFIG_FOLDER}.users")) {
-        Ok(f) => f,
-        Err(e) => return Err(ServerError::Strict(StrictError::Io(e))),
-    };
     match user_file.write_all(temp.as_bytes()) {
         Ok(_) => (),
         Err(e) => panic!("failed to create config file. Server cannot run.\n\nError cause was:\n{e}"),
