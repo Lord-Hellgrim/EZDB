@@ -189,8 +189,47 @@ pub struct Server {
     pub public_key: PublicKey,
     private_key: StaticSecret,
     pub listener: TcpListener,
+}
+
+pub struct Database {
     pub buffer_pool: Arc<RwLock<BufferPool>>,
     pub users: Arc<RwLock<BTreeMap<KeyString, RwLock<User>>>>,
+}
+
+impl Database {
+    pub fn init() -> Result<Database, ServerError> {
+
+        let mut buffer_pool = BufferPool::empty(MAX_BUFFERPOOL_SIZE);
+        buffer_pool.init_tables(&format!("EZconfig{PATH_SEP}raw_tables"));
+        buffer_pool.init_values(&format!("EZconfig{PATH_SEP}raw_values"));
+        let users = BTreeMap::<KeyString, RwLock<User>>::new();
+        let users = Arc::new(RwLock::new(users));
+        let path = &format!("{CONFIG_FOLDER}.users");
+        if std::path::Path::new(path).exists() {
+            let temp = std::fs::read_to_string(path)?;
+            for line in temp.lines() {
+                if line.as_bytes()[0] == b'#' {
+                    continue
+                }
+                let temp_user: User = ron::from_str(line).unwrap();
+                users.write().unwrap().insert(KeyString::from(temp_user.username.as_str()), RwLock::new(temp_user));
+            }
+        } else {
+            let mut users_file = std::fs::File::create(path)?;
+            let admin = User::admin("admin", "admin");
+            users_file.write(ron::to_string(&admin).unwrap().as_bytes());
+            let users = BTreeMap::<KeyString, RwLock<User>>::new();
+            let users = Arc::new(RwLock::new(users));
+            users.write().unwrap().insert(KeyString::from("admin"), RwLock::new(admin));
+        }
+
+        let database = Database {
+            buffer_pool: Arc::new(RwLock::new(buffer_pool)),
+            users: users,
+        };
+
+        Ok(database)
+    }
 }
 
 /// The main loop of the server. Checks for incoming connections, parses their instructions, and handles them
@@ -209,54 +248,29 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
             Err(e) => {return Err(ServerError::Io(e.kind()));},
         };
 
-        let buffer_pool = BufferPool::empty(MAX_BUFFERPOOL_SIZE);
-        let users: Arc<RwLock<BTreeMap<KeyString, RwLock<User>>>> = Arc::new(RwLock::new(BTreeMap::new()));
-
         let mut server = Arc::new(Server {
             public_key: server_public_key,
             private_key: server_private_key,
             listener: l,
-            buffer_pool,
-            users: users,
         });
 
-    
-    println!("Reading users config into memory");
-    if std::path::Path::new("EZconfig").is_dir() {
-        println!("config exists");
-        let temp = std::fs::read_to_string(&format!("{CONFIG_FOLDER}.users"))?;
-        for line in temp.lines() {
-            if line.as_bytes()[0] == b'#' {
-                continue
-            }
-            let temp_user: User = ron::from_str(line).unwrap();
-            server.users.write().unwrap().insert(KeyString::from(temp_user.username.as_str()), RwLock::new(temp_user));
-        }
-
-        let tables_on_disk_path = &format!("EZconfig{PATH_SEP}raw_tables");
-        server.buffer_pool.init_tables(tables_on_disk_path)?;
+        let database = Database::init();
 
 
+    println!("config does not exist");
+    let temp = ron::to_string(&User::admin("admin", "admin")).unwrap();
+    std::fs::create_dir("EZconfig").expect("Need IO access to initialize database");
+    std::fs::create_dir("EZconfig/raw_tables").expect("Need IO access to initialize database");
+    std::fs::create_dir("EZconfig/key_value").expect("Need IO access to initialize database");
+    let mut user_file = match std::fs::File::create(format!("{CONFIG_FOLDER}.users")) {
+        Ok(f) => f,
+        Err(e) => return Err(ServerError::Strict(StrictError::Io(e))),
+    };
+    match user_file.write_all(temp.as_bytes()) {
+        Ok(_) => (),
+        Err(e) => panic!("failed to create config file. Server cannot run.\n\nError cause was:\n{e}"),
+    };
 
-    } else {
-        println!("config does not exist");
-        let temp = ron::to_string(&User::admin("admin", "admin")).unwrap();
-        std::fs::create_dir("EZconfig").expect("Need IO access to initialize database");
-        std::fs::create_dir("EZconfig/raw_tables").expect("Need IO access to initialize database");
-        std::fs::create_dir("EZconfig/key_value").expect("Need IO access to initialize database");
-        let mut user_file = match std::fs::File::create(format!("{CONFIG_FOLDER}.users")) {
-            Ok(f) => f,
-            Err(e) => return Err(ServerError::Strict(StrictError::Io(e))),
-        };
-        match user_file.write_all(temp.as_bytes()) {
-            Ok(_) => (),
-            Err(e) => panic!("failed to create config file. Server cannot run.\n\nError cause was:\n{e}"),
-        };
-
-        server.users.write().unwrap().insert(KeyString::from("admin"), RwLock::new(User::admin("admin", "admin")));
-    } 
-
-    dbg!(&server.users);
 
     // #################################### END STARTUP SEQUENCE ###############################################
 
