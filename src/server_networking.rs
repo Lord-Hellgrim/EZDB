@@ -24,11 +24,8 @@ pub const PROCESS_MESSAGES_INTERVAL: u64 = 10;   // The number of seconds that p
 /// Parses the inctructions sent by the client. Will be rewritten soon to accomodate EZQL
 pub fn parse_instruction(
     instructions: &[u8], 
-    users: Arc<RwLock<BTreeMap<KeyString, RwLock<User>>>>, 
-    global_tables: Arc<RwLock<BTreeMap<KeyString, RwLock<EZTable>>>>, 
-    global_kv_table: Arc<RwLock<BTreeMap<KeyString, RwLock<Value>>>>, 
-    aes_key: &[u8],
-    instruction_sender: crossbeam_channel::Sender<WriteThreadMessage>
+    database: Arc<Database>,
+    aes_key: &[u8]
 ) -> Result<Instruction, ServerError> {
 
     println!("Decrypting instructions");
@@ -68,69 +65,99 @@ pub fn parse_instruction(
     println!("parsing 4...");
     match action {
         "Querying" => {
-            if global_tables.read().unwrap().contains_key(&KeyString::from(table_name)) {
+            if database.buffer_pool.tables.read().unwrap().contains_key(&KeyString::from(table_name)) {
                 return Ok(Instruction::Query(table_name.to_owned(), query.to_owned()));
             } else {
                 return Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())));
             }
         }
         "Uploading" => {
-            if user_has_permission(table_name, action, username, users) {
+            if user_has_permission(table_name, action, username, database.users.clone()) {
                 return Ok(Instruction::Upload(table_name.to_owned()));
             } else {
                 return Err(ServerError::Authentication(AuthenticationError::Permission))
             }
         } 
         "Downloading" => {
-            if global_tables.read().unwrap().contains_key(&KeyString::from(table_name)) {
+            if database.buffer_pool.tables.read().unwrap().contains_key(&KeyString::from(table_name)) 
+            && 
+            user_has_permission(table_name, action, username, database.users.clone()) 
+            {
                 Ok(Instruction::Download(table_name.to_owned()))
             } else {
                 return Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())));
             }
         },
         "Updating" => {
-            if global_tables.read().unwrap().contains_key(&KeyString::from(table_name)) { 
+            if database.buffer_pool.tables.read().unwrap().contains_key(&KeyString::from(table_name)) 
+            && 
+            user_has_permission(table_name, action, username, database.users.clone())
+            { 
                 Ok(Instruction::Update(table_name.to_owned()))
             } else {
                 return Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())));
             }
         },
         "Deleting" => {
-            if global_tables.read().unwrap().contains_key(&KeyString::from(table_name)) {
+            if database.buffer_pool.tables.read().unwrap().contains_key(&KeyString::from(table_name)) 
+            && 
+            user_has_permission(table_name, action, username, database.users.clone())
+            {
                 Ok(Instruction::Delete(table_name.to_owned(), query.to_owned()))
             } else {
                 return Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())));
             }
         }
         "KvUpload" => {
-            if global_kv_table.read().unwrap().contains_key(&KeyString::from(table_name)) {
+            if database.buffer_pool.tables.read().unwrap().contains_key(&KeyString::from(table_name)) 
+            && 
+            user_has_permission(table_name, action, username, database.users.clone())
+            {
                 return Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' already exists. Use 'update' instead", table_name))));
             } else {
                 Ok(Instruction::KvUpload(table_name.to_owned()))
             }
         },
         "KvUpdate" => {
-            if global_kv_table.read().unwrap().contains_key(&KeyString::from(table_name)) {
+            if database.buffer_pool.values.read().unwrap().contains_key(&KeyString::from(table_name)) 
+            && 
+            user_has_permission(table_name, action, username, database.users.clone())
+            {
                 Ok(Instruction::KvUpdate(table_name.to_owned()))
             } else {
                 return Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' does not exist. Use 'upload' instead", table_name))));
             }
         },
         "KvDownload" => {
-            if global_kv_table.read().unwrap().contains_key(&KeyString::from(table_name)) {
+            if database.buffer_pool.values.read().unwrap().contains_key(&KeyString::from(table_name)) 
+            && 
+            user_has_permission(table_name, action, username, database.users.clone())
+            {
                 Ok(Instruction::KvDownload(table_name.to_owned()))
             } else {
                 return Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' does not exist. Use 'upload' instead", table_name))));
             }
         },
         "MetaListTables" => {
-            Ok(Instruction::MetaListTables)
+            if user_has_permission(table_name, action, username, database.users.clone()) {
+                Ok(Instruction::MetaListTables)
+            } else {
+                return Err(ServerError::Authentication(AuthenticationError::Permission))
+            }
         },
         "MetaListKeyValues" => {
-            Ok(Instruction::MetaListKeyValues)
+            if user_has_permission(table_name, action, username, database.users.clone()) {
+                Ok(Instruction::MetaListKeyValues)
+            } else {
+                return Err(ServerError::Authentication(AuthenticationError::Permission))
+            }
         },
         "MetaNewUser" => {
-            Ok(Instruction::NewUser(username.to_owned()))
+            if user_has_permission(table_name, action, username, database.users.clone()) {
+                Ok(Instruction::NewUser(username.to_owned()))
+            } else {
+                return Err(ServerError::Authentication(AuthenticationError::Permission))
+            }
         }
         _ => {return Err(ServerError::Instruction(InstructionError::Invalid(action.to_owned())));},
     }
@@ -192,16 +219,16 @@ pub struct Server {
 }
 
 pub struct Database {
-    pub buffer_pool: Arc<RwLock<BufferPool>>,
+    pub buffer_pool: BufferPool,
     pub users: Arc<RwLock<BTreeMap<KeyString, RwLock<User>>>>,
 }
 
 impl Database {
     pub fn init() -> Result<Database, ServerError> {
 
-        let mut buffer_pool = BufferPool::empty(MAX_BUFFERPOOL_SIZE);
-        buffer_pool.init_tables(&format!("EZconfig{PATH_SEP}raw_tables"));
-        buffer_pool.init_values(&format!("EZconfig{PATH_SEP}raw_values"));
+        let buffer_pool = BufferPool::empty(MAX_BUFFERPOOL_SIZE);
+        buffer_pool.init_tables(&format!("EZconfig{PATH_SEP}raw_tables"))?;
+        buffer_pool.init_values(&format!("EZconfig{PATH_SEP}raw_values"))?;
         let users = BTreeMap::<KeyString, RwLock<User>>::new();
         let users = Arc::new(RwLock::new(users));
         let path = &format!("{CONFIG_FOLDER}.users");
@@ -217,14 +244,14 @@ impl Database {
         } else {
             let mut users_file = std::fs::File::create(path)?;
             let admin = User::admin("admin", "admin");
-            users_file.write(ron::to_string(&admin).unwrap().as_bytes());
+            users_file.write(ron::to_string(&admin).unwrap().as_bytes())?;
             let users = BTreeMap::<KeyString, RwLock<User>>::new();
             let users = Arc::new(RwLock::new(users));
             users.write().unwrap().insert(KeyString::from("admin"), RwLock::new(admin));
         }
 
         let database = Database {
-            buffer_pool: Arc::new(RwLock::new(buffer_pool)),
+            buffer_pool: buffer_pool,
             users: users,
         };
 
@@ -248,7 +275,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
             Err(e) => {return Err(ServerError::Io(e.kind()));},
         };
 
-        let mut server = Arc::new(Server {
+        let server = Arc::new(Server {
             public_key: server_public_key,
             private_key: server_private_key,
             listener: l,
@@ -257,45 +284,39 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
         let database = Arc::new(Database::init()?);
 
 
-    println!("config does not exist");
-    std::fs::create_dir("EZconfig").expect("Need IO access to initialize database");
-    std::fs::create_dir("EZconfig/raw_tables").expect("Need IO access to initialize database");
-    std::fs::create_dir("EZconfig/key_value").expect("Need IO access to initialize database");
-    match user_file.write_all(temp.as_bytes()) {
-        Ok(_) => (),
-        Err(e) => panic!("failed to create config file. Server cannot run.\n\nError cause was:\n{e}"),
-    };
-
+    if !std::path::Path::new("EZconfig").is_dir() {
+        println!("config does not exist");
+        std::fs::create_dir("EZconfig").expect("Need IO access to initialize database");
+        std::fs::create_dir("EZconfig/raw_tables").expect("Need IO access to initialize database");
+        std::fs::create_dir("EZconfig/key_value").expect("Need IO access to initialize database");
+    }
 
     // #################################### END STARTUP SEQUENCE ###############################################
 
 
     // #################################### DATA SAVING AND LOADING LOOP ###################################################
 
-    let outer_thread_server = server.clone();
-
+    let writer_thread_db_ref = database.clone();
+    
     let _full_scope: Result<(), ServerError> = std::thread::scope(|outer_scope| {
         
-        let (write_message_sender, write_message_receiver) = crossbeam_channel::unbounded::<WriteThreadMessage>();
-        
-        let writer_thread = 
+        let _writer_thread = 
         outer_scope.spawn(move || {
             std::thread::sleep(Duration::from_secs(10));
 
-            for table in outer_thread_server.buffer_pool.tables.read().unwrap().values() {
-                let table_lock = table.read().unwrap();
-                let table_file = outer_thread_server.buffer_pool.files
-                .write()
-                .unwrap()
-                .get_mut(&table_lock.name)
-                .unwrap()
-                .write()
-                .unwrap()
-                .write_all(&table_lock.write_to_raw_binary())
-                ;
+            for key in writer_thread_db_ref.buffer_pool.tables.read().unwrap().keys() {
+                let mut naughty_list = writer_thread_db_ref.buffer_pool.naughty_list.write().unwrap();
+                if naughty_list.contains(key) {
+                    match writer_thread_db_ref.buffer_pool.write_table_to_file(key) {
+                        Ok(_) => (),
+                        Err(e) => match e {
+                            ServerError::Io(e) => println!("{}", e),
+                            e => panic!("The write thread should only ever throw IO errors and it just threw this error:\n {}", e),
+                        }
+                    };
+                    naughty_list.remove(key);
+                }
             }
-
-            
         }); // Thread that writes in memory tables to disk
 
 
@@ -307,15 +328,14 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                 Err(e) => {return Err(ServerError::Io(e.kind()));},
             };
             println!("Accepted connection from: {}", client_address);        
-
-            let inner_thread_server = server.clone();
-            let inner_thread_message_sender = write_message_sender.clone();
-    
+            
+            let thread_server = server.clone();
+            let db_ref = database.clone();
             // Spawn a thread to handle establishing connections
             outer_scope.spawn(move || {
-    
+                
                 // ################## ESTABLISHING ENCRYPTED CONNECTION ##########################################################################################################
-                match stream.write(inner_thread_server.public_key.as_bytes()) {
+                match stream.write(thread_server.public_key.as_bytes()) {
                     Ok(_) => (),
                     Err(e) => {
                         println!("failed to write server public key because: {}", e);
@@ -335,7 +355,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                 
                 let client_public_key = PublicKey::from(buffer);
                 
-                let shared_secret = inner_thread_server.private_key.diffie_hellman(&client_public_key);
+                let shared_secret = thread_server.private_key.diffie_hellman(&client_public_key);
                 let aes_key = blake3_hash(shared_secret.as_bytes());
     
                 let mut auth_buffer = [0u8; 1052];
@@ -378,10 +398,10 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                 
                 let mut connection: Connection;
                 {
-                    if !&inner_thread_server.users.read().unwrap().contains_key(&KeyString::from(username)) {
+                    if !db_ref.users.read().unwrap().contains_key(&KeyString::from(username)) {
                         println!("Username:\n\t{}\n...is wrong", username);
                         return Err(ServerError::Authentication(AuthenticationError::WrongUser(format!("Username: '{}' does not exist", username))));
-                    } else if &inner_thread_server.users.read().unwrap()[&KeyString::from(username)].read().unwrap().password != &password {
+                    } else if db_ref.users.read().unwrap()[&KeyString::from(username)].read().unwrap().password != password {
                         // println!("thread_users_lock[username].password: {:?}", user_lock.password);
                         // println!("password: {:?}", password);
                         // println!("Password hash:\n\t{:?}\n...is wrong", password);
@@ -417,14 +437,10 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                 // println!("Instruction buffer[0..50]: {:x?}", &buffer[0..50]);
                 let instructions = &buffer[0..instruction_size];
                 println!("Parsing instructions...");
-                let instruction_sender = inner_thread_message_sender.clone();
                 match parse_instruction(
                     instructions, 
-                    inner_thread_server.users.clone(), 
-                    inner_thread_server.buffer_pool.tables.clone(), 
-                    inner_thread_server.buffer_pool.values.clone(), 
-                    &connection.aes_key, 
-                    instruction_sender
+                    db_ref.clone(),
+                    &connection.aes_key
                 ) {
                     Ok(i) => match i {
                         
@@ -432,8 +448,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                             match handle_download_request(
                                 &mut connection, 
                                 &name, 
-                                inner_thread_server.buffer_pool.tables.clone(), 
-                                inner_thread_message_sender
+                                db_ref.buffer_pool.tables.clone(),
                             ) {
                                 Ok(_) => {
                                     println!("Operation finished!");
@@ -445,9 +460,9 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                         },
                         Instruction::Upload(name) => {
                             match handle_upload_request(
-                                &mut connection, 
-                                &name,
-                                inner_thread_message_sender
+                                &mut connection,
+                                db_ref.buffer_pool.tables.clone(),
+                                &name
                             ) {
                                 Ok(_) => {
                                     println!("Operation finished!");
@@ -461,8 +476,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                             match handle_update_request(
                                 &mut connection, 
                                 &name, 
-                                inner_thread_server.buffer_pool.tables.clone(), 
-                                inner_thread_message_sender
+                                db_ref.buffer_pool.tables.clone(),
                             ) {
                                 Ok(_) => {
                                     println!("Operation finished!");
@@ -477,8 +491,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                                 &mut connection, 
                                 &table_name, 
                                 &query, 
-                                inner_thread_server.buffer_pool.tables.clone(), 
-                                inner_thread_message_sender
+                                db_ref.buffer_pool.tables.clone(),
                             ) {
                                 Ok(_) => {
                                     println!("Operation finished!");
@@ -493,8 +506,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                                 &mut connection, 
                                 &table_name, 
                                 &query, 
-                                inner_thread_server.buffer_pool.tables.clone(), 
-                                inner_thread_message_sender
+                                db_ref.buffer_pool.tables.clone(),
                             ) {
                                 Ok(_) => {
                                     println!("Operation finished!");
@@ -508,8 +520,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                             match handle_new_user_request(
                                 &mut connection, 
                                 &user_string, 
-                                inner_thread_server.users.clone(), 
-                                inner_thread_message_sender
+                                db_ref.users.clone(),
                             ) {
                                 Ok(_) => {
                                     println!("New user added!");
@@ -523,8 +534,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                         Instruction::KvUpload(table_name) => {
                             match handle_kv_upload(
                                 &mut connection, 
-                                &table_name,
-                                inner_thread_message_sender
+                                &table_name
                             ) {
                                 Ok(_) => {
                                     println!("Operation finished!");
@@ -538,8 +548,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                             match handle_kv_update(
                                 &mut connection, 
                                 &table_name, 
-                                inner_thread_server.buffer_pool.values.clone(), 
-                                inner_thread_message_sender
+                                db_ref.buffer_pool.values.clone(),
                             ) {
                                 Ok(_) => {
                                     println!("Operation finished!");
@@ -553,8 +562,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                             match handle_kv_download(
                                 &mut connection, 
                                 &table_name, 
-                                inner_thread_server.buffer_pool.values.clone(), 
-                                inner_thread_message_sender
+                                db_ref.buffer_pool.values.clone(),
                             ) {
                                 Ok(_) => {
                                     println!("Operation finished!");
@@ -567,8 +575,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                         Instruction::MetaListTables => {
                             match handle_meta_list_tables(
                                 &mut connection, 
-                                inner_thread_server.buffer_pool.tables.clone(), 
-                                inner_thread_message_sender
+                                db_ref.buffer_pool.tables.clone(),
                             ) {
                                 Ok(_) => {
                                     println!("Operation finished");
@@ -581,8 +588,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                         Instruction::MetaListKeyValues => {
                             match handle_meta_list_key_values(
                                 &mut connection, 
-                                inner_thread_server.buffer_pool.values.clone(), 
-                                inner_thread_message_sender
+                                db_ref.buffer_pool.values.clone(),
                             ) {
                                 Ok(_) => {
                                     println!("Operation finished");

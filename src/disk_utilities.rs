@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fs::{create_dir, read_dir, File};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::MetadataExt;
@@ -21,6 +21,7 @@ pub struct BufferPool {
     pub tables: Arc<RwLock<BTreeMap<KeyString, RwLock<EZTable>>>>,
     pub values: Arc<RwLock<BTreeMap<KeyString, RwLock<Value>>>>,
     pub files: Arc<RwLock<BTreeMap<KeyString, RwLock<File>>>>,
+    pub naughty_list: Arc<RwLock<HashSet<KeyString>>>,
 }
 
 impl BufferPool {
@@ -76,12 +77,14 @@ impl BufferPool {
         let tables = Arc::new(RwLock::new(BTreeMap::new()));
         let values = Arc::new(RwLock::new(BTreeMap::new()));
         let files = Arc::new(RwLock::new(BTreeMap::new()));
+        let naughty_list = Arc::new(RwLock::new(HashSet::new()));
 
         BufferPool {
             max_size,
             tables,
             values,
             files,
+            naughty_list,
         }
 
     }
@@ -111,6 +114,14 @@ impl BufferPool {
 
         Ok(())
     }
+    
+    pub fn write_table_to_file(&self, table_name: &KeyString) -> Result<(), ServerError> {
+
+        let disk_data = self.tables.read().unwrap()[table_name].read().unwrap().write_to_raw_binary();
+        self.files.write().unwrap().get_mut(table_name).unwrap().write().unwrap().write_all(&disk_data)?;
+        Ok(())
+
+    }
 
     pub fn clear_space(&mut self, space_to_clear: u64) -> Result<(), ServerError> {
         
@@ -137,8 +148,7 @@ impl BufferPool {
             .unwrap();
 
         if lru_table.0 < lru_value.0 {
-            let disk_data = self.tables.read().unwrap()[&lru_table.1].read().unwrap().write_to_raw_binary();
-            self.files.write().unwrap().get_mut(&lru_table.1).unwrap().write().unwrap().write_all(&disk_data)?;
+            self.write_table_to_file(&lru_table.1)?;
             self.tables.write().unwrap()[&lru_table.1].write().unwrap().clear();
         }
 

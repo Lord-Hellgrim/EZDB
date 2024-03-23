@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, io::Write, sync::{Arc, RwLock}};
+use std::{collections::BTreeMap, io::Write, sync::{Arc, RwLock}, thread::current};
 
 use crate::{auth::User, db_structure::{EZTable, DbVec, KeyString, Metadata, Value}, networking_utilities::*, server_networking::{Server, WriteThreadMessage, CONFIG_FOLDER}};
 
@@ -10,34 +10,34 @@ pub fn handle_download_request(
     connection: &mut Connection, 
     name: &str, 
     global_tables: Arc<RwLock<BTreeMap<KeyString, RwLock<EZTable>>>>, 
-    disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>
+
 ) -> Result<(), ServerError> {
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e.kind()));},
     };
 
-    let global_read_binding = global_tables.read().unwrap();
-
-    let requested_table = global_read_binding.get(&KeyString::from(name)).expect("Instruction parser should have verified table").read().unwrap();
-    let requested_csv = requested_table.to_string();
-    println!("Requested_csv.len(): {}", requested_csv.len());
+    let mut requested_csv = String::new();
+    {
+        let global_read_binding = global_tables.read().unwrap();
+    
+        let requested_table = global_read_binding.get(&KeyString::from(name)).expect("Instruction parser should have verified table").read().unwrap();
+        requested_csv = requested_table.to_string();
+        println!("Requested_csv.len(): {}", requested_csv.len());
+    }
 
     let response = data_send_and_confirm(connection, requested_csv.as_bytes())?;
 
     if response == "OK" {
         
-        let mut metadelta = requested_table.metadata.clone();
-        metadelta.times_accessed += 1;
-        metadelta.last_access = get_current_time();
+        let current_time = get_current_time();
+        let global_read_binding = global_tables.read().unwrap();
+
+        let mut requested_table = global_read_binding[&KeyString::from(name)].write().unwrap();
+
+        requested_table.metadata.times_accessed += 1;
+        requested_table.metadata.last_access = get_current_time();
         
-        match disk_thread_sender.try_send(WriteThreadMessage::UpdateMetadata(metadelta, KeyString::from(name))) {
-            Ok(_) => {},
-            Err(e) => match e {
-                crossbeam_channel::TrySendError::Disconnected(_e) => panic!("write thread has closed. Server is dead!!!"),
-                crossbeam_channel::TrySendError::Full(_e) => todo!("I don't exactly know what to do here yet"),
-            }
-        };
         return Ok(());
         
     } else {
@@ -48,9 +48,10 @@ pub fn handle_download_request(
 
 /// Handles an upload request from a client. An upload request uploads a whole csv string that will be parsed into a ColumnTable.
 pub fn handle_upload_request(
-    connection: &mut Connection, 
+    connection: &mut Connection,
+    global_tables: Arc<RwLock<BTreeMap<KeyString, RwLock<EZTable>>>>,
     name: &str,
-    disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>
+
 ) -> Result<String, ServerError> {
 
     match connection.stream.write("OK".as_bytes()) {
@@ -64,7 +65,7 @@ pub fn handle_upload_request(
 
     // Here we create a ColumnTable from the csv and supplied name
     println!("About to check for strictness");
-    match EZTable::from_csv_string(bytes_to_str(&csv)?, name, "test") {
+    let table = match EZTable::from_csv_string(bytes_to_str(&csv)?, name, &connection.user) {
         Ok(table) => {
             println!("About to write: {:x?}", "OK".as_bytes());
             match connection.stream.write("OK".as_bytes()) {
@@ -73,23 +74,15 @@ pub fn handle_upload_request(
                 },
                 Err(e) => {return Err(ServerError::Io(e.kind()));},
             };
-
-            println!("Appending to global");
-            println!("{:?}", &table.header);
-
-            match disk_thread_sender.try_send(WriteThreadMessage::NewTable(table)) {
-                Ok(_) => {},
-                Err(e) => match e {
-                    crossbeam_channel::TrySendError::Disconnected(_e) => panic!("write thread has closed. Server is dead!!!"),
-                    crossbeam_channel::TrySendError::Full(_e) => todo!("I don't exactly know what to do here yet"),
-                }
-            };
+           table
         },
-        Err(e) => match connection.stream.write(e.to_string().as_bytes()){
-            Ok(_) => println!("Informed client of unstrictness"),
-            Err(e) => {return Err(ServerError::Io(e.kind()));},
+        Err(e) => {
+            connection.stream.write(e.to_string().as_bytes())?;
+            return Err(ServerError::Strict(e))
         },
     };
+
+    global_tables.write().unwrap().insert(KeyString::from(name), RwLock::new(table));
     
 
     Ok("OK".to_owned())
@@ -97,7 +90,7 @@ pub fn handle_upload_request(
     
 /// Handles an update request from a client. Executes a .update method on the designated table.
 /// This will be rewritten to use EZQL soon
-pub fn handle_update_request(connection: &mut Connection, name: &str, global_tables: Arc<RwLock<BTreeMap<KeyString, RwLock<EZTable>>>>, disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>) -> Result<String, ServerError> {
+pub fn handle_update_request(connection: &mut Connection, name: &str, global_tables: Arc<RwLock<BTreeMap<KeyString, RwLock<EZTable>>>>,) -> Result<String, ServerError> {
     
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
@@ -111,15 +104,14 @@ pub fn handle_update_request(connection: &mut Connection, name: &str, global_tab
 
     match EZTable::from_csv_string(csv, "insert", "system") {
         Ok(table) => {
-            match disk_thread_sender.try_send(WriteThreadMessage::UpdateTable(KeyString::from(name), table)) {
-                Ok(_) => {
-                    connection.stream.write_all("OK".as_bytes())?;
-                },
-                Err(e) => match e {
-                    crossbeam_channel::TrySendError::Disconnected(_e) => panic!("write thread has closed. Server is dead!!!"),
-                    crossbeam_channel::TrySendError::Full(_e) => todo!("I don't exactly know what to do here yet"),
-                }
-            };
+            let read_binding = global_tables.read().unwrap();
+            read_binding
+            .get(&KeyString::from(name))
+            .unwrap()
+            .write()
+            .unwrap()
+            .update(&table)
+            ?;
         },
         Err(e) => {
             connection.stream.write_all(e.to_string().as_bytes())?;
@@ -131,7 +123,7 @@ pub fn handle_update_request(connection: &mut Connection, name: &str, global_tab
 }
 
 /// This will be totally rewritten to handle EZQL. Don't worry about this garbage.
-pub fn handle_query_request(connection: &mut Connection, name: &str, query: &str, global_tables: Arc<RwLock<BTreeMap<KeyString, RwLock<EZTable>>>>, disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>) -> Result<String, ServerError> {
+pub fn handle_query_request(connection: &mut Connection, name: &str, query: &str, global_tables: Arc<RwLock<BTreeMap<KeyString, RwLock<EZTable>>>>,) -> Result<String, ServerError> {
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e.kind()));},
@@ -166,7 +158,7 @@ pub fn handle_query_request(connection: &mut Connection, name: &str, query: &str
 }
 
 /// This will be rewritten to use EZQL soon.
-pub fn handle_delete_request(connection: &mut Connection, name: &str, query: &str, global_tables: Arc<RwLock<BTreeMap<KeyString, RwLock<EZTable>>>>, disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>) -> Result<String, ServerError> {
+pub fn handle_delete_request(connection: &mut Connection, name: &str, query: &str, global_tables: Arc<RwLock<BTreeMap<KeyString, RwLock<EZTable>>>>,) -> Result<String, ServerError> {
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e.kind()));},
@@ -201,26 +193,22 @@ pub fn handle_delete_request(connection: &mut Connection, name: &str, query: &st
 }
 
 /// Handles a create user request from a client. The user requesting the new user must have permission to create users
-pub fn handle_new_user_request(connection: &mut Connection, user_string: &str, users: Arc<RwLock<BTreeMap<KeyString, RwLock<User>>>>, disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>) -> Result<(), ServerError> {
+pub fn handle_new_user_request(connection: &mut Connection, user_string: &str, users: Arc<RwLock<BTreeMap<KeyString, RwLock<User>>>>,) -> Result<(), ServerError> {
 
     let user: User = ron::from_str(user_string).unwrap();
+    let mut user_lock = users.write().unwrap();
+    user_lock.insert(KeyString::from(user.username.as_str()), RwLock::new(user));
 
-    match disk_thread_sender.try_send(WriteThreadMessage::MetaNewUser(user)) {
-        Ok(_) => {
-            connection.stream.write_all("OK".as_bytes())?;
-        },
-        Err(e) => match e {
-            crossbeam_channel::TrySendError::Disconnected(_e) => panic!("write thread has closed. Server is dead!!!"),
-            crossbeam_channel::TrySendError::Full(_e) => todo!("I don't exactly know what to do here yet"),
-        }
-    };
+    connection.stream.write("OK".as_bytes())?;
 
     Ok(())
 
 }
 
+// ########################### I AM HERE ###############################################
+
 /// Handles a key value upload request.
-pub fn handle_kv_upload(connection: &mut Connection, key: &str, disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>) -> Result<(), ServerError> {
+pub fn handle_kv_upload(connection: &mut Connection, key: &str,) -> Result<(), ServerError> {
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote OK as {n} bytes"),
@@ -242,24 +230,13 @@ pub fn handle_kv_upload(connection: &mut Connection, key: &str, disk_thread_send
     };
 
     println!("Appending to global");
-    match disk_thread_sender.try_send(WriteThreadMessage::NewKeyValue(KeyString::from(key), value)) {
-        Ok(_) => {
-            connection.stream.write_all("OK".as_bytes())?;
-        },
-        Err(e) => match e {
-            crossbeam_channel::TrySendError::Disconnected(_e) => panic!("write thread has closed. Server is dead!!!"),
-            crossbeam_channel::TrySendError::Full(_e) => todo!("I don't exactly know what to do here yet"),
-        }
-    };
     
-
-
     Ok(())
 
 }
 
 /// Overwrites an existing value. If no existing value has this key, return error.
-pub fn handle_kv_update(connection: &mut Connection, key: &str, global_kv_table: Arc<RwLock<BTreeMap<KeyString, RwLock<Value>>>>, disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>) -> Result<(), ServerError> {
+pub fn handle_kv_update(connection: &mut Connection, key: &str, global_kv_table: Arc<RwLock<BTreeMap<KeyString, RwLock<Value>>>>,) -> Result<(), ServerError> {
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote OK as {n} bytes"),
@@ -281,17 +258,6 @@ pub fn handle_kv_update(connection: &mut Connection, key: &str, global_kv_table:
     };
 
     println!("Appending to global");
-    match disk_thread_sender.try_send(WriteThreadMessage::NewKeyValue(KeyString::from(key), value)) {
-        Ok(_) => {
-            connection.stream.write_all("OK".as_bytes())?;
-        },
-        Err(e) => match e {
-            crossbeam_channel::TrySendError::Disconnected(_e) => panic!("write thread has closed. Server is dead!!!"),
-            crossbeam_channel::TrySendError::Full(_e) => todo!("I don't exactly know what to do here yet"),
-        }
-    };
-    
-
 
     Ok(())
 
@@ -299,7 +265,7 @@ pub fn handle_kv_update(connection: &mut Connection, key: &str, global_kv_table:
 
 /// Handles a download request of a value associated with the given key. 
 /// Returns error if no value with that key exists or if user doesn't have permission.
-pub fn handle_kv_download(connection: &mut Connection, name: &str, global_kv_table: Arc<RwLock<BTreeMap<KeyString, RwLock<Value>>>>, disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>) -> Result<(), ServerError> {
+pub fn handle_kv_download(connection: &mut Connection, name: &str, global_kv_table: Arc<RwLock<BTreeMap<KeyString, RwLock<Value>>>>,) -> Result<(), ServerError> {
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
@@ -319,13 +285,6 @@ pub fn handle_kv_download(connection: &mut Connection, name: &str, global_kv_tab
         metadelta.times_accessed += 1;
         metadelta.last_access = get_current_time();
 
-        match disk_thread_sender.try_send(WriteThreadMessage::UpdateMetadata(metadelta, KeyString::from(name))) {
-            Ok(_) => {},
-            Err(e) => match e {
-                crossbeam_channel::TrySendError::Disconnected(_e) => panic!("write thread has closed. Server is dead!!!"),
-                crossbeam_channel::TrySendError::Full(_e) => todo!("I don't exactly know what to do here yet"),
-            }
-        };
 
         return Ok(())
     } else {
@@ -335,7 +294,7 @@ pub fn handle_kv_download(connection: &mut Connection, name: &str, global_kv_tab
 }
 
 /// Handles the request for the list of tables.
-pub fn handle_meta_list_tables(connection: &mut Connection, global_tables: Arc<RwLock<BTreeMap<KeyString, RwLock<EZTable>>>>, disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>) -> Result<(), ServerError> {
+pub fn handle_meta_list_tables(connection: &mut Connection, global_tables: Arc<RwLock<BTreeMap<KeyString, RwLock<EZTable>>>>,) -> Result<(), ServerError> {
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
@@ -381,7 +340,7 @@ pub fn handle_meta_list_tables(connection: &mut Connection, global_tables: Arc<R
 }
 
 /// Handles the request for a list of keys with associated binary blobs
-pub fn handle_meta_list_key_values(connection: &mut Connection, global_kv_table: Arc<RwLock<BTreeMap<KeyString, RwLock<Value>>>>, disk_thread_sender: crossbeam_channel::Sender<WriteThreadMessage>) -> Result<(), ServerError> {
+pub fn handle_meta_list_key_values(connection: &mut Connection, global_kv_table: Arc<RwLock<BTreeMap<KeyString, RwLock<Value>>>>,) -> Result<(), ServerError> {
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
@@ -424,79 +383,4 @@ pub fn handle_meta_list_key_values(connection: &mut Connection, global_kv_table:
         return Err(ServerError::Confirmation(response))
     }
 
-}
-
-
-
-// ################################# MESSAGE HANDLERS ##########################################################
-
-pub fn handle_message_update_metadata(server_handle: Arc<Server>, metadata: Metadata, table_name: KeyString) -> Result<(), ServerError> {
-
-    let global_tables = server_handle.buffer_pool.tables.write().unwrap();
-    let mut table = match global_tables.get(&table_name) {
-        Some(t) => t.write().unwrap(),
-        None => todo!("Need to redesign error handling."),
-    };
-
-    table.metadata = metadata;
-
-    Ok(())
-}
-
-pub fn handle_message_update_table(server_handle: Arc<Server>, table_name: KeyString, table: EZTable) -> Result<(), ServerError> {
-
-    let global_tables = server_handle.buffer_pool.tables.write().unwrap();
-    let mut source_table = match global_tables.get(&table_name) {
-        Some(t) => t.write().unwrap(),
-        None => todo!("Need to redesign error handling."),
-    };
-
-    source_table.update(&table)?;
-
-    Ok(())
-}
-
-pub fn handle_message_drop_table(server_handle: Arc<Server>, table_name: KeyString) -> Result<(), ServerError> {
-    server_handle.buffer_pool.tables.write().unwrap().remove(&table_name);
-    Ok(())
-}
-
-pub fn handle_message_delete_rows(server_handle: Arc<Server>, table_name: KeyString, rows: DbVec) -> Result<(), ServerError> {
-
-    let mut the_table = server_handle.buffer_pool.tables.write().unwrap();
-    let mut mutatable = the_table.get_mut(&table_name).unwrap().write().unwrap();
-
-    mutatable.delete_by_vec(rows)?;
-
-    Ok(())
-}
-
-pub fn handle_message_new_table(server_handle: Arc<Server>, table: EZTable) -> Result<(), ServerError> {
-
-    server_handle.buffer_pool.tables.write().unwrap().insert(table.name.clone(), RwLock::new(table));
-
-    Ok(())
-}
-
-pub fn handle_message_new_key_value(server_handle: Arc<Server>, key: KeyString, value: Value) -> Result<(), ServerError> {
-
-    server_handle.buffer_pool.values .write().unwrap().insert(key, RwLock::new(value));
-
-
-    Ok(())
-}
-
-pub fn handle_message_update_key_value(server_handle: Arc<Server>, key: KeyString, value: Value) -> Result<(), ServerError> {
-
-    server_handle.buffer_pool.values.write().unwrap().entry(key).and_modify(|v| *v = RwLock::new(value));
-
-    Ok(())
-}
-
-pub fn handle_message_meta_new_user(server_handle: Arc<Server>, user: User) -> Result<(), ServerError> {
-
-    server_handle.users.write().unwrap().insert(KeyString::from(user.username.as_str()), RwLock::new(user));
-
-
-    Ok(())
 }

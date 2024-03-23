@@ -215,6 +215,7 @@ pub struct Metadata {
     pub created_by: KeyString,
     size_of_table: usize,
     size_of_row: usize,
+    
 }
 
 impl fmt::Display for Metadata {
