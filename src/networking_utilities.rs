@@ -13,6 +13,7 @@ use crate::aes_temp_crypto::{encrypt_aes256, decrypt_aes256};
 use crate::auth::AuthenticationError;
 use crate::compression;
 use crate::db_structure::StrictError;
+use crate::ezql::QueryError;
 
 
 pub const INSTRUCTION_BUFFER: usize = 1024;
@@ -36,6 +37,7 @@ pub enum ServerError {
     OversizedData,
     Decompression(miniz_oxide::inflate::DecompressError),
     Query,
+    NoMoreBufferSpace(usize),
 }
 
 impl fmt::Display for ServerError {
@@ -53,6 +55,8 @@ impl fmt::Display for ServerError {
             ServerError::ParseResponse(e) => write!(f, "{}", e),
             ServerError::Decompression(e) => write!(f, "Decompression error occurred from miniz_oxide library.\nLibrary error: {}", e),
             ServerError::Query => write!(f, "Query was incorrectly formatted"),
+            ServerError::NoMoreBufferSpace(x) => write!(f, "No more space in buffer pool. Need to free {x} bytes"),
+
         }
     }
 }
@@ -96,6 +100,12 @@ impl From<aead::Error> for ServerError {
 impl From<ParseIntError> for ServerError {
     fn from(e: ParseIntError) -> Self {
         ServerError::ParseInt(e)
+    }
+}
+
+impl From<QueryError> for ServerError {
+    fn from(e: QueryError) -> Self {
+        ServerError::Query
     }
 }
 
@@ -332,6 +342,14 @@ pub fn u32_from_le_slice(slice: &[u8]) -> u32 {
     assert!(slice.len() == 4);
     let l: [u8;4] = [slice[0], slice[1], slice[2], slice[3]];
     u32::from_le_bytes(l)
+}
+
+/// Creates a u64 from a &[u8] of length 8. Panics if len is different than 8.
+#[inline]
+pub fn u64_from_le_slice(slice: &[u8]) -> u64 {
+    assert!(slice.len() == 8);
+    let l: [u8;8] = [ slice[0], slice[1], slice[2], slice[3], slice[4], slice[5], slice[6], slice[7] ];
+    u64::from_le_bytes(l)
 }
 
 /// Creates a u32 from a &[u8] of length 4. Panics if len is different than 4.

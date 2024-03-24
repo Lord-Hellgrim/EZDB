@@ -48,13 +48,13 @@ fn my_benchmark(c: &mut Criterion) {
     // group.bench_function("upload_table", |b| b.iter(|| upload_table(address, username, password, "large_csv", &bench_csv)));
 
     let input = std::fs::read_to_string(format!("test_files{PATH_SEP}test_csv_from_google_sheets_combined_sorted.csv")).unwrap();
-    let t = ColumnTable::from_csv_string(&input, "test", "test").unwrap();
+    let t = EZTable::from_csv_string(&input, "test", "test").unwrap();
     let bint_t = t.write_to_raw_binary();
     let string_t = t.to_string();
     println!("bin_t lent: {}", bint_t.len());
     println!("string_t lent: {}", string_t.len());
-    group.bench_function("binary", |b| b.iter(|| ColumnTable::read_raw_binary(&bint_t)));
-    group.bench_function("csv", |b| b.iter(|| ColumnTable::from_csv_string(&string_t, "test", "test")));
+    // group.bench_function("binary", |b| b.iter(|| EZTable::read_raw_binary(&bint_t)));
+    group.bench_function("csv", |b| b.iter(|| EZTable::from_csv_string(&string_t, "test", "test")));
 
     group.bench_function("compress string miniz_oxide", |b| b.iter(|| miniz_compress(string_t.as_bytes())));
     // group.bench_function("compress string brotli", |b| b.iter(|| brotli_compress(string_t.as_bytes())));

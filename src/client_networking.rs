@@ -1,7 +1,7 @@
 use std::io::Write;
 use std::str::{self};
 
-use crate::auth::AuthenticationError;
+use crate::auth::{AuthenticationError, User};
 use crate::networking_utilities::*;
 use crate::PATH_SEP;
 
@@ -289,12 +289,42 @@ pub fn meta_list_key_values(
     Ok(table_list.to_owned())
 }
 
+pub fn meta_create_new_user(
+    user: User,
+    address: &str,
+    username: &str,
+    password: &str,
+) -> Result<(), ServerError> {
+
+    let mut connection = Connection::connect(address, username, password)?;
+
+    let user_string = match ron::to_string::<User>(&user) {
+        Ok(s) => s,
+        Err(e) => todo!(),
+    };
+
+    let response = instruction_send_and_confirm(Instruction::NewUser(user_string), &mut connection)?;
+
+    println!("Create new user - parsing response");
+    let confirmation: String = match parse_response(&response, &connection.user, "no table") {
+        Ok(s) => "OK".to_owned(),
+        Err(e) => return Err(e),
+    };
+    println!("confirmation: {}", confirmation);
+
+    if confirmation == "OK" {
+        Ok(())
+    } else {
+        return Err(ServerError::Confirmation(confirmation));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(unused)]
     use std::{fs::remove_file, path::Path};
 
-    use crate::db_structure::ColumnTable;
+    use crate::db_structure::EZTable;
 
     use super::*;
 
@@ -369,7 +399,7 @@ mod tests {
         let password = "admin";
         let table = download_table(address, username, password, name).unwrap();
         println!("{:?}", table);
-        let good_table = ColumnTable::from_csv_string(
+        let good_table = EZTable::from_csv_string(
             &std::fs::read_to_string(format!("test_files{PATH_SEP}good_csv.txt")).unwrap(),
             "good_table",
             "test",
