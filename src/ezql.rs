@@ -306,7 +306,7 @@ pub enum QueryType {
 /// See EZQL spec for details (handlers.rs).
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RangeOrListorAll {
-    Range([KeyString; 2]),
+    Range(KeyString, KeyString),
     List(Vec<KeyString>),
     All,
 }
@@ -510,10 +510,10 @@ pub fn parse_EZQL(query_string: &str) -> Result<Vec<Query>, QueryError> {
                     tok => {
                         if tok.trim().split("..").count() == 2 {
                             let mut ranger = tok.split("..");
-                            query_buf.primary_keys = RangeOrListorAll::Range([
+                            query_buf.primary_keys = RangeOrListorAll::Range(
                                 KeyString::from(ranger.next().unwrap().trim()), 
                                 KeyString::from(ranger.next().unwrap().trim())
-                            ]);
+                            );
                             expect = Expect::Conditions;
                         } else if tok == "*" {
                             query_buf.primary_keys = RangeOrListorAll::All;

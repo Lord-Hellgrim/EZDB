@@ -206,7 +206,6 @@ pub fn handle_new_user_request(connection: &mut Connection, user_string: &str, u
 
 }
 
-// ########################### I AM HERE ###############################################
 
 /// Handles a key value upload request.
 pub fn handle_kv_upload(connection: &mut Connection, key: &str, global_kv_table: Arc<RwLock<BTreeMap<KeyString, RwLock<Value>>>>) -> Result<(), ServerError> {

@@ -165,11 +165,98 @@ pub fn parse_instruction(
 
 // Need to redesign the server multithreading before I continue. If I have to lock the "table of tables" for each query,
 // then there's no point to multithreading.
-pub fn execute_single_EZQL_query(query: ezql::Query) -> Result<EZTable, ServerError> {
+pub fn execute_single_EZQL_query(query: ezql::Query, database: Arc<Database>) -> Result<EZTable, ServerError> {
 
     match query.query_type {
         ezql::QueryType::DELETE => todo!(),
-        ezql::QueryType::SELECT => {},
+        ezql::QueryType::SELECT => {
+            let tables = database.buffer_pool.tables.read().unwrap();
+            let table = tables.get(&query.table).unwrap().read().unwrap();
+
+            let mut indexes = Vec::new();
+            match query.primary_keys {
+                ezql::RangeOrListorAll::Range(start, stop) => {
+                    match &table.columns[table.get_primary_key_col_index()] {
+                        DbVec::Ints(column) => {
+                            let first = match column.binary_search(&start.to_i32()) {
+                                Ok(x) => x,
+                                Err(x) => x,
+                            };
+                            let last = match column.binary_search(&stop.to_i32()) {
+                                Ok(x) => x,
+                                Err(x) => x,
+                            };
+                            indexes = (first..last).collect();
+                        },
+                        DbVec::Texts(column) => {
+                            let first = match column.binary_search(&start) {
+                                Ok(x) => x,
+                                Err(x) => x,
+                            };
+                            let last = match column.binary_search(&stop) {
+                                Ok(x) => x,
+                                Err(x) => x,
+                            };
+                            indexes = (first..last).collect();
+                        },
+                        DbVec::Floats(_n) => {
+                            unreachable!("There should never be a float primary key")
+                        },
+                    }
+                },
+                ezql::RangeOrListorAll::List(mut keys) => {
+                    match &table.columns[table.get_primary_key_col_index()] {
+                        DbVec::Ints(column) => {
+                            if keys.len() > column.len() {
+                                return Err(ServerError::Query)
+                            }
+                            keys.sort();
+                            let mut key_index: usize = 0;
+                            for index in 0..column.len() {
+                                if column[index] == keys[key_index].to_i32() {
+                                    indexes.push(index);
+                                    key_index += 1;
+                                }
+                            }
+                        },
+                        DbVec::Floats(_) => {
+                            unreachable!("There should never be a float primary key")
+                        },
+                        DbVec::Texts(column) => {
+                            if keys.len() > column.len() {
+                                return Err(ServerError::Query)
+                            }
+                            keys.sort();
+                            let mut key_index = 0;
+                            for index in 0..column.len() {
+                                if column[index] == keys[key_index] {
+                                    indexes.push(index);
+                                    key_index += 1;
+                                }
+                            }
+                        },
+                    }
+                },
+                ezql::RangeOrListorAll::All => indexes = (0..table.len()).collect(),
+
+            } // Match primary keys
+
+            for condition in query.conditions {
+                match condition {
+                    ezql::OpOrCond::Cond(cond) => {
+                        let column = &table.columns[table.get_column_index(cond.attribute)?];
+                        match column {
+                            // #################### I AM HERE ##############################################
+                            DbVec::Ints(_) => todo!(),
+                            DbVec::Floats(_) => todo!(),
+                            DbVec::Texts(_) => todo!(),
+                        }
+                    },
+                    ezql::OpOrCond::Op(op) => todo!(),
+                }
+            }
+
+        },
         ezql::QueryType::LEFT_JOIN => todo!(),
         ezql::QueryType::INNER_JOIN => todo!(),
         ezql::QueryType::RIGHT_JOIN => todo!(),

@@ -131,6 +131,14 @@ impl KeyString {
     pub fn raw(&self) -> &[u8] {
         &self.inner
     }
+
+    pub fn to_i32(&self) -> i32 {
+        self.as_str().parse::<i32>().unwrap()
+    }
+
+    pub fn to_f32(&self) -> f32 {
+        self.as_str().parse::<f32>().unwrap()
+    }
 }
 
 
@@ -686,6 +694,13 @@ impl EZTable {
         }
 
         self_primary_key_index
+    }
+
+    pub fn get_column_index(&self, name: KeyString) -> Result<usize, StrictError> {
+        match self.header.iter().position(|x| x.name == name) {
+            Some(x) => Ok(x),
+            None => return Err(StrictError::WrongKey)
+        }
     }
 
     /// Updates a ColumnTable. Overwrites existing keys and adds new ones in proper order
