@@ -194,11 +194,12 @@ pub fn handle_delete_request(connection: &mut Connection, name: &str, query: &st
 
 /// Handles a create user request from a client. The user requesting the new user must have permission to create users
 pub fn handle_new_user_request(connection: &mut Connection, user_string: &str, users: Arc<RwLock<BTreeMap<KeyString, RwLock<User>>>>,) -> Result<(), ServerError> {
-
+    
+    
     let user: User = ron::from_str(user_string).unwrap();
     let mut user_lock = users.write().unwrap();
     user_lock.insert(KeyString::from(user.username.as_str()), RwLock::new(user));
-
+    
     connection.stream.write("OK".as_bytes())?;
 
     Ok(())
@@ -208,7 +209,7 @@ pub fn handle_new_user_request(connection: &mut Connection, user_string: &str, u
 // ########################### I AM HERE ###############################################
 
 /// Handles a key value upload request.
-pub fn handle_kv_upload(connection: &mut Connection, key: &str,) -> Result<(), ServerError> {
+pub fn handle_kv_upload(connection: &mut Connection, key: &str, global_kv_table: Arc<RwLock<BTreeMap<KeyString, RwLock<Value>>>>) -> Result<(), ServerError> {
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote OK as {n} bytes"),
@@ -219,17 +220,11 @@ pub fn handle_kv_upload(connection: &mut Connection, key: &str,) -> Result<(), S
     
     let value = receive_data(connection)?;
     let value = Value::new(key, &connection.user, &value);
-    // println!("value: {:?}", value);
+    
+    let mut kv_table_binding = global_kv_table.write().unwrap();
+    kv_table_binding.insert(KeyString::from(key), RwLock::new(value));
 
-    println!("About to check for strictness");
-    match connection.stream.write("OK".as_bytes()) {
-        Ok(_) => {
-            println!("Confirmed correctness with client");
-        },
-        Err(e) => {return Err(ServerError::Io(e.kind()));},
-    };
-
-    println!("Appending to global");
+    connection.stream.write("OK".as_bytes())?;
     
     Ok(())
 
@@ -247,17 +242,19 @@ pub fn handle_kv_update(connection: &mut Connection, key: &str, global_kv_table:
     
     let value = receive_data(connection)?;
     let value = Value::new(key, &connection.user, &value);
-    // println!("value: {:?}", value);
+    
+    {
+        global_kv_table
+            .read()
+            .unwrap()
+            .get(&KeyString::from(key))
+            .unwrap()
+            .write()
+            .unwrap()
+            .update(value);
+    }
 
-    println!("About to check for strictness");
-    match connection.stream.write("OK".as_bytes()) {
-        Ok(_) => {
-            println!("Confirmed correctness with client");
-        },
-        Err(e) => {return Err(ServerError::Io(e.kind()));},
-    };
-
-    println!("Appending to global");
+    connection.stream.write("OK".as_bytes())?;
 
     Ok(())
 
@@ -281,11 +278,18 @@ pub fn handle_kv_download(connection: &mut Connection, name: &str, global_kv_tab
 
     if response == "OK" {
 
-        let mut metadelta = requested_value.metadata.clone();
-        metadelta.times_accessed += 1;
-        metadelta.last_access = get_current_time();
+        let values = global_kv_table
+            .read()
+            .unwrap();
+        
+        let mut this_value = values.get(&KeyString::from(name))
+            .unwrap()
+            .write()
+            .unwrap();
+        
+        this_value.metadata.last_access = get_current_time();
 
-
+        this_value.metadata.times_accessed += 1;
         return Ok(())
     } else {
         return Err(ServerError::Confirmation(response))
@@ -302,32 +306,22 @@ pub fn handle_meta_list_tables(connection: &mut Connection, global_tables: Arc<R
     };
     connection.stream.flush()?;
 
-    let mutex_binding = global_tables.read().unwrap();
-    let mut memory_table_names: Vec<&KeyString> = mutex_binding.keys().collect();
-
-    let mut disk_table_names = Vec::new();
-    for file in std::fs::read_dir(format!("EZconfig{PATH_SEP}raw_tables")).unwrap() {
-        match file {
-            Ok(f) => disk_table_names.push(KeyString::from(f.file_name().into_string().unwrap().as_str())),
-            Err(e) => println!("error while reading directory entries: {e}"),
-        }
+    let mut tables = BTreeMap::new();
+    for (table_name, table) in global_tables.read().unwrap().iter() {
+        tables.insert(table_name.clone(), table.read().unwrap().header.clone());
     }
-
-    for item in disk_table_names.iter() {
-        memory_table_names.push(item);
-    }
-
-    memory_table_names.sort();
-    memory_table_names.dedup();
 
     let mut printer = String::new();
-    for table_name in memory_table_names {
+    for (table_name, table_header) in tables.iter() {
         printer.push_str(table_name.as_str());
         printer.push('\n');
+        for item in table_header {
+            printer.push_str(&item.to_string());
+            printer.push_str(";\t");
+        }
+        printer.push('\n');
     }
-
-
-    println!("tables_list: {}", printer);
+    printer.pop();
 
     let response = data_send_and_confirm(connection, printer.as_bytes())?;
 
@@ -348,32 +342,17 @@ pub fn handle_meta_list_key_values(connection: &mut Connection, global_kv_table:
     };
     connection.stream.flush()?;
 
-    let mutex_binding = global_kv_table.read().unwrap();
-
-    let mut memory_table_names: Vec<&KeyString> = mutex_binding.keys().collect();
-
-    let mut disk_table_names = Vec::new();
-    for file in std::fs::read_dir(format!("EZconfig{PATH_SEP}key_value")).unwrap() {
-        match file {
-            Ok(f) => disk_table_names.push(KeyString::from(f.file_name().into_string().unwrap().as_str())),
-            Err(e) => println!("error while reading directory entries: {e}"),
-        }
+    let mut values = Vec::new();
+    for value_name in global_kv_table.read().unwrap().keys() {
+        values.push(value_name.clone());
     }
-
-    for item in disk_table_names.iter() {
-        memory_table_names.push(item);
-    }
-
-    memory_table_names.sort();
-    memory_table_names.dedup();
 
     let mut printer = String::new();
-    for key in memory_table_names {
-        printer.push_str(key.as_str());
+    for value_name in values.iter() {
+        printer.push_str(value_name.as_str());
         printer.push('\n');
     }
-
-    println!("tables_list: {}", printer);
+    printer.pop();
 
     let response = data_send_and_confirm(connection, printer.as_bytes())?;
 

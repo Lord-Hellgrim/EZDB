@@ -1731,6 +1731,14 @@ impl Value {
         }
     }
 
+    pub fn update(&mut self, value: Value) {
+        assert_eq!(self.name, value.name);
+        self.body = value.body;
+        self.metadata.last_access = get_current_time();
+        self.metadata.times_accessed += 1;
+
+    } 
+
     /// Saves the binary blob to disk in a file named key.
     pub fn write_to_raw_binary(&self) -> Vec<u8> {
         let mut output = Vec::with_capacity(self.body.len() + 80);
@@ -1965,6 +1973,5 @@ mod tests {
         let subtable = table.create_subtable(0, 7515);
         println!("{}", subtable);
     }
-
 }
 

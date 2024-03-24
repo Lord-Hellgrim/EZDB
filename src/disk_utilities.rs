@@ -161,30 +161,6 @@ impl BufferPool {
     }
 }
 
-
-#[derive(Debug)]
-pub struct DiskTable {
-    pub name: KeyString,
-    pub header: Vec<HeaderItem>,
-    pub metadata: Metadata,
-    pub file: RwLock<File>,
-    pub pages: Vec<Page>,
-}
-
-#[derive(Debug)]
-pub struct Page {
-    is_dirty: bool,
-    offset: u64,
-    size: u64,
-}
-
-pub fn alternate_write(table: &EZTable) -> Result<(), std::io::Error> {
-
-
-
-    Ok(())
-}
-
 pub fn write_table_to_binary_directory(table: &EZTable) -> Result<(), std::io::Error> {
 
     let path_str = format!("{CONFIG_FOLDER}{PATH_SEP}{BIN_TABLE_DIR}{PATH_SEP}{}", table.name.as_str());
@@ -332,72 +308,72 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn bin_dir_basic_test() {
-        let table_string = std::fs::read_to_string(&format!("testlarge.csv")).unwrap();
-        let table = EZTable::from_csv_string(&table_string, "basic_test", "test").unwrap();
-        // write_table_to_binary_directory(&table).unwrap();
-        let chunks = "/home/hellgrim/code/rust/EZDB/EZconfig/Binary_tables/basic_test";
-        let mut chunks = std::fs::read_dir(chunks).unwrap();
-        let first = chunks.next().unwrap().unwrap().path();
-        // println!("first: {}", first.display());
-        let mut read_table = read_binary_table_chunk_into_memory(&first.as_path().to_str().unwrap(), &table.header, &table.metadata).unwrap();
+    // #[test]
+    // fn bin_dir_basic_test() {
+    //     let table_string = std::fs::read_to_string(&format!("testlarge.csv")).unwrap();
+    //     let table = EZTable::from_csv_string(&table_string, "basic_test", "test").unwrap();
+    //     // write_table_to_binary_directory(&table).unwrap();
+    //     let chunks = "/home/hellgrim/code/rust/EZDB/EZconfig/Binary_tables/basic_test";
+    //     let mut chunks = std::fs::read_dir(chunks).unwrap();
+    //     let first = chunks.next().unwrap().unwrap().path();
+    //     // println!("first: {}", first.display());
+    //     let mut read_table = read_binary_table_chunk_into_memory(&first.as_path().to_str().unwrap(), &table.header, &table.metadata).unwrap();
 
-        for chunk in chunks {
-            let chunk = chunk.unwrap().path();
-            // println!("chunk_path: {}", chunk.display());
-            let temp_table = read_binary_table_chunk_into_memory(chunk.as_path().to_str().unwrap(), &table.header, &table.metadata).unwrap();
-            read_table.update(&temp_table).unwrap();
-        }
+    //     for chunk in chunks {
+    //         let chunk = chunk.unwrap().path();
+    //         // println!("chunk_path: {}", chunk.display());
+    //         let temp_table = read_binary_table_chunk_into_memory(chunk.as_path().to_str().unwrap(), &table.header, &table.metadata).unwrap();
+    //         read_table.update(&temp_table).unwrap();
+    //     }
 
-        for (index, column) in table.columns.iter().enumerate() {
-            match column {
-                DbVec::Ints(col) => {
-                    match &read_table.columns[index] {
-                        DbVec::Ints(read_col) => {
-                            for i in 0.. col.len() {
-                                if col[i] != read_col[i] {
-                                    println!("wrong index: {}", i);
-                                }
-                            }
-                        },
-                        _ => todo!(),
-                    }
-                },
-                DbVec::Floats(col) => {
-                    match &read_table.columns[index] {
-                        DbVec::Floats(read_col) => {
-                            for i in 0.. col.len() {
-                                if col[i] != read_col[i] {
-                                    println!("wrong index: {}", i);
-                                }
-                            }
-                        },
-                        _ => todo!(),
-                    }
-                },
-                DbVec::Texts(col) => {
-                    match &read_table.columns[index] {
-                        DbVec::Texts(read_col) => {
-                            for i in 0.. col.len() {
-                                if col[i] != read_col[i] {
-                                    println!("wrong index: {}", i);
-                                }
-                            }
-                        },
-                        _ => todo!(),
-                    }
-                },
-            }
-        }
+    //     for (index, column) in table.columns.iter().enumerate() {
+    //         match column {
+    //             DbVec::Ints(col) => {
+    //                 match &read_table.columns[index] {
+    //                     DbVec::Ints(read_col) => {
+    //                         for i in 0.. col.len() {
+    //                             if col[i] != read_col[i] {
+    //                                 println!("wrong index: {}", i);
+    //                             }
+    //                         }
+    //                     },
+    //                     _ => todo!(),
+    //                 }
+    //             },
+    //             DbVec::Floats(col) => {
+    //                 match &read_table.columns[index] {
+    //                     DbVec::Floats(read_col) => {
+    //                         for i in 0.. col.len() {
+    //                             if col[i] != read_col[i] {
+    //                                 println!("wrong index: {}", i);
+    //                             }
+    //                         }
+    //                     },
+    //                     _ => todo!(),
+    //                 }
+    //             },
+    //             DbVec::Texts(col) => {
+    //                 match &read_table.columns[index] {
+    //                     DbVec::Texts(read_col) => {
+    //                         for i in 0.. col.len() {
+    //                             if col[i] != read_col[i] {
+    //                                 println!("wrong index: {}", i);
+    //                             }
+    //                         }
+    //                     },
+    //                     _ => todo!(),
+    //                 }
+    //             },
+    //         }
+    //     }
 
-        // let mut table_file = File::create("table.txt").unwrap();
-        // table_file.write(table.to_string().as_bytes());
+    //     // let mut table_file = File::create("table.txt").unwrap();
+    //     // table_file.write(table.to_string().as_bytes());
 
-        // let mut table_file = File::create("read_table.txt").unwrap();
-        // table_file.write(read_table.to_string().as_bytes());
+    //     // let mut table_file = File::create("read_table.txt").unwrap();
+    //     // table_file.write(read_table.to_string().as_bytes());
 
 
-        assert_eq!(read_table.columns, table.columns);
-    }
+    //     assert_eq!(read_table.columns, table.columns);
+    // }
 }

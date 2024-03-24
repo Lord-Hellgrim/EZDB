@@ -9,8 +9,8 @@ use std::time::Duration;
 use x25519_dalek::{StaticSecret, PublicKey};
 
 use crate::aes_temp_crypto::decrypt_aes256;
-use crate::auth::{User, AuthenticationError, user_has_permission};
-use crate::disk_utilities::{BufferPool, DiskTable, MAX_BUFFERPOOL_SIZE};
+use crate::auth::{user_has_permission, AuthenticationError, Permission, User};
+use crate::disk_utilities::{BufferPool, MAX_BUFFERPOOL_SIZE};
 use crate::networking_utilities::*;
 use crate::db_structure::{EZTable, DbVec, KeyString, Metadata, StrictError, Value};
 use crate::handlers::*;
@@ -72,7 +72,7 @@ pub fn parse_instruction(
             }
         }
         "Uploading" => {
-            if user_has_permission(table_name, action, username, database.users.clone()) {
+            if user_has_permission(table_name, Permission::Upload, username, database.users.clone()) {
                 return Ok(Instruction::Upload(table_name.to_owned()));
             } else {
                 return Err(ServerError::Authentication(AuthenticationError::Permission))
@@ -81,7 +81,7 @@ pub fn parse_instruction(
         "Downloading" => {
             if database.buffer_pool.tables.read().unwrap().contains_key(&KeyString::from(table_name)) 
             && 
-            user_has_permission(table_name, action, username, database.users.clone()) 
+            user_has_permission(table_name, Permission::Read, username, database.users.clone()) 
             {
                 Ok(Instruction::Download(table_name.to_owned()))
             } else {
@@ -91,7 +91,7 @@ pub fn parse_instruction(
         "Updating" => {
             if database.buffer_pool.tables.read().unwrap().contains_key(&KeyString::from(table_name)) 
             && 
-            user_has_permission(table_name, action, username, database.users.clone())
+            user_has_permission(table_name, Permission::Write, username, database.users.clone())
             { 
                 Ok(Instruction::Update(table_name.to_owned()))
             } else {
@@ -101,7 +101,7 @@ pub fn parse_instruction(
         "Deleting" => {
             if database.buffer_pool.tables.read().unwrap().contains_key(&KeyString::from(table_name)) 
             && 
-            user_has_permission(table_name, action, username, database.users.clone())
+            user_has_permission(table_name, Permission::Write, username, database.users.clone())
             {
                 Ok(Instruction::Delete(table_name.to_owned(), query.to_owned()))
             } else {
@@ -111,7 +111,7 @@ pub fn parse_instruction(
         "KvUpload" => {
             if database.buffer_pool.tables.read().unwrap().contains_key(&KeyString::from(table_name)) 
             && 
-            user_has_permission(table_name, action, username, database.users.clone())
+            user_has_permission(table_name, Permission::Upload, username, database.users.clone())
             {
                 return Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' already exists. Use 'update' instead", table_name))));
             } else {
@@ -121,7 +121,7 @@ pub fn parse_instruction(
         "KvUpdate" => {
             if database.buffer_pool.values.read().unwrap().contains_key(&KeyString::from(table_name)) 
             && 
-            user_has_permission(table_name, action, username, database.users.clone())
+            user_has_permission(table_name, Permission::Write, username, database.users.clone())
             {
                 Ok(Instruction::KvUpdate(table_name.to_owned()))
             } else {
@@ -131,7 +131,7 @@ pub fn parse_instruction(
         "KvDownload" => {
             if database.buffer_pool.values.read().unwrap().contains_key(&KeyString::from(table_name)) 
             && 
-            user_has_permission(table_name, action, username, database.users.clone())
+            user_has_permission(table_name, Permission::Read, username, database.users.clone())
             {
                 Ok(Instruction::KvDownload(table_name.to_owned()))
             } else {
@@ -139,21 +139,21 @@ pub fn parse_instruction(
             }
         },
         "MetaListTables" => {
-            if user_has_permission(table_name, action, username, database.users.clone()) {
+            if user_has_permission(table_name, Permission::Read, username, database.users.clone()) {
                 Ok(Instruction::MetaListTables)
             } else {
                 return Err(ServerError::Authentication(AuthenticationError::Permission))
             }
         },
         "MetaListKeyValues" => {
-            if user_has_permission(table_name, action, username, database.users.clone()) {
+            if user_has_permission(table_name, Permission::Read, username, database.users.clone()) {
                 Ok(Instruction::MetaListKeyValues)
             } else {
                 return Err(ServerError::Authentication(AuthenticationError::Permission))
             }
         },
         "MetaNewUser" => {
-            if user_has_permission(table_name, action, username, database.users.clone()) {
+            if user_has_permission(table_name, Permission::Write, username, database.users.clone()) {
                 Ok(Instruction::NewUser(username.to_owned()))
             } else {
                 return Err(ServerError::Authentication(AuthenticationError::Permission))
@@ -281,15 +281,17 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
             listener: l,
         });
 
+        if !std::path::Path::new("EZconfig").is_dir() {
+            println!("config does not exist");
+            std::fs::create_dir("EZconfig").expect("Need IO access to initialize database");
+            std::fs::create_dir("EZconfig/raw_tables").expect("Need IO access to initialize database");
+            std::fs::create_dir("EZconfig/raw_values").expect("Need IO access to initialize database");
+        } else {
+            println!("config folder exists");
+
+        }
+        println!("Initializing database");
         let database = Arc::new(Database::init()?);
-
-
-    if !std::path::Path::new("EZconfig").is_dir() {
-        println!("config does not exist");
-        std::fs::create_dir("EZconfig").expect("Need IO access to initialize database");
-        std::fs::create_dir("EZconfig/raw_tables").expect("Need IO access to initialize database");
-        std::fs::create_dir("EZconfig/key_value").expect("Need IO access to initialize database");
-    }
 
     // #################################### END STARTUP SEQUENCE ###############################################
 
@@ -300,10 +302,10 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
     
     let _full_scope: Result<(), ServerError> = std::thread::scope(|outer_scope| {
         
-        let _writer_thread = 
+        let _background_thread = 
         outer_scope.spawn(move || {
             std::thread::sleep(Duration::from_secs(10));
-
+            println!("Background thread running");
             for key in writer_thread_db_ref.buffer_pool.tables.read().unwrap().keys() {
                 let mut naughty_list = writer_thread_db_ref.buffer_pool.naughty_list.write().unwrap();
                 if naughty_list.contains(key) {
@@ -534,7 +536,8 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                         Instruction::KvUpload(table_name) => {
                             match handle_kv_upload(
                                 &mut connection, 
-                                &table_name
+                                &table_name,
+                                db_ref.buffer_pool.values.clone(),
                             ) {
                                 Ok(_) => {
                                     println!("Operation finished!");

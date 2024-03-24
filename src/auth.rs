@@ -11,20 +11,18 @@ use crate::{db_structure::KeyString, networking_utilities::blake3_hash};
 /// Defines a permission a user has to interact with a given table
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Permission {
+    Read,
+    Write,
     Upload,
-    Download,
-    Update,
-    Query,
 }
 
 impl Permission {
     /// Creates a Permission enum from a string, tolerating some common spellings
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
-            "Upload" | "Uploading" | "KvUpload" => Some(Permission::Upload),
-            "Download" | "Downloading" | "KvDownload" => Some(Permission::Download),
-            "Update" | "Updating" | "KvUpdate" => Some(Permission::Update),
-            "Query" | "Querying" => Some(Permission::Query),
+            "Read" => Some(Permission::Read),
+            "Write" => Some(Permission::Write),
+            "Upload" => Some(Permission::Upload),
             _ => None,
         }
     }
@@ -32,10 +30,9 @@ impl Permission {
     /// Serializes the Permission to a String directly.
     pub fn to_str(&self) -> String {
         match self {
+            Permission::Write => "Write".to_owned(),
+            Permission::Read => "Read".to_owned(),
             Permission::Upload => "Upload".to_owned(),
-            Permission::Download => "Download".to_owned(),
-            Permission::Update => "Update".to_owned(),
-            Permission::Query => "Query".to_owned(),
         }
     }
 }
@@ -50,9 +47,8 @@ pub struct User {
     pub password: [u8; 32],
     pub admin: bool,
     pub can_upload: bool,
-    pub can_download: Vec<String>,
-    pub can_update: Vec<String>,
-    pub can_query: Vec<String>,
+    pub can_read: Vec<String>,
+    pub can_write: Vec<String>,
 }
 
 impl User {
@@ -63,9 +59,8 @@ impl User {
             password: blake3_hash(password.as_bytes()),
             admin: false,
             can_upload: false,
-            can_download: Vec::new(),
-            can_update: Vec::new(),
-            can_query: Vec::new(),
+            can_read: Vec::new(),
+            can_write: Vec::new(),
         }
     }
 
@@ -76,9 +71,8 @@ impl User {
             password: blake3_hash(password.as_bytes()),
             admin: true,
             can_upload: true,
-            can_download: Vec::new(),
-            can_update: Vec::new(),
-            can_query: Vec::new(),
+            can_read: Vec::new(),
+            can_write: Vec::new(),
         }
     }
 
@@ -127,14 +121,10 @@ impl User {
 #[inline]
 pub fn user_has_permission(
     table_name: &str,
-    action: &str,
+    permission: Permission,
     username: &str,
     users: Arc<RwLock<BTreeMap<KeyString, RwLock<User>>>>,
 ) -> bool {
-    let permission = match Permission::from_str(action) {
-        Some(action) => action,
-        None => return false,
-    };
     let user = users.read().unwrap();
     let user = match user.get(&KeyString::from(username)) {
         Some(u) => u.read().unwrap(),
@@ -147,9 +137,8 @@ pub fn user_has_permission(
 
     match permission {
         Permission::Upload => user.can_upload,
-        Permission::Download => user.can_download.contains(&table_name.to_owned()),
-        Permission::Update => user.can_update.contains(&table_name.to_owned()),
-        Permission::Query => user.can_query.contains(&table_name.to_owned()),
+        Permission::Read => user.can_read.contains(&table_name.to_owned()),
+        Permission::Write => user.can_write.contains(&table_name.to_owned()),
     }
 }
 
@@ -182,7 +171,7 @@ mod tests {
     #[test]
     fn test_user_string_parsing() {
         let temp = String::from(
-            r#"(username:"admin",password:(210,137,178,218,155,112,81,243,107,78,57,110,10,243,224,105,231,140,241,25,167,253,203,100,55,182,133,196,135,94,159,158),admin:true,can_upload:true,can_download:[],can_update:[],can_query:[])"#,
+            r#"(username:"admin",password:(210,137,178,218,155,112,81,243,107,78,57,110,10,243,224,105,231,140,241,25,167,253,203,100,55,182,133,196,135,94,159,158),admin:true,can_upload:true,can_read:[],can_write:[])"#,
         );
         let test_user: User = ron::from_str(&temp).unwrap();
         dbg!(test_user);
