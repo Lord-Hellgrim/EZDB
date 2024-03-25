@@ -890,6 +890,45 @@ impl EZTable {
         Ok(printer)
     }
 
+    pub fn subtable_from_indexes(&self, indexes: &[usize], new_name: &KeyString) -> EZTable {
+        let mut result_columns = Vec::with_capacity(self.header.len());
+
+        for i in 0..self.header.len() {
+            for index in indexes {
+                match &self.columns[i] {
+                    DbVec::Ints(column) => {
+                        let mut temp = Vec::with_capacity(indexes.len());
+                        for index in indexes {
+                            temp.push(column[*index].clone());
+                        }
+                        result_columns.push(DbVec::Ints(temp));
+                    },
+                    DbVec::Floats(column) => {
+                        let mut temp = Vec::with_capacity(indexes.len());
+                        for index in indexes {
+                            temp.push(column[*index].clone());
+                        }
+                        result_columns.push(DbVec::Floats(temp));
+                    },
+                    DbVec::Texts(column) => {
+                        let mut temp = Vec::with_capacity(indexes.len());
+                        for index in indexes {
+                            temp.push(column[*index].clone());
+                        }
+                        result_columns.push(DbVec::Texts(temp));
+                    },
+                }
+            }
+        }
+
+        EZTable {
+            metadata: Metadata::new("QUERY"),
+            name: new_name.clone(),
+            header: self.header.clone(),
+            columns: result_columns,
+        }
+    }
+
     /// Gets a range of items from the table and returns a csv String containing them
     pub fn query_range(&self, range: (&str, &str)) -> Result<String, StrictError> {
         let mut printer = String::new();
@@ -1078,7 +1117,7 @@ impl EZTable {
     pub fn create_subtable(&self, start: usize, stop: usize) -> EZTable {
 
         assert!(stop <= self.len());
-        assert!(stop > start);
+        assert!(stop >= start);
 
         let mut subtable = Vec::with_capacity(self.columns.len());
 

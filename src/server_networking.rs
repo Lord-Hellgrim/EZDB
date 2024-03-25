@@ -300,7 +300,6 @@ pub fn execute_single_EZQL_query(query: ezql::Query, database: Arc<Database>) ->
                                         }
                                     },
                                 }
-    
                             }
                         } else {
                             let mut losers = Vec::new();
@@ -359,6 +358,7 @@ pub fn execute_single_EZQL_query(query: ezql::Query, database: Arc<Database>) ->
                     },
                 }
             }
+            
         },
         ezql::QueryType::LEFT_JOIN => todo!(),
         ezql::QueryType::INNER_JOIN => todo!(),
