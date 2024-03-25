@@ -696,8 +696,8 @@ impl EZTable {
         self_primary_key_index
     }
 
-    pub fn get_column_index(&self, name: KeyString) -> Result<usize, StrictError> {
-        match self.header.iter().position(|x| x.name == name) {
+    pub fn get_column_index(&self, name: &KeyString) -> Result<usize, StrictError> {
+        match self.header.iter().position(|x| x.name == *name) {
             Some(x) => Ok(x),
             None => return Err(StrictError::WrongKey)
         }
@@ -1611,7 +1611,7 @@ fn rearrange_by_index<T: Clone>(col: &mut Vec<T>, indexer: &[usize]) {
 }
 
 /// Helper function to remove indices in batches.
-fn remove_indices<T>(vec: &mut Vec<T>, indices: &[usize]) {
+pub fn remove_indices<T>(vec: &mut Vec<T>, indices: &[usize]) {
     let indices_set: HashSet<_> = indices.iter().cloned().collect();
     let mut shift = 0;
 

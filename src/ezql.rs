@@ -397,7 +397,6 @@ impl Condition {
 pub enum Operator {
     AND,
     OR,
-    NOT,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -411,6 +410,7 @@ pub enum OpOrCond {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Test {
     Equals(KeyString),
+    NotEquals(KeyString),
     Less(KeyString),
     Greater(KeyString),
     Starts(KeyString),
@@ -423,6 +423,7 @@ impl Test {
     pub fn new(input: &str, bar: &str) -> Self {
         match input {
             "equals" => Test::Equals(KeyString::from(bar)),
+            "not_equals" => Test::NotEquals(KeyString::from(bar)),
             "less" => Test::Less(KeyString::from(bar)),
             "greater" => Test::Greater(KeyString::from(bar)),
             "starts" => Test::Starts(KeyString::from(bar)),
@@ -566,7 +567,6 @@ pub fn parse_EZQL(query_string: &str) -> Result<Vec<Query>, QueryError> {
                             match block {
                                 "AND" => op_or_cond_queue.push(OpOrCond::Op(Operator::AND)),
                                 "OR" => op_or_cond_queue.push(OpOrCond::Op(Operator::OR)),
-                                "NOT" => op_or_cond_queue.push(OpOrCond::Op(Operator::NOT)),
                                 other => {
                                     op_or_cond_queue.push(OpOrCond::Cond(Condition::from_str(other)?));
                                 }

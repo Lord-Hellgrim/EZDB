@@ -12,9 +12,9 @@ use crate::aes_temp_crypto::decrypt_aes256;
 use crate::auth::{user_has_permission, AuthenticationError, Permission, User};
 use crate::disk_utilities::{BufferPool, MAX_BUFFERPOOL_SIZE};
 use crate::networking_utilities::*;
-use crate::db_structure::{EZTable, DbVec, KeyString, Metadata, StrictError, Value};
+use crate::db_structure::{remove_indices, DbVec, EZTable, KeyString, Metadata, StrictError, Value};
 use crate::handlers::*;
-use crate::ezql::{self, parse_EZQL};
+use crate::ezql::{self, parse_EZQL, OpOrCond, Operator};
 use crate::PATH_SEP;
 
 pub const CONFIG_FOLDER: &str = "EZconfig/";
@@ -241,21 +241,124 @@ pub fn execute_single_EZQL_query(query: ezql::Query, database: Arc<Database>) ->
 
             } // Match primary keys
 
-            for condition in query.conditions {
+            let mut keepers = Vec::<usize>::new();
+            let mut current_op = Operator::OR;
+            for condition in query.conditions.iter() {
                 match condition {
-                    ezql::OpOrCond::Cond(cond) => {
-                        let column = &table.columns[table.get_column_index(cond.attribute)?];
-                        match column {
-                            // #################### I AM HERE ##############################################
-                            DbVec::Ints(_) => todo!(),
-                            DbVec::Floats(_) => todo!(),
-                            DbVec::Texts(_) => todo!(),
+                    OpOrCond::Op(op) => current_op = *op,
+                    OpOrCond::Cond(cond) => {
+                        let tables = database.buffer_pool.tables.read().unwrap();
+                        let table = tables.get(&query.table).unwrap().read().unwrap();
+                        let column = &table.columns[table.get_column_index(&cond.attribute)?];
+                        if current_op == Operator::OR {
+                            for index in &indexes {
+                                match &cond.test {
+                                    ezql::Test::Equals(bar) => {
+                                        match column {
+                                            DbVec::Ints(col) => if col[*index] == bar.to_i32() {keepers.push(*index)},
+                                            DbVec::Floats(col) => if col[*index] == bar.to_f32() {keepers.push(*index)},
+                                            DbVec::Texts(col) => if col[*index] == *bar {keepers.push(*index)},
+                                        }
+                                    },
+                                    ezql::Test::NotEquals(bar) => {
+                                        match column {
+                                            DbVec::Ints(col) => if col[*index] != bar.to_i32() {keepers.push(*index)},
+                                            DbVec::Floats(col) => if col[*index] != bar.to_f32() {keepers.push(*index)},
+                                            DbVec::Texts(col) => if col[*index] != *bar {keepers.push(*index)},
+                                        }
+                                    },
+                                    ezql::Test::Less(bar) => {
+                                        match column {
+                                            DbVec::Ints(col) => if col[*index] < bar.to_i32() {keepers.push(*index)},
+                                            DbVec::Floats(col) => if col[*index] < bar.to_f32() {keepers.push(*index)},
+                                            DbVec::Texts(col) => if col[*index] < *bar {keepers.push(*index)},
+                                        }
+                                    },
+                                    ezql::Test::Greater(bar) => {
+                                        match column {
+                                            DbVec::Ints(col) => if col[*index] > bar.to_i32() {keepers.push(*index)},
+                                            DbVec::Floats(col) => if col[*index] > bar.to_f32() {keepers.push(*index)},
+                                            DbVec::Texts(col) => if col[*index] > *bar {keepers.push(*index)},
+                                        }
+                                    },
+                                    ezql::Test::Starts(bar) => {
+                                        match column {
+                                            DbVec::Texts(col) => if col[*index].as_str().starts_with(bar.as_str()) {keepers.push(*index)},
+                                            _ => return Err(ServerError::Query),
+                                        }
+                                    },
+                                    ezql::Test::Ends(bar) => {
+                                        match column {
+                                            DbVec::Texts(col) => if col[*index].as_str().ends_with(bar.as_str()) {keepers.push(*index)},
+                                            _ => return Err(ServerError::Query),
+                                        }
+                                    },
+                                    ezql::Test::Contains(bar) => {
+                                        match column {
+                                            DbVec::Texts(col) => if col[*index].as_str().contains(bar.as_str()) {keepers.push(*index)},
+                                            _ => return Err(ServerError::Query),
+                                        }
+                                    },
+                                }
+    
+                            }
+                        } else {
+                            let mut losers = Vec::new();
+                            for keeper in &keepers {
+                                match &cond.test {
+                                    ezql::Test::Equals(bar) => {
+                                        match column {
+                                            DbVec::Ints(col) => if col[*keeper] == bar.to_i32() {losers.push(*keeper)},
+                                            DbVec::Floats(col) => if col[*keeper] == bar.to_f32() {losers.push(*keeper)},
+                                            DbVec::Texts(col) => if col[*keeper] == *bar {losers.push(*keeper)},
+                                        }
+                                    },
+                                    ezql::Test::NotEquals(bar) => {
+                                        match column {
+                                            DbVec::Ints(col) => if col[*keeper] != bar.to_i32() {losers.push(*keeper)},
+                                            DbVec::Floats(col) => if col[*keeper] != bar.to_f32() {losers.push(*keeper)},
+                                            DbVec::Texts(col) => if col[*keeper] != *bar {losers.push(*keeper)},
+                                        }
+                                    },
+                                    ezql::Test::Less(bar) => {
+                                        match column {
+                                            DbVec::Ints(col) => if col[*keeper] < bar.to_i32() {losers.push(*keeper)},
+                                            DbVec::Floats(col) => if col[*keeper] < bar.to_f32() {losers.push(*keeper)},
+                                            DbVec::Texts(col) => if col[*keeper] < *bar {losers.push(*keeper)},
+                                        }
+                                    },
+                                    ezql::Test::Greater(bar) => {
+                                        match column {
+                                            DbVec::Ints(col) => if col[*keeper] > bar.to_i32() {losers.push(*keeper)},
+                                            DbVec::Floats(col) => if col[*keeper] > bar.to_f32() {losers.push(*keeper)},
+                                            DbVec::Texts(col) => if col[*keeper] > *bar {losers.push(*keeper)},
+                                        }
+                                    },
+                                    ezql::Test::Starts(bar) => {
+                                        match column {
+                                            DbVec::Texts(col) => if col[*keeper].as_str().starts_with(bar.as_str()) {losers.push(*keeper)},
+                                            _ => return Err(ServerError::Query),
+                                        }
+                                    },
+                                    ezql::Test::Ends(bar) => {
+                                        match column {
+                                            DbVec::Texts(col) => if col[*keeper].as_str().ends_with(bar.as_str()) {losers.push(*keeper)},
+                                            _ => return Err(ServerError::Query),
+                                        }
+                                    },
+                                    ezql::Test::Contains(bar) => {
+                                        match column {
+                                            DbVec::Texts(col) => if col[*keeper].as_str().contains(bar.as_str()) {losers.push(*keeper)},
+                                            _ => return Err(ServerError::Query),
+                                        }
+                                    },
+                                }
+                            }
+                            remove_indices(&mut keepers, &losers);
                         }
                     },
-                    ezql::OpOrCond::Op(op) => todo!(),
                 }
             }
-
         },
         ezql::QueryType::LEFT_JOIN => todo!(),
         ezql::QueryType::INNER_JOIN => todo!(),
