@@ -38,6 +38,7 @@ pub enum ServerError {
     Decompression(miniz_oxide::inflate::DecompressError),
     Query,
     NoMoreBufferSpace(usize),
+    Unimplemented(String),
 }
 
 impl fmt::Display for ServerError {
@@ -56,6 +57,7 @@ impl fmt::Display for ServerError {
             ServerError::Decompression(e) => write!(f, "Decompression error occurred from miniz_oxide library.\nLibrary error: {}", e),
             ServerError::Query => write!(f, "Query was incorrectly formatted"),
             ServerError::NoMoreBufferSpace(x) => write!(f, "No more space in buffer pool. Need to free {x} bytes"),
+            ServerError::Unimplemented(s) => write!(f, "{}", s),
 
         }
     }

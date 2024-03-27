@@ -895,6 +895,7 @@ impl EZTable {
 
         for i in 0..self.header.len() {
             for index in indexes {
+                assert!(*index < self.len());
                 match &self.columns[i] {
                     DbVec::Ints(column) => {
                         let mut temp = Vec::with_capacity(indexes.len());
@@ -1333,6 +1334,23 @@ impl EZTable {
         self.metadata.update_size(&self.header, &self.columns);
 
         Ok(())
+    }
+
+    pub fn delete_by_indexes(&mut self, indexes: &[usize]) {
+        let imut = self.columns.iter_mut();
+        for col in imut {
+            match col {
+                DbVec::Floats(v) => {
+                    remove_indices(v, &indexes);
+                }
+                DbVec::Ints(v) => {
+                    remove_indices(v, &indexes);
+                }
+                DbVec::Texts(v) => {
+                    remove_indices(v, &indexes);
+                }
+            };
+        }
     }
 
     /// Deletes a single row from the table by primary key

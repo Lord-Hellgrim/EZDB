@@ -158,7 +158,9 @@
 
 */
 
-use crate::db_structure::KeyString;
+use std::sync::Arc;
+
+use crate::{db_structure::{remove_indices, DbVec, EZTable, KeyString}, networking_utilities::ServerError, server_networking::Database};
 
 
 #[derive(Debug, PartialEq)]
@@ -671,8 +673,302 @@ pub fn parse_contained_token<'a>(s: &'a str, container_open: char, container_clo
 }
 
 
-#[cfg(test)]
+pub fn execute_single_EZQL_query(query: Query, database: Arc<Database>) -> Result<EZTable, ServerError> {
 
+    match query.query_type {
+        QueryType::DELETE => {
+            execute_delete_query(query, database)
+        },
+        QueryType::SELECT => {
+            execute_select_query(query, database)
+        },
+        QueryType::LEFT_JOIN => {
+            execute_left_join_query(query, database)
+        },
+        QueryType::INNER_JOIN => {
+            execute_inner_join_query(query, database)
+        },
+        QueryType::RIGHT_JOIN => {
+            execute_right_join_query(query, database)
+        },
+        QueryType::FULL_JOIN => {
+            execute_full_join_query(query, database)
+        },
+        QueryType::UPDATE => {
+            execute_update_query(query, database)
+        },
+        QueryType::INSERT => {
+            execute_insert_query(query, database)
+        },
+    }
+}
+
+fn execute_delete_query(query: Query, database: Arc<Database>) -> Result<EZTable, ServerError> {
+    let tables = database.buffer_pool.tables.read().unwrap();
+    let mut table = tables.get(&query.table).unwrap().write().unwrap();
+    let keepers = filter_keepers(query, &table)?;
+    table.delete_by_indexes(&keepers);
+
+    Ok(
+        table.clone()
+    )
+}
+
+fn execute_left_join_query(query: Query, database: Arc<Database>) -> Result<EZTable, ServerError> {
+    let tables = database.buffer_pool.tables.read().unwrap();
+    let table = tables.get(&query.table).unwrap().read().unwrap();
+    let keepers = filter_keepers(query, &table)?;
+    return Err(ServerError::Unimplemented("Joins are not yet implemented".to_owned()));
+    
+}
+
+fn execute_inner_join_query(query: Query, database: Arc<Database>) -> Result<EZTable, ServerError> {
+    let tables = database.buffer_pool.tables.read().unwrap();
+    let table = tables.get(&query.table).unwrap().read().unwrap();
+    let keepers = filter_keepers(query, &table)?;
+
+    return Err(ServerError::Unimplemented("Joins are not yet implemented".to_owned()));
+}
+
+fn execute_right_join_query(query: Query, database: Arc<Database>) -> Result<EZTable, ServerError> {
+    let tables = database.buffer_pool.tables.read().unwrap();
+    let table = tables.get(&query.table).unwrap().read().unwrap();
+    let keepers = filter_keepers(query, &table)?;
+
+    return Err(ServerError::Unimplemented("Joins are not yet implemented".to_owned()));
+}
+
+fn execute_full_join_query(query: Query, database: Arc<Database>) -> Result<EZTable, ServerError> {
+    let tables = database.buffer_pool.tables.read().unwrap();
+    let table = tables.get(&query.table).unwrap().read().unwrap();
+    let keepers = filter_keepers(query, &table)?;
+
+    return Err(ServerError::Unimplemented("Joins are not yet implemented".to_owned()));
+}
+
+fn execute_update_query(query: Query, database: Arc<Database>) -> Result<EZTable, ServerError> {
+    let tables = database.buffer_pool.tables.read().unwrap();
+    let table = tables.get(&query.table).unwrap().read().unwrap();
+    let keepers = filter_keepers(query, &table)?;
+
+    Ok(
+        table.subtable_from_indexes(&keepers, &KeyString::from("RESULT"))
+    )
+}
+
+fn execute_insert_query(query: Query, database: Arc<Database>) -> Result<EZTable, ServerError> {
+    let tables = database.buffer_pool.tables.read().unwrap();
+    let table = tables.get(&query.table).unwrap().read().unwrap();
+    let keepers = filter_keepers(query, &table)?;
+
+    Ok(
+        table.subtable_from_indexes(&keepers, &KeyString::from("RESULT"))
+    )
+}
+
+fn execute_select_query(query: Query, database: Arc<Database>) -> Result<EZTable, ServerError> {
+    let tables = database.buffer_pool.tables.read().unwrap();
+    let table = tables.get(&query.table).unwrap().read().unwrap();
+
+    let keepers = filter_keepers(query, &table)?;
+
+    Ok(
+        table.subtable_from_indexes(&keepers, &KeyString::from("RESULT"))
+    )
+}
+
+
+pub fn filter_keepers(query: Query, table: &EZTable) -> Result<Vec<usize>, ServerError> {
+    let mut indexes = Vec::new();
+
+    match query.primary_keys {
+        RangeOrListorAll::Range(start, stop) => {
+            match &table.columns[table.get_primary_key_col_index()] {
+                DbVec::Ints(column) => {
+                    let first = match column.binary_search(&start.to_i32()) {
+                        Ok(x) => x,
+                        Err(x) => x,
+                    };
+                    let last = match column.binary_search(&stop.to_i32()) {
+                        Ok(x) => x,
+                        Err(x) => x,
+                    };
+                    indexes = (first..last).collect();
+                },
+                DbVec::Texts(column) => {
+                    let first = match column.binary_search(&start) {
+                        Ok(x) => x,
+                        Err(x) => x,
+                    };
+                    let last = match column.binary_search(&stop) {
+                        Ok(x) => x,
+                        Err(x) => x,
+                    };
+                    indexes = (first..last).collect();
+                },
+                DbVec::Floats(_n) => {
+                    unreachable!("There should never be a float primary key")
+                },
+            }
+        },
+        RangeOrListorAll::List(mut keys) => {
+            match &table.columns[table.get_primary_key_col_index()] {
+                DbVec::Ints(column) => {
+                    if keys.len() > column.len() {
+                        return Err(ServerError::Query)
+                    }
+                    keys.sort();
+                    let mut key_index: usize = 0;
+                    for index in 0..column.len() {
+                        if column[index] == keys[key_index].to_i32() {
+                            indexes.push(index);
+                            key_index += 1;
+                        }
+                    }
+                },
+                DbVec::Floats(_) => {
+                    unreachable!("There should never be a float primary key")
+                },
+                DbVec::Texts(column) => {
+                    if keys.len() > column.len() {
+                        return Err(ServerError::Query)
+                    }
+                    keys.sort();
+                    let mut key_index = 0;
+                    for index in 0..column.len() {
+                        if column[index] == keys[key_index] {
+                            indexes.push(index);
+                            key_index += 1;
+                        }
+                    }
+                },
+            }
+        },
+        RangeOrListorAll::All => indexes = (0..table.len()).collect(),
+
+    } // Match primary keys
+
+    let mut keepers = Vec::<usize>::new();
+    let mut current_op = Operator::OR;
+    for condition in query.conditions.iter() {
+        match condition {
+            OpOrCond::Op(op) => current_op = *op,
+            OpOrCond::Cond(cond) => {
+                let column = &table.columns[table.get_column_index(&cond.attribute)?];
+                if current_op == Operator::OR {
+                    for index in &indexes {
+                        match &cond.test {
+                            Test::Equals(bar) => {
+                                match column {
+                                    DbVec::Ints(col) => if col[*index] == bar.to_i32() {keepers.push(*index)},
+                                    DbVec::Floats(col) => if col[*index] == bar.to_f32() {keepers.push(*index)},
+                                    DbVec::Texts(col) => if col[*index] == *bar {keepers.push(*index)},
+                                }
+                            },
+                            Test::NotEquals(bar) => {
+                                match column {
+                                    DbVec::Ints(col) => if col[*index] != bar.to_i32() {keepers.push(*index)},
+                                    DbVec::Floats(col) => if col[*index] != bar.to_f32() {keepers.push(*index)},
+                                    DbVec::Texts(col) => if col[*index] != *bar {keepers.push(*index)},
+                                }
+                            },
+                            Test::Less(bar) => {
+                                match column {
+                                    DbVec::Ints(col) => if col[*index] < bar.to_i32() {keepers.push(*index)},
+                                    DbVec::Floats(col) => if col[*index] < bar.to_f32() {keepers.push(*index)},
+                                    DbVec::Texts(col) => if col[*index] < *bar {keepers.push(*index)},
+                                }
+                            },
+                            Test::Greater(bar) => {
+                                match column {
+                                    DbVec::Ints(col) => if col[*index] > bar.to_i32() {keepers.push(*index)},
+                                    DbVec::Floats(col) => if col[*index] > bar.to_f32() {keepers.push(*index)},
+                                    DbVec::Texts(col) => if col[*index] > *bar {keepers.push(*index)},
+                                }
+                            },
+                            Test::Starts(bar) => {
+                                match column {
+                                    DbVec::Texts(col) => if col[*index].as_str().starts_with(bar.as_str()) {keepers.push(*index)},
+                                    _ => return Err(ServerError::Query),
+                                }
+                            },
+                            Test::Ends(bar) => {
+                                match column {
+                                    DbVec::Texts(col) => if col[*index].as_str().ends_with(bar.as_str()) {keepers.push(*index)},
+                                    _ => return Err(ServerError::Query),
+                                }
+                            },
+                            Test::Contains(bar) => {
+                                match column {
+                                    DbVec::Texts(col) => if col[*index].as_str().contains(bar.as_str()) {keepers.push(*index)},
+                                    _ => return Err(ServerError::Query),
+                                }
+                            },
+                        }
+                    }
+                } else {
+                    let mut losers = Vec::new();
+                    for keeper in &keepers {
+                        match &cond.test {
+                            Test::Equals(bar) => {
+                                match column {
+                                    DbVec::Ints(col) => if col[*keeper] == bar.to_i32() {losers.push(*keeper)},
+                                    DbVec::Floats(col) => if col[*keeper] == bar.to_f32() {losers.push(*keeper)},
+                                    DbVec::Texts(col) => if col[*keeper] == *bar {losers.push(*keeper)},
+                                }
+                            },
+                            Test::NotEquals(bar) => {
+                                match column {
+                                    DbVec::Ints(col) => if col[*keeper] != bar.to_i32() {losers.push(*keeper)},
+                                    DbVec::Floats(col) => if col[*keeper] != bar.to_f32() {losers.push(*keeper)},
+                                    DbVec::Texts(col) => if col[*keeper] != *bar {losers.push(*keeper)},
+                                }
+                            },
+                            Test::Less(bar) => {
+                                match column {
+                                    DbVec::Ints(col) => if col[*keeper] < bar.to_i32() {losers.push(*keeper)},
+                                    DbVec::Floats(col) => if col[*keeper] < bar.to_f32() {losers.push(*keeper)},
+                                    DbVec::Texts(col) => if col[*keeper] < *bar {losers.push(*keeper)},
+                                }
+                            },
+                            Test::Greater(bar) => {
+                                match column {
+                                    DbVec::Ints(col) => if col[*keeper] > bar.to_i32() {losers.push(*keeper)},
+                                    DbVec::Floats(col) => if col[*keeper] > bar.to_f32() {losers.push(*keeper)},
+                                    DbVec::Texts(col) => if col[*keeper] > *bar {losers.push(*keeper)},
+                                }
+                            },
+                            Test::Starts(bar) => {
+                                match column {
+                                    DbVec::Texts(col) => if col[*keeper].as_str().starts_with(bar.as_str()) {losers.push(*keeper)},
+                                    _ => return Err(ServerError::Query),
+                                }
+                            },
+                            Test::Ends(bar) => {
+                                match column {
+                                    DbVec::Texts(col) => if col[*keeper].as_str().ends_with(bar.as_str()) {losers.push(*keeper)},
+                                    _ => return Err(ServerError::Query),
+                                }
+                            },
+                            Test::Contains(bar) => {
+                                match column {
+                                    DbVec::Texts(col) => if col[*keeper].as_str().contains(bar.as_str()) {losers.push(*keeper)},
+                                    _ => return Err(ServerError::Query),
+                                }
+                            },
+                        }
+                    }
+                    remove_indices(&mut keepers, &losers);
+                }
+            },
+        }
+    }
+
+    Ok(keepers)
+}
+
+
+#[cfg(test)]
 mod tests {
 
     use super::*;
