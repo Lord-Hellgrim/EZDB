@@ -324,8 +324,8 @@ pub enum DbType {
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub enum DbVec {
     Ints(Vec<i32>),
-    Floats(Vec<f32>),
     Texts(Vec<KeyString>),
+    Floats(Vec<f32>),
 }
 
 impl Display for DbVec {
@@ -398,9 +398,6 @@ pub enum TableKey {
 
 
 /// This is the main data structure of EZDB. It represents a table as a list of columns.
-/// The reason I chose to use a list of columns rather than a list of rows, is that it
-/// was much faster on all my benchmarks. I guess a list of columns is much more cache
-/// efficient. I am interested in feedback on this.
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub struct EZTable {
     pub metadata: Metadata,
@@ -705,6 +702,7 @@ impl EZTable {
 
     /// Updates a ColumnTable. Overwrites existing keys and adds new ones in proper order
     pub fn update(&mut self, other_table: &EZTable) -> Result<(), StrictError> {
+
         if self.header != other_table.header {
             return Err(StrictError::Update("Headers don't match".to_owned()));
         }
@@ -759,6 +757,53 @@ impl EZTable {
         self.metadata.update_size(&self.header, &self.columns);
 
         Ok(())
+    }
+
+    pub fn insert(&mut self, insert_table: EZTable) {
+        for head in insert_table.header {
+            if !self.header.contains(&head) {
+                break
+            }
+        }
+
+        let mut losers: Vec<usize> = Vec::new();
+        match insert_table.columns[insert_table.get_primary_key_col_index()] {
+            DbVec::Ints(column) => {
+                for (index, key) in column.iter().enumerate() {
+                    match self.key_index(key) {
+                        Some(index) => losers.push(index),
+                        None => (),
+                    }
+                }
+            },
+            DbVec::Texts(column) => {
+                for (index, key) in column.iter().enumerate() {
+                    match self.key_index(key) {
+                        Some(index) => losers.push(index),
+                        None => (),
+                    }
+                }
+            },
+            DbVec::Floats(column) => unreachable!("There should never be a primary key"),
+        };
+    }
+
+    pub fn key_index(&self, key: &KeyString) -> Option<usize> {
+        match self.columns[self.get_primary_key_col_index()] {
+            DbVec::Ints(column) => {
+                match column.binary_search(&key.to_i32()) {
+                    Ok(x) => Some(x),
+                    Err(_) => None
+                }
+            },
+            DbVec::Texts(column) => {
+                match column.binary_search(key) {
+                    Ok(x) => Some(x),
+                    Err(_) => None
+                }
+            },
+            DbVec::Floats(column) => unreachable!("The should never be a primary key"),
+        }
     }
 
     /// Utility function to get the length of the database columns.
