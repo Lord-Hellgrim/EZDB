@@ -12,7 +12,7 @@ use crate::aes_temp_crypto::decrypt_aes256;
 use crate::auth::{user_has_permission, AuthenticationError, Permission, User};
 use crate::disk_utilities::{BufferPool, MAX_BUFFERPOOL_SIZE};
 use crate::networking_utilities::*;
-use crate::db_structure::{remove_indices, DbVec, EZTable, KeyString, Metadata, StrictError, Value};
+use crate::db_structure::{remove_indices, DbColumn, EZTable, KeyString, Metadata, StrictError, Value};
 use crate::handlers::*;
 use crate::ezql::{self, parse_EZQL, OpOrCond, Operator};
 use crate::PATH_SEP;
@@ -175,7 +175,7 @@ pub enum WriteThreadMessage {
     NewKeyValue(KeyString, Value),
     UpdateKeyValue(KeyString, Value),
     NewTable(EZTable),
-    DeleteRows(KeyString, DbVec),
+    DeleteRows(KeyString, DbColumn),
     UpdateTable(KeyString, EZTable),
 }
 

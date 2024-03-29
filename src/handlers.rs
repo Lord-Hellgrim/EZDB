@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, io::Write, sync::{Arc, RwLock}, thread::current};
 
-use crate::{auth::User, db_structure::{EZTable, DbVec, KeyString, Metadata, Value}, networking_utilities::*, server_networking::{Server, WriteThreadMessage, CONFIG_FOLDER}};
+use crate::{auth::User, db_structure::{EZTable, DbColumn, KeyString, Metadata, Value}, networking_utilities::*, server_networking::{Server, WriteThreadMessage, CONFIG_FOLDER}};
 
 use crate::PATH_SEP;
 

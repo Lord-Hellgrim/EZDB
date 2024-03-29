@@ -1,9 +1,7 @@
 use std::{
-    collections::HashSet, fmt::{self, Debug, Display}, fs::File, io::{Read, Write}
+    collections::{BTreeMap, HashSet}, fmt::{self, Debug, Display}, fs::File, io::{Read, Write}
 };
 
-use aes_gcm::Key;
-use ron::value::Float;
 // use smartstring::{LazyCompact, SmartString, };
 
 use crate::networking_utilities::*;
@@ -248,7 +246,7 @@ impl Metadata {
         }
     }
 
-    pub fn from_table(client: &str, header: &Vec<HeaderItem>, table: &Vec<DbVec>) -> Metadata {
+    pub fn from_table(client: &str, header: &Vec<HeaderItem>, table: &BTreeMap<KeyString, DbColumn>) -> Metadata {
         let size_of_row = header.iter().fold(0, |acc: usize, x| {
             match x.kind {
                 DbType::Float => acc + 4,
@@ -258,10 +256,10 @@ impl Metadata {
         });
 
         let size_of_table = table.iter().fold(0, |acc: usize, x| {
-            match x {
-                DbVec::Ints(v) => acc + v.len() * 4,
-                DbVec::Floats(v) => acc + v.len() * 4,
-                DbVec::Texts(v) => acc + v.len() * 64,
+            match x.1 {
+                DbColumn::Ints(v) => acc + v.len() * 4,
+                DbColumn::Floats(v) => acc + v.len() * 4,
+                DbColumn::Texts(v) => acc + v.len() * 64,
             }
         });
 
@@ -275,7 +273,7 @@ impl Metadata {
     }
 
     #[inline]
-    pub fn update_size(&mut self, header: &Vec<HeaderItem>, table: &Vec<DbVec>) {
+    pub fn update_size(&mut self, header: &Vec<HeaderItem>, table: &BTreeMap<KeyString, DbColumn>) {
         self.size_of_row = header.iter().fold(0, |acc: usize, x| {
             match x.kind {
                 DbType::Float => acc + 4,
@@ -285,10 +283,10 @@ impl Metadata {
         });
 
         self.size_of_table = table.iter().fold(0, |acc: usize, x| {
-            match x {
-                DbVec::Ints(v) => acc + v.len() * 4,
-                DbVec::Floats(v) => acc + v.len() * 4,
-                DbVec::Texts(v) => acc + v.len() * 64,
+            match x.1 {
+                DbColumn::Ints(v) => acc + v.len() * 4,
+                DbColumn::Floats(v) => acc + v.len() * 4,
+                DbColumn::Texts(v) => acc + v.len() * 64,
             }
         });
     }
@@ -322,35 +320,35 @@ pub enum DbType {
 
 /// A single column in a database table.
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
-pub enum DbVec {
+pub enum DbColumn {
     Ints(Vec<i32>),
     Texts(Vec<KeyString>),
     Floats(Vec<f32>),
 }
 
-impl Display for DbVec {
+impl Display for DbColumn {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DbVec::Ints(v) => write!(f, "{:?}", v),
-            DbVec::Floats(v) => write!(f, "{:?}", v),
-            DbVec::Texts(v) => write!(f, "{:?}", v),
+            DbColumn::Ints(v) => write!(f, "{:?}", v),
+            DbColumn::Floats(v) => write!(f, "{:?}", v),
+            DbColumn::Texts(v) => write!(f, "{:?}", v),
         }
     }
 }
 
-impl DbVec {
+impl DbColumn {
     pub fn len(&self) -> usize {
         match self {
-            DbVec::Floats(v) => v.len(),
-            DbVec::Ints(v) => v.len(),
-            DbVec::Texts(v) => v.len(),
+            DbColumn::Floats(v) => v.len(),
+            DbColumn::Ints(v) => v.len(),
+            DbColumn::Texts(v) => v.len(),
         }
     }
 }
 
 /// The header of a database column. Identifies name, type, and whether it is the primary key,
 /// a forreign key or just a regular ol' entry
-#[derive(Clone, Debug, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct HeaderItem {
     pub name: KeyString,
     pub kind: DbType,
@@ -403,7 +401,7 @@ pub struct EZTable {
     pub metadata: Metadata,
     pub name: KeyString,
     pub header: Vec<HeaderItem>,
-    pub columns: Vec<DbVec>,
+    pub columns: BTreeMap<KeyString, DbColumn>,
 }
 
 /// Prints the ColumnTable as a csv (separated by semicolons ;)
@@ -419,19 +417,19 @@ impl Display for EZTable {
         printer.push('\n');
 
         for i in 0..(self.len()) {
-            for vec in &self.columns {
+            for vec in self.columns.values() {
                 match vec {
-                    DbVec::Floats(col) => {
+                    DbColumn::Floats(col) => {
                         // println!("float: col.len(): {}", col.len());
                         printer.push_str(&col[i].to_string());
                         printer.push(';');
                     }
-                    DbVec::Ints(col) => {
+                    DbColumn::Ints(col) => {
                         // println!("int: col.len(): {}", col.len());
                         printer.push_str(&col[i].to_string());
                         printer.push(';');
                     }
-                    DbVec::Texts(col) => {
+                    DbColumn::Texts(col) => {
                         // println!("text: col.len(): {}", col.len());
                         printer.push_str(col[i].as_str());
                         printer.push(';');
@@ -537,6 +535,7 @@ impl EZTable {
             header.push(header_item);
         }
 
+        
         if !primary_key_set {
             match header[0].kind {
                 DbType::Int => header[0].key = TableKey::Primary,
@@ -565,7 +564,7 @@ impl EZTable {
             line_index += 1;
         }
 
-        let mut result = Vec::new();
+        let mut result = BTreeMap::new();
         let mut i = 0;
         for col in data {
             let db_vec = match header[i].kind {
@@ -583,7 +582,7 @@ impl EZTable {
                         outvec.push(temp);
                         index += 1;
                     }
-                    DbVec::Floats(outvec)
+                    DbColumn::Floats(outvec)
                 }
                 DbType::Int => {
                     let mut outvec = Vec::with_capacity(col.len());
@@ -597,29 +596,31 @@ impl EZTable {
                         outvec.push(temp);
                         index += 1;
                     }
-                    DbVec::Ints(outvec)
+                    DbColumn::Ints(outvec)
                 }
                 DbType::Text => {
                     let mut outvec = Vec::with_capacity(col.len());
                     for cell in col {
                         outvec.push(KeyString::from(cell));
                     }
-                    DbVec::Texts(outvec)
+                    DbColumn::Texts(outvec)
                 }
             };
 
-            result.push(db_vec);
+            result.insert(header[i].name.clone(), db_vec);
             i += 1;
         }
 
-        let mut primary_key_index = 0;
-        for (index, item) in header.iter().enumerate() {
+        let mut primary_key_index: KeyString = KeyString::from("");
+        for item in header.iter() {
             if item.key == TableKey::Primary {
-                primary_key_index = index;
+                primary_key_index = item.name.clone();
+            } else {
+                return Err(StrictError::WrongKey)
             }
         }
-        match &result[primary_key_index] {
-            DbVec::Ints(col) => {
+        match &result[&primary_key_index] {
+            DbColumn::Ints(col) => {
                 let mut i = 1;
                 while i < col.len() {
                     if col[i] == col[i - 1] {
@@ -628,7 +629,7 @@ impl EZTable {
                     i += 1;
                 }
             }
-            DbVec::Texts(col) => {
+            DbColumn::Texts(col) => {
                 let mut i = 1;
                 while i < col.len() {
                     if col[i] == col[i - 1] {
@@ -637,7 +638,7 @@ impl EZTable {
                     i += 1;
                 }
             }
-            DbVec::Floats(_) => unreachable!("Should never have a float primary key"),
+            DbColumn::Floats(_) => unreachable!("Should never have a float primary key"),
         }
 
         let mut output = EZTable {
@@ -667,11 +668,11 @@ impl EZTable {
             total += item.name.as_bytes().len();
             total += 16; // DbType and TableKey are both raw enums which are 8 bytes in memory for the tag.
         }
-        for column in &self.columns {
+        for column in self.columns.values() {
             match column {
-                DbVec::Ints(c) => total += c.len() * 4,
-                DbVec::Floats(c) => total += c.len() * 4,
-                DbVec::Texts(c) => total += c.len() * 64,
+                DbColumn::Ints(c) => total += c.len() * 4,
+                DbColumn::Floats(c) => total += c.len() * 4,
+                DbColumn::Texts(c) => total += c.len() * 64,
             }
         }
 
@@ -679,18 +680,15 @@ impl EZTable {
     }
 
     /// utility function to get the index of the column with the primary key
-    pub fn get_primary_key_col_index(&self) -> usize {
-        let mut self_primary_key_index = 0;
-
-        let mut i = 0;
+    pub fn get_primary_key_col_index(&self) -> KeyString {
+        
         for item in &self.header {
             if item.key == TableKey::Primary {
-                self_primary_key_index = i;
+                return item.name.clone();
             }
-            i += 1;
         }
 
-        self_primary_key_index
+        unreachable!("There should always be a primary key")
     }
 
     pub fn get_column_index(&self, name: &KeyString) -> Result<usize, StrictError> {
@@ -712,41 +710,38 @@ impl EZTable {
         let minlen = std::cmp::min(self.columns.len(), other_table.columns.len());
 
         let record_vec: Vec<u8>;
-        match &mut self.columns[self_primary_key_index] {
-            DbVec::Ints(col) => match &other_table.columns[self_primary_key_index] {
-                DbVec::Ints(other_col) => {
+        match self.columns.get_mut(&self_primary_key_index).unwrap() {
+            DbColumn::Ints(col) => match &other_table.columns[&self_primary_key_index] {
+                DbColumn::Ints(other_col) => {
                     (*col, record_vec) = merge_sorted(col, other_col);
                 }
                 _ => unreachable!("Should always have the same primary key column"),
             },
-            DbVec::Texts(col) => match &other_table.columns[self_primary_key_index] {
-                DbVec::Texts(other_col) => {
+            DbColumn::Texts(col) => match &other_table.columns[&self_primary_key_index] {
+                DbColumn::Texts(other_col) => {
                     (*col, record_vec) = merge_sorted(col, other_col);
                 }
                 _ => unreachable!("Should always have the same primary key column"),
             },
-            DbVec::Floats(_) => unreachable!("Should never have a float primary key column"),
+            DbColumn::Floats(_) => unreachable!("Should never have a float primary key column"),
         }
-        for i in 0..minlen {
-            if i == self_primary_key_index {
-                continue;
-            }
+        for (key, column) in self.columns.iter_mut() {
 
-            match &mut self.columns[i] {
-                DbVec::Ints(col) => match &other_table.columns[i] {
-                    DbVec::Ints(other_col) => {
+            match column {
+                DbColumn::Ints(col) => match &other_table.columns[key] {
+                    DbColumn::Ints(other_col) => {
                         *col = merge_in_order(col, other_col, &record_vec);
                     }
                     _ => unreachable!("Should always have the same type column"),
                 },
-                DbVec::Texts(col) => match &other_table.columns[i] {
-                    DbVec::Texts(other_col) => {
+                DbColumn::Texts(col) => match &other_table.columns[key] {
+                    DbColumn::Texts(other_col) => {
                         *col = merge_in_order(col, other_col, &record_vec);
                     }
                     _ => unreachable!("Should always have the same type column"),
                 },
-                DbVec::Floats(col) => match &other_table.columns[i] {
-                    DbVec::Floats(other_col) => {
+                DbColumn::Floats(col) => match &other_table.columns[key] {
+                    DbColumn::Floats(other_col) => {
                         *col = merge_in_order(col, other_col, &record_vec);
                     }
                     _ => unreachable!("Should always have the same type column"),
@@ -759,59 +754,59 @@ impl EZTable {
         Ok(())
     }
 
-    pub fn insert(&mut self, insert_table: EZTable) {
-        for head in insert_table.header {
-            if !self.header.contains(&head) {
-                break
-            }
-        }
+    // pub fn insert(&mut self, insert_table: EZTable) {
+    //     for head in insert_table.header {
+    //         if !self.header.contains(&head) {
+    //             break
+    //         }
+    //     }
 
-        let mut losers: Vec<usize> = Vec::new();
-        match insert_table.columns[insert_table.get_primary_key_col_index()] {
-            DbVec::Ints(column) => {
-                for (index, key) in column.iter().enumerate() {
-                    match self.key_index(key) {
-                        Some(index) => losers.push(index),
-                        None => (),
-                    }
-                }
-            },
-            DbVec::Texts(column) => {
-                for (index, key) in column.iter().enumerate() {
-                    match self.key_index(key) {
-                        Some(index) => losers.push(index),
-                        None => (),
-                    }
-                }
-            },
-            DbVec::Floats(column) => unreachable!("There should never be a primary key"),
-        };
-    }
+    //     let mut losers: Vec<usize> = Vec::new();
+    //     match insert_table.columns[&insert_table.get_primary_key_col_index()] {
+    //         DbColumn::Ints(column) => {
+    //             for (index, key) in column.iter().enumerate() {
+    //                 match self.key_index(&KeyString::from(key.to_string().as_str())) {
+    //                     Some(index) => losers.push(index),
+    //                     None => (),
+    //                 }
+    //             }
+    //         },
+    //         DbColumn::Texts(column) => {
+    //             for (index, key) in column.iter().enumerate() {
+    //                 match self.key_index(key) {
+    //                     Some(index) => losers.push(index),
+    //                     None => (),
+    //                 }
+    //             }
+    //         },
+    //         DbColumn::Floats(column) => unreachable!("There should never be a primary key"),
+    //     };
+    // }
 
     pub fn key_index(&self, key: &KeyString) -> Option<usize> {
-        match self.columns[self.get_primary_key_col_index()] {
-            DbVec::Ints(column) => {
+        match self.columns[&self.get_primary_key_col_index()] {
+            DbColumn::Ints(column) => {
                 match column.binary_search(&key.to_i32()) {
                     Ok(x) => Some(x),
                     Err(_) => None
                 }
             },
-            DbVec::Texts(column) => {
+            DbColumn::Texts(column) => {
                 match column.binary_search(key) {
                     Ok(x) => Some(x),
                     Err(_) => None
                 }
             },
-            DbVec::Floats(column) => unreachable!("The should never be a primary key"),
+            DbColumn::Floats(column) => unreachable!("The should never be a primary key"),
         }
     }
 
     /// Utility function to get the length of the database columns.
     pub fn len(&self) -> usize {
-        match &self.columns[0] {
-            DbVec::Floats(col) => col.len(),
-            DbVec::Ints(col) => col.len(),
-            DbVec::Texts(col) => col.len(),
+        match &self.columns.iter().next().unwrap().1 {
+            DbColumn::Floats(col) => col.len(),
+            DbColumn::Ints(col) => col.len(),
+            DbColumn::Texts(col) => col.len(),
         }
     }
 
@@ -823,35 +818,35 @@ impl EZTable {
 
         let primary_index = self.get_primary_key_col_index();
 
-        let vec = &mut self.columns[primary_index];
+        let vec = self.columns.get_mut(&primary_index).unwrap();
         match vec {
-            DbVec::Ints(col) => {
+            DbColumn::Ints(col) => {
                 indexer.sort_unstable_by_key(|&i| col[i]);
             }
-            DbVec::Texts(col) => {
+            DbColumn::Texts(col) => {
                 indexer.sort_unstable_by_key(|&i| &col[i]);
             }
-            DbVec::Floats(_) => {
+            DbColumn::Floats(_) => {
                 unreachable!("There should never be a float primary key");
             }
         }
 
-        self.columns.iter_mut().for_each(|vec| {
-            match vec {
-                DbVec::Floats(col) => {
+        for column in self.columns.iter_mut() {
+            match column.1 {
+                DbColumn::Floats(col) => {
                     // println!("float!");
                     rearrange_by_index(col, &indexer);
                 }
-                DbVec::Ints(col) => {
+                DbColumn::Ints(col) => {
                     // println!("int!");
                     rearrange_by_index(col, &indexer);
                 }
-                DbVec::Texts(col) => {
+                DbColumn::Texts(col) => {
                     // println!("text!");
                     rearrange_by_index(col, &indexer);
                 }
             }
-        });
+        };
     }
 
     /// Gets a single line from the table as a csv String.
@@ -861,17 +856,17 @@ impl EZTable {
         }
 
         let mut output = String::new();
-        for v in &self.columns {
+        for v in self.columns.values() {
             match v {
-                DbVec::Floats(col) => {
+                DbColumn::Floats(col) => {
                     let item = col[index];
                     output.push_str(&item.to_string());
                 }
-                DbVec::Ints(col) => {
+                DbColumn::Ints(col) => {
                     let item = col[index];
                     output.push_str(&item.to_string());
                 }
-                DbVec::Texts(col) => {
+                DbColumn::Texts(col) => {
                     let item = &col[index];
                     output.push_str(item.as_str());
                 }
@@ -892,9 +887,9 @@ impl EZTable {
 
         let mut indexes = Vec::new();
         for item in key_list {
-            match &self.columns[primary_index] {
-                DbVec::Floats(_) => return Err(StrictError::FloatPrimaryKey),
-                DbVec::Ints(col) => {
+            match &self.columns[&primary_index] {
+                DbColumn::Floats(_) => return Err(StrictError::FloatPrimaryKey),
+                DbColumn::Ints(col) => {
                     let key: i32;
                     match item.parse::<i32>() {
                         Ok(num) => key = num,
@@ -907,7 +902,7 @@ impl EZTable {
                     }
                     indexes.push(index);
                 }
-                DbVec::Texts(col) => {
+                DbColumn::Texts(col) => {
                     let index: usize;
                     match col.binary_search(&KeyString::from(item)) {
                         Ok(num) => index = num,
@@ -919,11 +914,11 @@ impl EZTable {
         }
 
         for index in indexes {
-            for v in &self.columns {
+            for v in self.columns.values() {
                 match v {
-                    DbVec::Floats(col) => printer.push_str(&col[index].to_string()),
-                    DbVec::Ints(col) => printer.push_str(&col[index].to_string()),
-                    DbVec::Texts(col) => printer.push_str(col[index].as_str()),
+                    DbColumn::Floats(col) => printer.push_str(&col[index].to_string()),
+                    DbColumn::Ints(col) => printer.push_str(&col[index].to_string()),
+                    DbColumn::Texts(col) => printer.push_str(col[index].as_str()),
                 }
                 printer.push(';');
             }
@@ -942,26 +937,26 @@ impl EZTable {
             for index in indexes {
                 assert!(*index < self.len());
                 match &self.columns[i] {
-                    DbVec::Ints(column) => {
+                    DbColumn::Ints(column) => {
                         let mut temp = Vec::with_capacity(indexes.len());
                         for index in indexes {
                             temp.push(column[*index].clone());
                         }
-                        result_columns.push(DbVec::Ints(temp));
+                        result_columns.push(DbColumn::Ints(temp));
                     },
-                    DbVec::Floats(column) => {
+                    DbColumn::Floats(column) => {
                         let mut temp = Vec::with_capacity(indexes.len());
                         for index in indexes {
                             temp.push(column[*index].clone());
                         }
-                        result_columns.push(DbVec::Floats(temp));
+                        result_columns.push(DbColumn::Floats(temp));
                     },
-                    DbVec::Texts(column) => {
+                    DbColumn::Texts(column) => {
                         let mut temp = Vec::with_capacity(indexes.len());
                         for index in indexes {
                             temp.push(column[*index].clone());
                         }
-                        result_columns.push(DbVec::Texts(temp));
+                        result_columns.push(DbColumn::Texts(temp));
                     },
                 }
             }
@@ -991,8 +986,8 @@ impl EZTable {
 
         let mut indexes: [usize; 2] = [0, 0];
         match &self.columns[primary_index] {
-            DbVec::Floats(_) => return Err(StrictError::FloatPrimaryKey),
-            DbVec::Ints(col) => {
+            DbColumn::Floats(_) => return Err(StrictError::FloatPrimaryKey),
+            DbColumn::Ints(col) => {
                 let key = match range.0.parse::<i32>() {
                     Ok(num) => num,
                     Err(_) => return Err(StrictError::Empty),
@@ -1016,7 +1011,7 @@ impl EZTable {
                     }
                 }
             }
-            DbVec::Texts(col) => {
+            DbColumn::Texts(col) => {
                 let index: usize = col.partition_point(|n| n < &KeyString::from(range.0));
                 indexes[0] = index;
 
@@ -1040,9 +1035,9 @@ impl EZTable {
         while i <= indexes[1] {
             for v in &self.columns {
                 match v {
-                    DbVec::Floats(col) => printer.push_str(&col[i].to_string()),
-                    DbVec::Ints(col) => printer.push_str(&col[i].to_string()),
-                    DbVec::Texts(col) => printer.push_str(col[i].as_str()),
+                    DbColumn::Floats(col) => printer.push_str(&col[i].to_string()),
+                    DbColumn::Ints(col) => printer.push_str(&col[i].to_string()),
+                    DbColumn::Texts(col) => printer.push_str(col[i].as_str()),
                 }
                 printer.push(';');
             }
@@ -1060,7 +1055,7 @@ impl EZTable {
         self.query_list(Vec::from([query]))
     }
 
-    pub fn copy_lines(&self, target: &mut EZTable, line_keys: &DbVec) -> Result<(), StrictError> {
+    pub fn copy_lines(&self, target: &mut EZTable, line_keys: &DbColumn) -> Result<(), StrictError> {
         if target.header != self.header {
             return Err(StrictError::Query("Target table header does not match source table header.".to_owned()));
         }
@@ -1075,9 +1070,9 @@ impl EZTable {
         let mut temp_vec = Vec::with_capacity(self.header.len());
         for item in &self.header {
             match item.kind {
-                DbType::Int => temp_vec.push(DbVec::Ints(Vec::with_capacity(line_keys.len()))),
-                DbType::Float => temp_vec.push(DbVec::Floats(Vec::with_capacity(line_keys.len()))),
-                DbType::Text => temp_vec.push(DbVec::Texts(Vec::with_capacity(line_keys.len()))),
+                DbType::Int => temp_vec.push(DbColumn::Ints(Vec::with_capacity(line_keys.len()))),
+                DbType::Float => temp_vec.push(DbColumn::Floats(Vec::with_capacity(line_keys.len()))),
+                DbType::Text => temp_vec.push(DbColumn::Texts(Vec::with_capacity(line_keys.len()))),
             }
         }
 
@@ -1088,9 +1083,9 @@ impl EZTable {
         let mut indexes: Vec<usize> = Vec::with_capacity(line_keys.len());
 
         match line_keys {
-            DbVec::Ints(col) => {
+            DbColumn::Ints(col) => {
                 let source_col = match &self.columns[pk_index] {
-                    DbVec::Ints(col) => col,
+                    DbColumn::Ints(col) => col,
                     _ => return Err(StrictError::Copy("Source and target table do not have matching primary key types".to_owned())),
                 };
                 for key in col {
@@ -1100,9 +1095,9 @@ impl EZTable {
                     }
                 }
             },
-            DbVec::Texts(col) => {
+            DbColumn::Texts(col) => {
                 let source_col = match &self.columns[pk_index] {
-                    DbVec::Texts(col) => col,
+                    DbColumn::Texts(col) => col,
                     _ => return Err(StrictError::Copy("Source and target table do not have matching primary key types".to_owned())),
                 };
                 for key in col {
@@ -1117,26 +1112,26 @@ impl EZTable {
 
         for (i, column) in self.columns.iter().enumerate() {
             match column {
-                DbVec::Floats(col) => {
+                DbColumn::Floats(col) => {
                     for index in &indexes {
                         match &mut temp_table.columns[i] {
-                            DbVec::Floats(temp) => temp.push(col[*index]),
+                            DbColumn::Floats(temp) => temp.push(col[*index]),
                             _ => unreachable!("Source and target column should always have the same type"),
                         }
                     }
                 },
-                DbVec::Ints(col) => {
+                DbColumn::Ints(col) => {
                     for index in &indexes {
                         match &mut temp_table.columns[i] {
-                            DbVec::Ints(temp) => temp.push(col[*index]),
+                            DbColumn::Ints(temp) => temp.push(col[*index]),
                             _ => unreachable!("Source and target column should always have the same type"),
                         }
                     }
                 },
-                DbVec::Texts(col) => {
+                DbColumn::Texts(col) => {
                     for index in &indexes {
                         match &mut temp_table.columns[i] {
-                            DbVec::Texts(temp) => temp.push(col[*index].clone()),
+                            DbColumn::Texts(temp) => temp.push(col[*index].clone()),
                             _ => unreachable!("Source and target column should always have the same type"),
                         }
                     }
@@ -1169,14 +1164,14 @@ impl EZTable {
 
         for v in self.columns.iter() {
             match v {
-                DbVec::Ints(column) => {
-                    subtable.push(DbVec::Ints(column[start..stop].to_vec()));
+                DbColumn::Ints(column) => {
+                    subtable.push(DbColumn::Ints(column[start..stop].to_vec()));
                 },
-                DbVec::Floats(column) => {
-                    subtable.push(DbVec::Floats(column[start..stop].to_vec()));
+                DbColumn::Floats(column) => {
+                    subtable.push(DbColumn::Floats(column[start..stop].to_vec()));
                 },
-                DbVec::Texts(column) => {
-                    subtable.push(DbVec::Texts(column[start..stop].to_vec()));
+                DbColumn::Texts(column) => {
+                    subtable.push(DbColumn::Texts(column[start..stop].to_vec()));
                 },
             }
         }
@@ -1208,8 +1203,8 @@ impl EZTable {
 
         let mut indexes: [usize; 2] = [0, 0];
         match &self.columns[primary_index] {
-            DbVec::Floats(_) => return Err(StrictError::FloatPrimaryKey),
-            DbVec::Ints(col) => {
+            DbColumn::Floats(_) => return Err(StrictError::FloatPrimaryKey),
+            DbColumn::Ints(col) => {
                 let key = match range.0.parse::<i32>() {
                     Ok(num) => num,
                     Err(_) => return Err(StrictError::Empty),
@@ -1229,7 +1224,7 @@ impl EZTable {
                     indexes[1] = index;
                 }
             }
-            DbVec::Texts(col) => {
+            DbColumn::Texts(col) => {
                 let index: usize = col.partition_point(|n| n < &KeyString::from(range.0));
                 indexes[0] = index;
 
@@ -1251,13 +1246,13 @@ impl EZTable {
 
         for col in self.columns.iter_mut() {
             match col {
-                DbVec::Floats(v) => {
+                DbColumn::Floats(v) => {
                     v.drain(indexes[0]..indexes[1]);
                 }
-                DbVec::Ints(v) => {
+                DbColumn::Ints(v) => {
                     v.drain(indexes[0]..indexes[1]);
                 }
-                DbVec::Texts(v) => {
+                DbColumn::Texts(v) => {
                     v.drain(indexes[0]..indexes[1]);
                 }
             };
@@ -1276,8 +1271,8 @@ impl EZTable {
         let mut indexes = Vec::new();
         for item in key_list {
             match &self.columns[primary_index] {
-                DbVec::Floats(_) => return Err(StrictError::FloatPrimaryKey),
-                DbVec::Ints(col) => {
+                DbColumn::Floats(_) => return Err(StrictError::FloatPrimaryKey),
+                DbColumn::Ints(col) => {
                     let key: i32;
                     match item.parse::<i32>() {
                         Ok(num) => key = num,
@@ -1290,7 +1285,7 @@ impl EZTable {
                     }
                     indexes.push(index);
                 }
-                DbVec::Texts(col) => {
+                DbColumn::Texts(col) => {
                     let index: usize;
                     match col.binary_search(&KeyString::from(item)) {
                         Ok(num) => index = num,
@@ -1304,14 +1299,14 @@ impl EZTable {
         let imut = self.columns.iter_mut();
         for col in imut {
             match col {
-                DbVec::Floats(v) => {
-                    remove_indices(v, &indexes);
+                DbColumn::Floats(v) => {
+                    remove_indices(&mut v, &indexes);
                 }
-                DbVec::Ints(v) => {
-                    remove_indices(v, &indexes);
+                DbColumn::Ints(v) => {
+                    remove_indices(&mut v, &indexes);
                 }
-                DbVec::Texts(v) => {
-                    remove_indices(v, &indexes);
+                DbColumn::Texts(v) => {
+                    remove_indices(&mut v, &indexes);
                 }
             };
         }
@@ -1321,16 +1316,16 @@ impl EZTable {
         Ok(())
     }
 
-    pub fn delete_by_vec(&mut self, key_list: DbVec) -> Result<(), StrictError> {
+    pub fn delete_by_vec(&mut self, key_list: DbColumn) -> Result<(), StrictError> {
         let primary_index = self.get_primary_key_col_index();
 
         let mut indexes = Vec::with_capacity(key_list.len());
         match key_list {
-            DbVec::Ints(mut column) => {
+            DbColumn::Ints(mut column) => {
                 column.sort();
                 for item in column {
                     match &self.columns[primary_index] {
-                        DbVec::Ints(col) => {
+                        DbColumn::Ints(col) => {
                             let index: usize;
                             match col.binary_search(&item) {
                                 Ok(num) => index = num,
@@ -1342,11 +1337,11 @@ impl EZTable {
                     }
                 }
             },
-            DbVec::Texts(mut column) => {
+            DbColumn::Texts(mut column) => {
                 column.sort();
                 for item in column {
                     match &self.columns[primary_index] {
-                        DbVec::Texts(col) => {
+                        DbColumn::Texts(col) => {
                             let index: usize;
                             match col.binary_search(&item) {
                                 Ok(num) => index = num,
@@ -1358,20 +1353,20 @@ impl EZTable {
                     }
                 }
             },
-            DbVec::Floats(_) => return Err(StrictError::FloatPrimaryKey)
+            DbColumn::Floats(_) => return Err(StrictError::FloatPrimaryKey)
         }
 
         let imut = self.columns.iter_mut();
         for col in imut {
             match col {
-                DbVec::Floats(v) => {
-                    remove_indices(v, &indexes);
+                DbColumn::Floats(v) => {
+                    remove_indices(&mut v, &indexes);
                 }
-                DbVec::Ints(v) => {
-                    remove_indices(v, &indexes);
+                DbColumn::Ints(v) => {
+                    remove_indices(&mut v, &indexes);
                 }
-                DbVec::Texts(v) => {
-                    remove_indices(v, &indexes);
+                DbColumn::Texts(v) => {
+                    remove_indices(&mut v, &indexes);
                 }
             };
         }
@@ -1385,14 +1380,14 @@ impl EZTable {
         let imut = self.columns.iter_mut();
         for col in imut {
             match col {
-                DbVec::Floats(v) => {
-                    remove_indices(v, &indexes);
+                DbColumn::Floats(v) => {
+                    remove_indices(&mut v, &indexes);
                 }
-                DbVec::Ints(v) => {
-                    remove_indices(v, &indexes);
+                DbColumn::Ints(v) => {
+                    remove_indices(&mut v, &indexes);
                 }
-                DbVec::Texts(v) => {
-                    remove_indices(v, &indexes);
+                DbColumn::Texts(v) => {
+                    remove_indices(&mut v, &indexes);
                 }
             };
         }
@@ -1406,13 +1401,13 @@ impl EZTable {
     pub fn clear(&mut self) {
         for column in self.columns.iter_mut() {
             match column {
-                DbVec::Ints(col) => {
+                DbColumn::Ints(col) => {
                     *col = Vec::with_capacity(0);
                 },
-                DbVec::Floats(col) => {
+                DbColumn::Floats(col) => {
                     *col = Vec::with_capacity(0);
                 },
-                DbVec::Texts(col) => {
+                DbColumn::Texts(col) => {
                     *col = Vec::with_capacity(0);
                 },
             }
@@ -1500,18 +1495,18 @@ impl EZTable {
         // WRITING COLUMNS
         for column in &self.columns {
             match &column {
-                DbVec::Floats(col) => {
+                DbColumn::Floats(col) => {
                     for item in col {
                         output.extend_from_slice(&item.to_le_bytes());
                     }
                 }
-                &DbVec::Ints(col) => {
+                &DbColumn::Ints(col) => {
                     for item in col {
                         // println!("item: {}", item);
                         output.extend_from_slice(&item.to_le_bytes());
                     }
                 }
-                DbVec::Texts(col) => {
+                DbColumn::Texts(col) => {
                     for item in col {
                         output.extend_from_slice(item.raw());
                     }
@@ -1568,7 +1563,7 @@ impl EZTable {
 
         // dbg!(&header);
 
-        let mut table: Vec<DbVec> = Vec::with_capacity(header.len());
+        let mut table: Vec<DbColumn> = Vec::with_capacity(header.len());
 
         let metadata_created_by = KeyString::from(&bin_body[0..64]);
         let metadata_last_access = u64_from_le_slice(&bin_body[64..72]);
@@ -1589,21 +1584,21 @@ impl EZTable {
                     // }
                     total += bin_length * 4;
                     index += 1;
-                    table.push(DbVec::Ints(v));
+                    table.push(DbColumn::Ints(v));
                 }
                 DbType::Float => {
                     let blob = &bin_body[total..total + (bin_length * 4)];
                     let v: Vec<f32> = blob.chunks(4).map(|n| f32_from_le_slice(n)).collect();
                     total += bin_length * 4;
                     index += 1;
-                    table.push(DbVec::Floats(v));
+                    table.push(DbColumn::Floats(v));
                 }
                 DbType::Text => {
                     let blob = &bin_body[total..total + (bin_length * 64)];
                     let v: Vec<KeyString> = blob.chunks(64).map(|n| KeyString::from(n)).collect();
                     total += bin_length * 64;
                     index += 1;
-                    table.push(DbVec::Texts(v));
+                    table.push(DbColumn::Texts(v));
                 }
             }
         }
@@ -1621,9 +1616,9 @@ impl EZTable {
 
         metadata.size_of_table = table.iter().fold(0, |acc: usize, x| {
             match x {
-                DbVec::Ints(v) => acc + v.len() * 4,
-                DbVec::Floats(v) => acc + v.len() * 4,
-                DbVec::Texts(v) => acc + v.len() * 64,
+                DbColumn::Ints(v) => acc + v.len() * 4,
+                DbColumn::Floats(v) => acc + v.len() * 4,
+                DbColumn::Texts(v) => acc + v.len() * 64,
             }
         });
 
@@ -1646,7 +1641,7 @@ pub fn write_subtable_to_raw_binary(subtable: EZTable) -> Vec<u8> {
         let length = subtable.len();
         for item in subtable.columns.iter() {
             match item {
-                DbVec::Texts(_) => {
+                DbColumn::Texts(_) => {
                     total_bytes += length * 64;
                 }
                 _ => {
@@ -1679,18 +1674,18 @@ pub fn write_subtable_to_raw_binary(subtable: EZTable) -> Vec<u8> {
 
         for column in subtable.columns.iter() {
             match &column {
-                DbVec::Floats(col) => {
+                DbColumn::Floats(col) => {
                     for item in col {
                         output.extend_from_slice(&item.to_le_bytes());
                     }
                 }
-                &DbVec::Ints(col) => {
+                &DbColumn::Ints(col) => {
                     for item in col {
                         // println!("item: {}", item);
                         output.extend_from_slice(&item.to_le_bytes());
                     }
                 }
-                DbVec::Texts(col) => {
+                DbColumn::Texts(col) => {
                     for item in col {
                         output.extend_from_slice(item.raw());
                     }
@@ -2070,7 +2065,7 @@ mod tests {
 
         let mut target = EZTable::from_csv_string(&input_string, "target", "test").unwrap();
 
-        let line_keys = DbVec::Ints(vec![
+        let line_keys = DbColumn::Ints(vec![
             178,
             262,
             264,

@@ -146,7 +146,7 @@
 
 use std::{fmt::Display, sync::Arc};
 
-use crate::{db_structure::{remove_indices, DbVec, EZTable, KeyString}, networking_utilities::ServerError, server_networking::Database};
+use crate::{db_structure::{remove_indices, DbColumn, EZTable, KeyString}, networking_utilities::ServerError, server_networking::Database};
 
 
 #[derive(Debug, PartialEq)]
@@ -833,37 +833,37 @@ fn execute_update_query(query: Query, database: Arc<Database>) -> Result<EZTable
             match update.operator {
                 UpdateOp::Assign => {
                     match table.columns[attribute_index] {
-                        DbVec::Ints(ref mut column) => column[*keeper] = update.value.to_i32(),
-                        DbVec::Floats(ref mut column) => column[*keeper] = update.value.to_f32(),
-                        DbVec::Texts(ref mut column) => column[*keeper] = update.value.clone(),
+                        DbColumn::Ints(ref mut column) => column[*keeper] = update.value.to_i32(),
+                        DbColumn::Floats(ref mut column) => column[*keeper] = update.value.to_f32(),
+                        DbColumn::Texts(ref mut column) => column[*keeper] = update.value.clone(),
                     }
                 },
                 UpdateOp::PlusEquals => {
                     match table.columns[attribute_index] {
-                        DbVec::Ints(ref mut column) => column[*keeper] += update.value.to_i32(),
-                        DbVec::Floats(ref mut column) => column[*keeper] += update.value.to_f32(),
-                        DbVec::Texts(ref mut _column) => return Err(ServerError::Query),
+                        DbColumn::Ints(ref mut column) => column[*keeper] += update.value.to_i32(),
+                        DbColumn::Floats(ref mut column) => column[*keeper] += update.value.to_f32(),
+                        DbColumn::Texts(ref mut _column) => return Err(ServerError::Query),
                     }
                 },
                 UpdateOp::TimesEquals => {
                     match table.columns[attribute_index] {
-                        DbVec::Ints(ref mut column) => column[*keeper] *= update.value.to_i32(),
-                        DbVec::Floats(ref mut column) => column[*keeper] *= update.value.to_f32(),
-                        DbVec::Texts(ref mut column) => column[*keeper] = update.value.clone(),
+                        DbColumn::Ints(ref mut column) => column[*keeper] *= update.value.to_i32(),
+                        DbColumn::Floats(ref mut column) => column[*keeper] *= update.value.to_f32(),
+                        DbColumn::Texts(ref mut column) => column[*keeper] = update.value.clone(),
                     }
                 },
                 UpdateOp::Append => {
                     match table.columns[attribute_index] {
-                        DbVec::Ints(ref mut _column) => return Err(ServerError::Query),
-                        DbVec::Floats(ref mut _column) => return Err(ServerError::Query),
-                        DbVec::Texts(ref mut column) => column[*keeper].push(update.value.as_str())?,
+                        DbColumn::Ints(ref mut _column) => return Err(ServerError::Query),
+                        DbColumn::Floats(ref mut _column) => return Err(ServerError::Query),
+                        DbColumn::Texts(ref mut column) => column[*keeper].push(update.value.as_str())?,
                     }
                 },
                 UpdateOp::Prepend => {
                     match table.columns[attribute_index] {
-                        DbVec::Ints(ref mut _column) => return Err(ServerError::Query),
-                        DbVec::Floats(ref mut _column) => return Err(ServerError::Query),
-                        DbVec::Texts(ref mut column) => {
+                        DbColumn::Ints(ref mut _column) => return Err(ServerError::Query),
+                        DbColumn::Floats(ref mut _column) => return Err(ServerError::Query),
+                        DbColumn::Texts(ref mut column) => {
                             let mut new = update.value.clone();
                             new.push(column[*keeper].as_str())?;
                             column[*keeper] = new;
@@ -907,7 +907,7 @@ pub fn filter_keepers(query: &Query, table: &EZTable) -> Result<Vec<usize>, Serv
     match query.primary_keys {
         RangeOrListorAll::Range(ref start, ref stop) => {
             match &table.columns[table.get_primary_key_col_index()] {
-                DbVec::Ints(column) => {
+                DbColumn::Ints(column) => {
                     let first = match column.binary_search(&start.to_i32()) {
                         Ok(x) => x,
                         Err(x) => x,
@@ -918,7 +918,7 @@ pub fn filter_keepers(query: &Query, table: &EZTable) -> Result<Vec<usize>, Serv
                     };
                     indexes = (first..last).collect();
                 },
-                DbVec::Texts(column) => {
+                DbColumn::Texts(column) => {
                     let first = match column.binary_search(&start) {
                         Ok(x) => x,
                         Err(x) => x,
@@ -929,14 +929,14 @@ pub fn filter_keepers(query: &Query, table: &EZTable) -> Result<Vec<usize>, Serv
                     };
                     indexes = (first..last).collect();
                 },
-                DbVec::Floats(_n) => {
+                DbColumn::Floats(_n) => {
                     unreachable!("There should never be a float primary key")
                 },
             }
         },
         RangeOrListorAll::List(ref keys) => {
             match &table.columns[table.get_primary_key_col_index()] {
-                DbVec::Ints(column) => {
+                DbColumn::Ints(column) => {
                     if keys.len() > column.len() {
                         return Err(ServerError::Query)
                     }
@@ -950,10 +950,10 @@ pub fn filter_keepers(query: &Query, table: &EZTable) -> Result<Vec<usize>, Serv
                         }
                     }
                 },
-                DbVec::Floats(_) => {
+                DbColumn::Floats(_) => {
                     unreachable!("There should never be a float primary key")
                 },
-                DbVec::Texts(column) => {
+                DbColumn::Texts(column) => {
                     if keys.len() > column.len() {
                         return Err(ServerError::Query)
                     }
@@ -985,47 +985,47 @@ pub fn filter_keepers(query: &Query, table: &EZTable) -> Result<Vec<usize>, Serv
                         match &cond.test {
                             Test::Equals(bar) => {
                                 match column {
-                                    DbVec::Ints(col) => if col[*index] == bar.to_i32() {keepers.push(*index)},
-                                    DbVec::Floats(col) => if col[*index] == bar.to_f32() {keepers.push(*index)},
-                                    DbVec::Texts(col) => if col[*index] == *bar {keepers.push(*index)},
+                                    DbColumn::Ints(col) => if col[*index] == bar.to_i32() {keepers.push(*index)},
+                                    DbColumn::Floats(col) => if col[*index] == bar.to_f32() {keepers.push(*index)},
+                                    DbColumn::Texts(col) => if col[*index] == *bar {keepers.push(*index)},
                                 }
                             },
                             Test::NotEquals(bar) => {
                                 match column {
-                                    DbVec::Ints(col) => if col[*index] != bar.to_i32() {keepers.push(*index)},
-                                    DbVec::Floats(col) => if col[*index] != bar.to_f32() {keepers.push(*index)},
-                                    DbVec::Texts(col) => if col[*index] != *bar {keepers.push(*index)},
+                                    DbColumn::Ints(col) => if col[*index] != bar.to_i32() {keepers.push(*index)},
+                                    DbColumn::Floats(col) => if col[*index] != bar.to_f32() {keepers.push(*index)},
+                                    DbColumn::Texts(col) => if col[*index] != *bar {keepers.push(*index)},
                                 }
                             },
                             Test::Less(bar) => {
                                 match column {
-                                    DbVec::Ints(col) => if col[*index] < bar.to_i32() {keepers.push(*index)},
-                                    DbVec::Floats(col) => if col[*index] < bar.to_f32() {keepers.push(*index)},
-                                    DbVec::Texts(col) => if col[*index] < *bar {keepers.push(*index)},
+                                    DbColumn::Ints(col) => if col[*index] < bar.to_i32() {keepers.push(*index)},
+                                    DbColumn::Floats(col) => if col[*index] < bar.to_f32() {keepers.push(*index)},
+                                    DbColumn::Texts(col) => if col[*index] < *bar {keepers.push(*index)},
                                 }
                             },
                             Test::Greater(bar) => {
                                 match column {
-                                    DbVec::Ints(col) => if col[*index] > bar.to_i32() {keepers.push(*index)},
-                                    DbVec::Floats(col) => if col[*index] > bar.to_f32() {keepers.push(*index)},
-                                    DbVec::Texts(col) => if col[*index] > *bar {keepers.push(*index)},
+                                    DbColumn::Ints(col) => if col[*index] > bar.to_i32() {keepers.push(*index)},
+                                    DbColumn::Floats(col) => if col[*index] > bar.to_f32() {keepers.push(*index)},
+                                    DbColumn::Texts(col) => if col[*index] > *bar {keepers.push(*index)},
                                 }
                             },
                             Test::Starts(bar) => {
                                 match column {
-                                    DbVec::Texts(col) => if col[*index].as_str().starts_with(bar.as_str()) {keepers.push(*index)},
+                                    DbColumn::Texts(col) => if col[*index].as_str().starts_with(bar.as_str()) {keepers.push(*index)},
                                     _ => return Err(ServerError::Query),
                                 }
                             },
                             Test::Ends(bar) => {
                                 match column {
-                                    DbVec::Texts(col) => if col[*index].as_str().ends_with(bar.as_str()) {keepers.push(*index)},
+                                    DbColumn::Texts(col) => if col[*index].as_str().ends_with(bar.as_str()) {keepers.push(*index)},
                                     _ => return Err(ServerError::Query),
                                 }
                             },
                             Test::Contains(bar) => {
                                 match column {
-                                    DbVec::Texts(col) => if col[*index].as_str().contains(bar.as_str()) {keepers.push(*index)},
+                                    DbColumn::Texts(col) => if col[*index].as_str().contains(bar.as_str()) {keepers.push(*index)},
                                     _ => return Err(ServerError::Query),
                                 }
                             },
@@ -1037,47 +1037,47 @@ pub fn filter_keepers(query: &Query, table: &EZTable) -> Result<Vec<usize>, Serv
                         match &cond.test {
                             Test::Equals(bar) => {
                                 match column {
-                                    DbVec::Ints(col) => if col[*keeper] == bar.to_i32() {losers.push(*keeper)},
-                                    DbVec::Floats(col) => if col[*keeper] == bar.to_f32() {losers.push(*keeper)},
-                                    DbVec::Texts(col) => if col[*keeper] == *bar {losers.push(*keeper)},
+                                    DbColumn::Ints(col) => if col[*keeper] == bar.to_i32() {losers.push(*keeper)},
+                                    DbColumn::Floats(col) => if col[*keeper] == bar.to_f32() {losers.push(*keeper)},
+                                    DbColumn::Texts(col) => if col[*keeper] == *bar {losers.push(*keeper)},
                                 }
                             },
                             Test::NotEquals(bar) => {
                                 match column {
-                                    DbVec::Ints(col) => if col[*keeper] != bar.to_i32() {losers.push(*keeper)},
-                                    DbVec::Floats(col) => if col[*keeper] != bar.to_f32() {losers.push(*keeper)},
-                                    DbVec::Texts(col) => if col[*keeper] != *bar {losers.push(*keeper)},
+                                    DbColumn::Ints(col) => if col[*keeper] != bar.to_i32() {losers.push(*keeper)},
+                                    DbColumn::Floats(col) => if col[*keeper] != bar.to_f32() {losers.push(*keeper)},
+                                    DbColumn::Texts(col) => if col[*keeper] != *bar {losers.push(*keeper)},
                                 }
                             },
                             Test::Less(bar) => {
                                 match column {
-                                    DbVec::Ints(col) => if col[*keeper] < bar.to_i32() {losers.push(*keeper)},
-                                    DbVec::Floats(col) => if col[*keeper] < bar.to_f32() {losers.push(*keeper)},
-                                    DbVec::Texts(col) => if col[*keeper] < *bar {losers.push(*keeper)},
+                                    DbColumn::Ints(col) => if col[*keeper] < bar.to_i32() {losers.push(*keeper)},
+                                    DbColumn::Floats(col) => if col[*keeper] < bar.to_f32() {losers.push(*keeper)},
+                                    DbColumn::Texts(col) => if col[*keeper] < *bar {losers.push(*keeper)},
                                 }
                             },
                             Test::Greater(bar) => {
                                 match column {
-                                    DbVec::Ints(col) => if col[*keeper] > bar.to_i32() {losers.push(*keeper)},
-                                    DbVec::Floats(col) => if col[*keeper] > bar.to_f32() {losers.push(*keeper)},
-                                    DbVec::Texts(col) => if col[*keeper] > *bar {losers.push(*keeper)},
+                                    DbColumn::Ints(col) => if col[*keeper] > bar.to_i32() {losers.push(*keeper)},
+                                    DbColumn::Floats(col) => if col[*keeper] > bar.to_f32() {losers.push(*keeper)},
+                                    DbColumn::Texts(col) => if col[*keeper] > *bar {losers.push(*keeper)},
                                 }
                             },
                             Test::Starts(bar) => {
                                 match column {
-                                    DbVec::Texts(col) => if col[*keeper].as_str().starts_with(bar.as_str()) {losers.push(*keeper)},
+                                    DbColumn::Texts(col) => if col[*keeper].as_str().starts_with(bar.as_str()) {losers.push(*keeper)},
                                     _ => return Err(ServerError::Query),
                                 }
                             },
                             Test::Ends(bar) => {
                                 match column {
-                                    DbVec::Texts(col) => if col[*keeper].as_str().ends_with(bar.as_str()) {losers.push(*keeper)},
+                                    DbColumn::Texts(col) => if col[*keeper].as_str().ends_with(bar.as_str()) {losers.push(*keeper)},
                                     _ => return Err(ServerError::Query),
                                 }
                             },
                             Test::Contains(bar) => {
                                 match column {
-                                    DbVec::Texts(col) => if col[*keeper].as_str().contains(bar.as_str()) {losers.push(*keeper)},
+                                    DbColumn::Texts(col) => if col[*keeper].as_str().contains(bar.as_str()) {losers.push(*keeper)},
                                     _ => return Err(ServerError::Query),
                                 }
                             },

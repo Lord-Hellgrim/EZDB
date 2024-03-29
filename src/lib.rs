@@ -20,4 +20,3 @@ pub mod handlers;
 pub mod logging;
 pub mod networking_utilities;
 pub mod server_networking;
-pub mod rowtable;
