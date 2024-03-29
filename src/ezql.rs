@@ -94,24 +94,6 @@
     the current __RESULT__. So if you chain two SELECT queries to different named tables, you only
     get the result of the second query.
 
-    example1:
-    SELECT;                             <-- Type of query
-    Products                            <-- Table name
-    0113000..18572054;                  <-- List or range of keys to check. Use * to check all keys
-    price: less, 500
-    AND                                 <-- |\
-    in_stock: greater, 100
-    AND                                 <-- | > Filters. Only keys from the list that meet these conditions will be selected
-    location: equals, lag15;            <-- |/
-
-    example1:
-    DELETE;                             <-- Type of query
-    Products                            <-- Table name
-    0113000..18572054;                  <-- List or range of keys to check. Use * to check all keys
-    price: less, 500;                   <-- |\
-    in_stock: greater, 100;             <-- | > Filters. Only keys from the list that meet these conditions will be deleted
-    location: equals, lag15;            <-- |/
-
     example3:
     UPDATE;                             <-- Type of query
     Products;                           <-- Table name
@@ -126,8 +108,12 @@
     in_stock: 5;                        <-- |/
 
     example4:
-    INSERT;
-    Products;
+    INSERT;                             <-- Type of query
+    Products;                           <-- Table name (Here all the table column names are "id", "name", "price")
+    name, price, id;                    <-- Identifies which item in the following list of rows maps to which column in the table. Order is irrelevant.
+    (hammer, 500, 60401011),            <-- |\
+    (screwdriver, 100, 60401010),       <-- | > New values. If a value with the same primary key as a listed value exists in the table, it will not be updated.
+    (chewing gum, 50, 1323),            <-- |/ 
 
 
 
@@ -158,7 +144,7 @@
 
 */
 
-use std::sync::Arc;
+use std::{fmt::Display, sync::Arc};
 
 use crate::{db_structure::{remove_indices, DbVec, EZTable, KeyString}, networking_utilities::ServerError, server_networking::Database};
 
@@ -185,6 +171,41 @@ pub struct Query {
     pub updates: Vec<Update>,
 }
 
+impl Display for Query {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut printer = String::new();
+        printer.push_str(&self.query_type.to_string());
+        printer.push_str("\n");
+        printer.push_str(self.table.as_str());
+        printer.push_str("\n");
+        match &self.primary_keys {
+            RangeOrListorAll::Range(start, stop) => printer.push_str(&format!("{}..{}", start.as_str(), stop.as_str())),
+            RangeOrListorAll::List(list) => {
+                for item in list {
+                    printer.push_str(item.as_str());
+                    printer.push_str(",");
+                }
+            },
+            RangeOrListorAll::All => printer.push_str("*"),
+        }
+        printer.push_str("\n");
+        for condition in &self.conditions {
+            printer.push_str(&condition.to_string());
+            printer.push_str("\n");
+        }
+        for update in &self.updates {
+            printer.push_str(&update.to_string());
+            printer.push_str("\n");
+        }
+        printer.pop();
+
+
+
+        write!(f, "{}", printer)
+    }
+
+}
+
 impl Query {
     pub fn new() -> Self {
         Query {
@@ -200,8 +221,21 @@ impl Query {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Update {
     attribute: KeyString,
-    Operator: UpdateOp,
-    Value: KeyString,
+    operator: UpdateOp,
+    value: KeyString,
+}
+
+impl Display for Update {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let op = match self.operator {
+            UpdateOp::Assign => "=",
+            UpdateOp::PlusEquals => "+=",
+            UpdateOp::TimesEquals => "*=",
+            UpdateOp::Append => "append",
+            UpdateOp::Prepend => "prepend",
+        };
+        write!(f, "({} {} {})", self.attribute.as_str(), op, self.value.as_str())
+    }
 }
 
 impl Update {
@@ -209,8 +243,8 @@ impl Update {
     pub fn blank() -> Self{
         Update {
             attribute: KeyString::new(),
-            Operator: UpdateOp::Assign,
-            Value: KeyString::new(),
+            operator: UpdateOp::Assign,
+            value: KeyString::new(),
         }
     }
 
@@ -223,8 +257,8 @@ impl Update {
         if s.split_whitespace().count() == 3 {
             output = Update {
                 attribute: KeyString::from(t.next().unwrap()),
-                Operator: UpdateOp::from_str(t.next().unwrap())?,
-                Value: KeyString::from(t.next().unwrap()),
+                operator: UpdateOp::from_str(t.next().unwrap())?,
+                value: KeyString::from(t.next().unwrap()),
             };
         } else {
             let mut acc = Vec::new();
@@ -232,7 +266,7 @@ impl Update {
             let mut inside = false;
             for c in s.chars() {
                 if acc.len() > 3 {break;}
-                println!("buf: {}", buf);
+                // println!("buf: {}", buf);
                 if c.is_whitespace() {
                     if inside {
                         buf.push(c);
@@ -240,7 +274,7 @@ impl Update {
                     } else {
                         acc.push(buf.clone());
                         buf.clear();
-                        println!("acc: {:?}", acc);
+                        // println!("acc: {:?}", acc);
                         continue;
                     }
                 } else if c == '"' {
@@ -255,8 +289,8 @@ impl Update {
             if acc.len() == 3 {
                 output = Update {
                     attribute: KeyString::from(acc[0].as_str()),
-                    Operator: UpdateOp::from_str(acc[1].as_str())?,
-                    Value: KeyString::from(acc[2].as_str()),
+                    operator: UpdateOp::from_str(acc[1].as_str())?,
+                    value: KeyString::from(acc[2].as_str()),
                 };
             } else {
                 return Err(QueryError::InvalidUpdate)
@@ -302,6 +336,21 @@ pub enum QueryType {
     UPDATE,
     INSERT,
     DELETE,
+}
+
+impl Display for QueryType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            QueryType::SELECT => write!(f, "SELECT", ),
+            QueryType::LEFT_JOIN => write!(f, "LEFT_JOIN", ),
+            QueryType::INNER_JOIN => write!(f, "INNER_JOIN", ),
+            QueryType::RIGHT_JOIN => write!(f, "RIGHT_JOIN", ),
+            QueryType::FULL_JOIN => write!(f, "FULL_JOIN", ),
+            QueryType::UPDATE => write!(f, "UPDATE", ),
+            QueryType::INSERT => write!(f, "INSERT", ),
+            QueryType::DELETE => write!(f, "DELETE", ),
+        }
+    }
 }
 
 /// This enum represents the possible ways to list primary keys to test. 
@@ -355,7 +404,7 @@ impl Condition {
             let mut buf = String::new();
             let mut inside = false;
             for c in s.chars() {
-                println!("buf: {}", buf);
+                // println!("buf: {}", buf);
                 if c.is_whitespace() {
                     if inside {
                         buf.push(c);
@@ -363,7 +412,7 @@ impl Condition {
                     } else {
                         acc.push(buf.clone());
                         buf.clear();
-                        println!("acc: {:?}", acc);
+                        // println!("acc: {:?}", acc);
                         continue;
                     }
                 } else if c == '"' {
@@ -407,6 +456,18 @@ pub enum OpOrCond {
     Op(Operator),
 }
 
+impl Display for OpOrCond {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OpOrCond::Cond(cond) => write!(f, "({}: {})", cond.attribute, cond.test.to_string()),
+            OpOrCond::Op(op) => match op {
+                Operator::AND => write!(f, "AND"),
+                Operator::OR => write!(f, "OR"),
+            },
+        }
+    }
+}
+
 
 /// Represents the currenlty implemented tests
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -421,9 +482,23 @@ pub enum Test {
     //Closure,   could you imagine?
 }
 
+impl Display for Test {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Test::Equals(value) => write!(f, "equals {}", value),
+            Test::NotEquals(value) => write!(f, "not_equals {}", value),
+            Test::Less(value) => write!(f, "less-than {}", value),
+            Test::Greater(value) => write!(f, "greater-than {}", value),
+            Test::Starts(value) => write!(f, "starts-with {}", value),
+            Test::Ends(value) => write!(f, "ends-with {}", value),
+            Test::Contains(value) => write!(f, "contains {}", value),
+        }
+    }
+}
+
 impl Test {
     pub fn new(input: &str, bar: &str) -> Self {
-        match input {
+        match input.to_lowercase().as_str() {
             "equals" => Test::Equals(KeyString::from(bar)),
             "not_equals" => Test::NotEquals(KeyString::from(bar)),
             "less" => Test::Less(KeyString::from(bar)),
@@ -449,6 +524,7 @@ enum Expect {
     Updates,
 }
 
+#[allow(non_snake_case)]
 pub fn parse_EZQL(query_string: &str) -> Result<Vec<Query>, QueryError> {
 
     let mut queries = Vec::new();
@@ -456,7 +532,7 @@ pub fn parse_EZQL(query_string: &str) -> Result<Vec<Query>, QueryError> {
     let mut expect = Expect::QueryType;
     let mut query_buf = Query::new();
     for token in query_string.split(';') {
-        println!("token: {}", token);
+        // println!("token: {}", token);
         match expect {
             Expect::QueryType => {
                 match token.trim() {
@@ -499,7 +575,7 @@ pub fn parse_EZQL(query_string: &str) -> Result<Vec<Query>, QueryError> {
             Expect::TableName => {
                 match token.trim() {
                     x => {
-                        if x.len() > 255 {
+                        if x.len() > 64 {
                             return Err(QueryError::TableNameTooLong);
                         } else {
                             query_buf.table = KeyString::from(x);
@@ -672,7 +748,7 @@ pub fn parse_contained_token<'a>(s: &'a str, container_open: char, container_clo
     Some(&s[start..stop])
 }
 
-
+#[allow(non_snake_case)]
 pub fn execute_single_EZQL_query(query: Query, database: Arc<Database>) -> Result<EZTable, ServerError> {
 
     match query.query_type {
@@ -706,7 +782,7 @@ pub fn execute_single_EZQL_query(query: Query, database: Arc<Database>) -> Resul
 fn execute_delete_query(query: Query, database: Arc<Database>) -> Result<EZTable, ServerError> {
     let tables = database.buffer_pool.tables.read().unwrap();
     let mut table = tables.get(&query.table).unwrap().write().unwrap();
-    let keepers = filter_keepers(query, &table)?;
+    let keepers = filter_keepers(&query, &table)?;
     table.delete_by_indexes(&keepers);
 
     Ok(
@@ -717,7 +793,7 @@ fn execute_delete_query(query: Query, database: Arc<Database>) -> Result<EZTable
 fn execute_left_join_query(query: Query, database: Arc<Database>) -> Result<EZTable, ServerError> {
     let tables = database.buffer_pool.tables.read().unwrap();
     let table = tables.get(&query.table).unwrap().read().unwrap();
-    let keepers = filter_keepers(query, &table)?;
+    let keepers = filter_keepers(&query, &table)?;
     return Err(ServerError::Unimplemented("Joins are not yet implemented".to_owned()));
     
 }
@@ -725,7 +801,7 @@ fn execute_left_join_query(query: Query, database: Arc<Database>) -> Result<EZTa
 fn execute_inner_join_query(query: Query, database: Arc<Database>) -> Result<EZTable, ServerError> {
     let tables = database.buffer_pool.tables.read().unwrap();
     let table = tables.get(&query.table).unwrap().read().unwrap();
-    let keepers = filter_keepers(query, &table)?;
+    let keepers = filter_keepers(&query, &table)?;
 
     return Err(ServerError::Unimplemented("Joins are not yet implemented".to_owned()));
 }
@@ -733,7 +809,7 @@ fn execute_inner_join_query(query: Query, database: Arc<Database>) -> Result<EZT
 fn execute_right_join_query(query: Query, database: Arc<Database>) -> Result<EZTable, ServerError> {
     let tables = database.buffer_pool.tables.read().unwrap();
     let table = tables.get(&query.table).unwrap().read().unwrap();
-    let keepers = filter_keepers(query, &table)?;
+    let keepers = filter_keepers(&query, &table)?;
 
     return Err(ServerError::Unimplemented("Joins are not yet implemented".to_owned()));
 }
@@ -741,15 +817,68 @@ fn execute_right_join_query(query: Query, database: Arc<Database>) -> Result<EZT
 fn execute_full_join_query(query: Query, database: Arc<Database>) -> Result<EZTable, ServerError> {
     let tables = database.buffer_pool.tables.read().unwrap();
     let table = tables.get(&query.table).unwrap().read().unwrap();
-    let keepers = filter_keepers(query, &table)?;
+    let keepers = filter_keepers(&query, &table)?;
 
     return Err(ServerError::Unimplemented("Joins are not yet implemented".to_owned()));
 }
 
+// pub struct Update {
+//     attribute: KeyString,
+//     Operator: UpdateOp,
+//     Value: KeyString,
+// }
+
 fn execute_update_query(query: Query, database: Arc<Database>) -> Result<EZTable, ServerError> {
     let tables = database.buffer_pool.tables.read().unwrap();
-    let table = tables.get(&query.table).unwrap().read().unwrap();
-    let keepers = filter_keepers(query, &table)?;
+    let mut table = tables.get(&query.table).unwrap().write().unwrap();
+    let keepers = filter_keepers(&query, &table)?;
+
+    for update in &query.updates{
+        for keeper in &keepers {
+            let attribute_index = table.get_column_index(&update.attribute)?;
+            match update.operator {
+                UpdateOp::Assign => {
+                    match table.columns[attribute_index] {
+                        DbVec::Ints(ref mut column) => column[*keeper] = update.value.to_i32(),
+                        DbVec::Floats(ref mut column) => column[*keeper] = update.value.to_f32(),
+                        DbVec::Texts(ref mut column) => column[*keeper] = update.value.clone(),
+                    }
+                },
+                UpdateOp::PlusEquals => {
+                    match table.columns[attribute_index] {
+                        DbVec::Ints(ref mut column) => column[*keeper] += update.value.to_i32(),
+                        DbVec::Floats(ref mut column) => column[*keeper] += update.value.to_f32(),
+                        DbVec::Texts(ref mut _column) => return Err(ServerError::Query),
+                    }
+                },
+                UpdateOp::TimesEquals => {
+                    match table.columns[attribute_index] {
+                        DbVec::Ints(ref mut column) => column[*keeper] *= update.value.to_i32(),
+                        DbVec::Floats(ref mut column) => column[*keeper] *= update.value.to_f32(),
+                        DbVec::Texts(ref mut column) => column[*keeper] = update.value.clone(),
+                    }
+                },
+                UpdateOp::Append => {
+                    match table.columns[attribute_index] {
+                        DbVec::Ints(ref mut _column) => return Err(ServerError::Query),
+                        DbVec::Floats(ref mut _column) => return Err(ServerError::Query),
+                        DbVec::Texts(ref mut column) => column[*keeper].push(update.value.as_str())?,
+                    }
+                },
+                UpdateOp::Prepend => {
+                    match table.columns[attribute_index] {
+                        DbVec::Ints(ref mut _column) => return Err(ServerError::Query),
+                        DbVec::Floats(ref mut _column) => return Err(ServerError::Query),
+                        DbVec::Texts(ref mut column) => {
+                            let mut new = update.value.clone();
+                            new.push(column[*keeper].as_str())?;
+                            column[*keeper] = new;
+                        },
+                    }
+                },
+            }
+        }
+    }
 
     Ok(
         table.subtable_from_indexes(&keepers, &KeyString::from("RESULT"))
@@ -759,7 +888,7 @@ fn execute_update_query(query: Query, database: Arc<Database>) -> Result<EZTable
 fn execute_insert_query(query: Query, database: Arc<Database>) -> Result<EZTable, ServerError> {
     let tables = database.buffer_pool.tables.read().unwrap();
     let table = tables.get(&query.table).unwrap().read().unwrap();
-    let keepers = filter_keepers(query, &table)?;
+    let keepers = filter_keepers(&query, &table)?;
 
     Ok(
         table.subtable_from_indexes(&keepers, &KeyString::from("RESULT"))
@@ -770,7 +899,7 @@ fn execute_select_query(query: Query, database: Arc<Database>) -> Result<EZTable
     let tables = database.buffer_pool.tables.read().unwrap();
     let table = tables.get(&query.table).unwrap().read().unwrap();
 
-    let keepers = filter_keepers(query, &table)?;
+    let keepers = filter_keepers(&query, &table)?;
 
     Ok(
         table.subtable_from_indexes(&keepers, &KeyString::from("RESULT"))
@@ -778,11 +907,11 @@ fn execute_select_query(query: Query, database: Arc<Database>) -> Result<EZTable
 }
 
 
-pub fn filter_keepers(query: Query, table: &EZTable) -> Result<Vec<usize>, ServerError> {
+pub fn filter_keepers(query: &Query, table: &EZTable) -> Result<Vec<usize>, ServerError> {
     let mut indexes = Vec::new();
 
     match query.primary_keys {
-        RangeOrListorAll::Range(start, stop) => {
+        RangeOrListorAll::Range(ref start, ref stop) => {
             match &table.columns[table.get_primary_key_col_index()] {
                 DbVec::Ints(column) => {
                     let first = match column.binary_search(&start.to_i32()) {
@@ -811,12 +940,13 @@ pub fn filter_keepers(query: Query, table: &EZTable) -> Result<Vec<usize>, Serve
                 },
             }
         },
-        RangeOrListorAll::List(mut keys) => {
+        RangeOrListorAll::List(ref keys) => {
             match &table.columns[table.get_primary_key_col_index()] {
                 DbVec::Ints(column) => {
                     if keys.len() > column.len() {
                         return Err(ServerError::Query)
                     }
+                    let mut keys = keys.clone();
                     keys.sort();
                     let mut key_index: usize = 0;
                     for index in 0..column.len() {
@@ -833,6 +963,7 @@ pub fn filter_keepers(query: Query, table: &EZTable) -> Result<Vec<usize>, Serve
                     if keys.len() > column.len() {
                         return Err(ServerError::Query)
                     }
+                    let mut keys = keys.clone();
                     keys.sort();
                     let mut key_index = 0;
                     for index in 0..column.len() {
@@ -1066,7 +1197,7 @@ mod tests {
             (name append " *Updated")"#;
         let parsed = parse_EZQL(query).unwrap();
 
-        dbg!(parsed);
+        println!("{}", parsed[0]);
     }
 
 

@@ -1,5 +1,5 @@
 //#![allow(unused)]
-#![allow(non_snake_case)]
+//#![allow(non_snake_case)]
 
 #[cfg(target_os="windows")]
 pub const PATH_SEP: char = '\\';

@@ -1,5 +1,5 @@
 //#![allow(unused)]
-#![allow(non_snake_case)]
+//#![allow(non_snake_case)]
 
 
 use EZDB::server_networking;
