@@ -680,7 +680,6 @@ pub fn parse_EZQL(query_string: &str) -> Result<Vec<Query>, QueryError> {
 
             Expect::Inserts => {
                 let tok = token.trim();
-                let mut inserts = Vec::new();
 
             }
         };
@@ -829,38 +828,40 @@ fn execute_update_query(query: Query, database: Arc<Database>) -> Result<EZTable
 
     for update in &query.updates{
         for keeper in &keepers {
-            let attribute_index = table.get_column_index(&update.attribute)?;
+            if !table.columns.contains_key(&update.attribute) {
+                return Err(ServerError::Query)
+            }
             match update.operator {
                 UpdateOp::Assign => {
-                    match table.columns[attribute_index] {
+                    match table.columns.get_mut(&update.attribute).unwrap() {
                         DbColumn::Ints(ref mut column) => column[*keeper] = update.value.to_i32(),
                         DbColumn::Floats(ref mut column) => column[*keeper] = update.value.to_f32(),
                         DbColumn::Texts(ref mut column) => column[*keeper] = update.value.clone(),
                     }
                 },
                 UpdateOp::PlusEquals => {
-                    match table.columns[attribute_index] {
+                    match table.columns.get_mut(&update.attribute).unwrap() {
                         DbColumn::Ints(ref mut column) => column[*keeper] += update.value.to_i32(),
                         DbColumn::Floats(ref mut column) => column[*keeper] += update.value.to_f32(),
                         DbColumn::Texts(ref mut _column) => return Err(ServerError::Query),
                     }
                 },
                 UpdateOp::TimesEquals => {
-                    match table.columns[attribute_index] {
+                    match table.columns.get_mut(&update.attribute).unwrap() {
                         DbColumn::Ints(ref mut column) => column[*keeper] *= update.value.to_i32(),
                         DbColumn::Floats(ref mut column) => column[*keeper] *= update.value.to_f32(),
                         DbColumn::Texts(ref mut column) => column[*keeper] = update.value.clone(),
                     }
                 },
                 UpdateOp::Append => {
-                    match table.columns[attribute_index] {
+                    match table.columns.get_mut(&update.attribute).unwrap() {
                         DbColumn::Ints(ref mut _column) => return Err(ServerError::Query),
                         DbColumn::Floats(ref mut _column) => return Err(ServerError::Query),
                         DbColumn::Texts(ref mut column) => column[*keeper].push(update.value.as_str())?,
                     }
                 },
                 UpdateOp::Prepend => {
-                    match table.columns[attribute_index] {
+                    match table.columns.get_mut(&update.attribute).unwrap() {
                         DbColumn::Ints(ref mut _column) => return Err(ServerError::Query),
                         DbColumn::Floats(ref mut _column) => return Err(ServerError::Query),
                         DbColumn::Texts(ref mut column) => {
@@ -906,7 +907,7 @@ pub fn filter_keepers(query: &Query, table: &EZTable) -> Result<Vec<usize>, Serv
 
     match query.primary_keys {
         RangeOrListorAll::Range(ref start, ref stop) => {
-            match &table.columns[table.get_primary_key_col_index()] {
+            match &table.columns[&table.get_primary_key_col_index()] {
                 DbColumn::Ints(column) => {
                     let first = match column.binary_search(&start.to_i32()) {
                         Ok(x) => x,
@@ -935,7 +936,7 @@ pub fn filter_keepers(query: &Query, table: &EZTable) -> Result<Vec<usize>, Serv
             }
         },
         RangeOrListorAll::List(ref keys) => {
-            match &table.columns[table.get_primary_key_col_index()] {
+            match &table.columns[&table.get_primary_key_col_index()] {
                 DbColumn::Ints(column) => {
                     if keys.len() > column.len() {
                         return Err(ServerError::Query)
@@ -979,7 +980,10 @@ pub fn filter_keepers(query: &Query, table: &EZTable) -> Result<Vec<usize>, Serv
         match condition {
             OpOrCond::Op(op) => current_op = *op,
             OpOrCond::Cond(cond) => {
-                let column = &table.columns[table.get_column_index(&cond.attribute)?];
+                if !table.columns.contains_key(&cond.attribute) {
+                    return Err(ServerError::Query)
+                }
+                let column = &table.columns[&cond.attribute];
                 if current_op == Operator::OR {
                     for index in &indexes {
                         match &cond.test {
