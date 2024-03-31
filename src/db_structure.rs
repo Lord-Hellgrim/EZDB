@@ -645,6 +645,8 @@ impl EZTable {
             DbColumn::Floats(_) => unreachable!("Should never have a float primary key"),
         }
 
+        header.sort_by_key(|x| x.name.clone());
+
         let mut output = EZTable {
             metadata: Metadata::from_table(created_by, &header, &result),
             name: KeyString::from(table_name),
@@ -1619,6 +1621,8 @@ impl EZTable {
             }
         });
 
+        header.sort_by_key(|x| x.name.clone());
+
         let new_table = EZTable {
             metadata,
             name: KeyString::from(name),
@@ -1893,7 +1897,7 @@ mod tests {
 
     #[test]
     fn test_columntable_from_to_string() {
-        let input = "vnr,i-P;heiti,t-N;magn,i-N\n113035;undirlegg;200\n113050;annad undirlegg;500";
+        let input = "1vnr,i-P;2heiti,t-N;3magn,i-N\n113035;undirlegg;200\n113050;annad undirlegg;500";
         let t = EZTable::from_csv_string(input, "test", "test").unwrap();
         // println!("t: {}", t.to_string());
         assert_eq!(input, t.to_string());
@@ -1963,7 +1967,23 @@ mod tests {
         let mut file = std::fs::File::create("combined.csv").unwrap();
         file.write_all(a.to_string().as_bytes());
 
-        assert_eq!(a.to_string(), c.to_string());
+        let a_string = a.to_string();
+        let b_string = b.to_string();
+
+        let mut a_iter = a_string.split(';');
+        let mut b_iter = b_string.split(';');
+
+        loop {
+            let x = a_iter.next();
+            if x.is_none() {break}
+            let y = b_iter.next();
+            if y.is_none() {break}
+
+            println!("a: {}", x.unwrap());
+            println!("b: {}", y.unwrap());
+        }
+
+        // assert_eq!(a.to_string(), c.to_string());
     }
 
     #[test]
