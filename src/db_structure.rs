@@ -13,7 +13,7 @@ use crate::PATH_SEP;
 /// Alias for SmartString
 // pub type KeyString = SmartString<LazyCompact>;
 
-#[derive(Clone, Debug, Hash)]
+#[derive(Clone, Copy, Debug, Hash)]
 pub struct KeyString {
     inner: [u8;64],
 }
@@ -452,6 +452,29 @@ impl Display for EZTable {
 
 impl EZTable {
 
+    pub fn blank(header: &Vec<HeaderItem>, name: KeyString, created_by: &str) -> Result<EZTable, StrictError> {
+
+        let mut columns = Vec::with_capacity(header.len());
+
+        for head in header {
+            match head.kind {
+                DbType::Int => columns.push(DbVec::Ints(Vec::new())),
+                DbType::Float => columns.push(DbVec::Floats(Vec::new())),
+                DbType::Text => columns.push(DbVec::Texts(Vec::new())),
+            }
+        }
+
+        Ok(
+            EZTable {
+                metadata: Metadata::new(created_by),
+                name: name,
+                header: header.clone(),
+                columns,
+            }
+        )
+
+    }
+
     /// Parses a ColumnTable from a csv string. Ensures strictness. See EZ CSV FORMAT below.
     pub fn from_csv_string(
         s: &str,
@@ -480,7 +503,7 @@ impl EZTable {
 
         The body is formatted like this:
         Given a header:
-        id,i-P;name,Text-N;product_group,t-FProductGroup
+        id,i-P;name,Text-N;product_group,t-F
 
         The body can be formatted like this:
 
@@ -655,12 +678,73 @@ impl EZTable {
 
     /// Helper function to update a ColumnTable with a csv
     pub fn update_from_csv(&mut self, input_csv: &str) -> Result<(), StrictError> {
-        let insert_table = EZTable::from_csv_string(input_csv, "insert", "system")?;
+        let update_table = EZTable::from_csv_string(input_csv, "update", "system")?;
 
-        self.update(&insert_table)?;
+        self.update(&update_table)?;
 
         Ok(())
     }
+
+    pub fn insert(&mut self, mut input_table: EZTable) -> Result<(), StrictError> {
+
+        if self.header != input_table.header {
+            return Err(StrictError::Query("Input table header does not match target table header".to_owned()));
+        }
+
+        let mut losers = Vec::new();
+
+        match &input_table.columns[input_table.get_primary_key_col_index()] {
+            DbVec::Ints(column) => {
+                for item in column {
+                    if let Some(index) = self.contains_key_i32(*item) {
+                        losers.push(index);
+                    }
+                }
+            },
+            DbVec::Texts(column) => {
+                for item in column {
+                    if let Some(index) = self.contains_key_string(*item) {
+                        losers.push(index);
+                    }
+                }
+            },
+            DbVec::Floats(_column) => unreachable!("There should never be a float primary key"),
+        }
+
+        input_table.delete_by_indexes(&losers);
+
+        self.update(&input_table)?;
+
+        Ok(())
+    }
+
+    pub fn contains_key_i32(&self, key: i32) -> Option<usize> {
+
+        match &self.columns[self.get_primary_key_col_index()] {
+            DbVec::Ints(column) => {
+                match column.binary_search(&key) {
+                    Ok(x) => Some(x),
+                    Err(_) => None,
+                }
+            },
+           _ => unreachable!("Already checked the key type earlier")
+        }
+    }
+
+    pub fn contains_key_string(&self, key: KeyString) -> Option<usize> {
+
+        match &self.columns[self.get_primary_key_col_index()] {
+            DbVec::Texts(column) => {
+                match column.binary_search(&key) {
+                    Ok(x) => Some(x),
+                    Err(_) => None,
+                }
+            },
+           _ => unreachable!("Already checked the key type earlier")
+        }
+    }
+
+    
 
     pub fn byte_size(&self) -> usize {
 
