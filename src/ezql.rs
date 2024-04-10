@@ -592,107 +592,95 @@ pub fn parse_EZQL(query_string: &str) -> Result<Vec<Query>, QueryError> {
                 }
             },
             Expect::PrimaryKeys => {
-                match token.trim() {
-                    tok => {
-                        if tok.trim().split("..").count() == 2 {
-                            let mut ranger = tok.split("..");
-                            query_buf.primary_keys = RangeOrListorAll::Range(
-                                KeyString::from(ranger.next().unwrap().trim()), 
-                                KeyString::from(ranger.next().unwrap().trim())
-                            );
-                            expect = Expect::Conditions;
-                        } else if tok == "*" {
-                            query_buf.primary_keys = RangeOrListorAll::All;
-                            expect = Expect::Conditions;
-                        } else {
-                            query_buf.primary_keys = RangeOrListorAll::List(tok.split(',').map(|n| KeyString::from(n.trim())).collect());
-                            expect = Expect::Conditions;
-                        }
-                    }
+                let tok = token.trim();
+                if tok.trim().split("..").count() == 2 {
+                let mut ranger = tok.split("..");
+                query_buf.primary_keys = RangeOrListorAll::Range(
+                    KeyString::from(ranger.next().unwrap().trim()), 
+                    KeyString::from(ranger.next().unwrap().trim())
+                );
+                    expect = Expect::Conditions;
+                } else if tok == "*" {
+                    query_buf.primary_keys = RangeOrListorAll::All;
+                    expect = Expect::Conditions;
+                } else {
+                    query_buf.primary_keys = RangeOrListorAll::List(tok.split(',').map(|n| KeyString::from(n.trim())).collect());
+                    expect = Expect::Conditions;
                 }
 
             },
             Expect::Conditions => {
-                match token.trim() {
-
-                    other => {
-                        let mut blocks = Vec::new();
-                        let mut pos = 0;
-                        while pos < other.len() {
-                            // println!("pos: {}", pos);
-                            // println!("blocks: {:?}", blocks);
-                            if other.as_bytes()[pos] == b'(' {
-                                let block = match parse_contained_token(&other[pos..], '(', ')') {
-                                    Some(z) => z,
-                                    None => return Err(QueryError::InvalidConditionFormat),
-                                }; 
-                                blocks.push(block);
-                                pos += block.len() + 2;
-                                continue;
-                            } else if other[pos..].starts_with("AND") || other[pos..].starts_with("OR") ||other[pos..].starts_with("NOT") {
-                                blocks.push(other[pos..pos+3].trim());
-                            } else if other[pos..].starts_with("THEN") {
-                                queries.push(query_buf.clone());
-                                query_buf = Query::new();
-                                expect = Expect::QueryType;
-                                break;
-                            } else if other[pos..].starts_with("TO") {
-                                if query_buf.query_type != QueryType::UPDATE {
-                                    return Err(QueryError::InvalidTO)
-                                } else {
-                                    expect = Expect::Updates;
-                                }
-                                break;
-                            }
-                            pos += 1;
+                let other = token.trim();
+                let mut blocks = Vec::new();
+                let mut pos = 0;
+                while pos < other.len() {
+                    // println!("pos: {}", pos);
+                    // println!("blocks: {:?}", blocks);
+                    if other.as_bytes()[pos] == b'(' {
+                        let block = match parse_contained_token(&other[pos..], '(', ')') {
+                            Some(z) => z,
+                            None => return Err(QueryError::InvalidConditionFormat),
+                        }; 
+                        blocks.push(block);
+                        pos += block.len() + 2;
+                        continue;
+                    } else if other[pos..].starts_with("AND") || other[pos..].starts_with("OR") ||other[pos..].starts_with("NOT") {
+                        blocks.push(other[pos..pos+3].trim());
+                    } else if other[pos..].starts_with("THEN") {
+                        queries.push(query_buf.clone());
+                        query_buf = Query::new();
+                        expect = Expect::QueryType;
+                        break;
+                    } else if other[pos..].starts_with("TO") {
+                        if query_buf.query_type != QueryType::UPDATE {
+                            return Err(QueryError::InvalidTO)
+                        } else {
+                            expect = Expect::Updates;
                         }
+                        break;
+                    }
+                    pos += 1;
+                }
 
-                        let mut op_or_cond_queue = Vec::new();
-                        for block in blocks {
-                            match block {
-                                "AND" => op_or_cond_queue.push(OpOrCond::Op(Operator::AND)),
-                                "OR" => op_or_cond_queue.push(OpOrCond::Op(Operator::OR)),
-                                other => {
-                                    op_or_cond_queue.push(OpOrCond::Cond(Condition::from_str(other)?));
-                                }
-                            }
+                let mut op_or_cond_queue = Vec::new();
+                for block in blocks {
+                    match block {
+                        "AND" => op_or_cond_queue.push(OpOrCond::Op(Operator::AND)),
+                        "OR" => op_or_cond_queue.push(OpOrCond::Op(Operator::OR)),
+                        other => {
+                            op_or_cond_queue.push(OpOrCond::Cond(Condition::from_str(other)?));
                         }
-                        query_buf.conditions = op_or_cond_queue;
-                    },
-                };
-
-                
+                    }
+                }
+                query_buf.conditions = op_or_cond_queue;
             },
 
             Expect::Updates => {
 
-                match token.trim() {
+                let other = token.trim();
+                let mut blocks = Vec::new();
+                let mut pos = 0;
+                while pos < other.len() {
+                    // println!("pos: {}", pos);
+                    // println!("blocks: {:?}", blocks);
+                    if other.as_bytes()[pos] == b'(' {
+                        let block = match parse_contained_token(&other[pos..], '(', ')') {
+                            Some(z) => z,
+                            None => return Err(QueryError::InvalidUpdate),
+                        }; 
+                        pos += block.len() + 2;
+                        blocks.push(block);
+                        continue;
+                    }
+                    pos += 1;
+                }
 
-                    other => {
-                        let mut blocks = Vec::new();
-                        let mut pos = 0;
-                        while pos < other.len() {
-                            // println!("pos: {}", pos);
-                            // println!("blocks: {:?}", blocks);
-                            if other.as_bytes()[pos] == b'(' {
-                                let block = match parse_contained_token(&other[pos..], '(', ')') {
-                                    Some(z) => z,
-                                    None => return Err(QueryError::InvalidUpdate),
-                                }; 
-                                pos += block.len() + 2;
-                                blocks.push(block);
-                                continue;
-                            }
-                            pos += 1;
-                        }
-
-                        let mut update_queue = Vec::new();
-                        for block in blocks {
-                            update_queue.push(Update::from_str(block)?);
-                        }
-                        query_buf.updates = update_queue;
-                    },
-                };
+                let mut update_queue = Vec::new();
+                for block in blocks {
+                    update_queue.push(Update::from_str(block)?);
+                }
+                query_buf.updates = update_queue;
+            },
 
                 
             },
