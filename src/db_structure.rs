@@ -843,37 +843,8 @@ impl EZTable {
         Ok(())
     }
 
-    pub fn insert(&mut self, insert_table: EZTable) {
-        for head in insert_table.header {
-            if !self.header.contains(&head) {
-                break
-            }
-        }
-
-        let mut losers: Vec<usize> = Vec::new();
-        match insert_table.columns[insert_table.get_primary_key_col_index()] {
-            DbVec::Ints(column) => {
-                for (index, key) in column.iter().enumerate() {
-                    match self.key_index(key) {
-                        Some(index) => losers.push(index),
-                        None => (),
-                    }
-                }
-            },
-            DbVec::Texts(column) => {
-                for (index, key) in column.iter().enumerate() {
-                    match self.key_index(key) {
-                        Some(index) => losers.push(index),
-                        None => (),
-                    }
-                }
-            },
-            DbVec::Floats(column) => unreachable!("There should never be a primary key"),
-        };
-    }
-
     pub fn key_index(&self, key: &KeyString) -> Option<usize> {
-        match self.columns[self.get_primary_key_col_index()] {
+        match &self.columns[self.get_primary_key_col_index()] {
             DbVec::Ints(column) => {
                 match column.binary_search(&key.to_i32()) {
                     Ok(x) => Some(x),
@@ -1502,6 +1473,17 @@ impl EZTable {
             }
         }
     }
+
+
+    pub fn left_join(&mut self, right_table: EZTable, predicate_column: KeyString) -> Result<(), StrictError> {
+
+        if !self.header.contains(predicate_column) {
+            return Err(StrictError::Query("Tables have no common columns".to_owned()))
+        }
+
+        Ok(())
+    }
+
 
     /// Writes this table to disk as a csv.
     pub fn save_to_disk_csv(&self, path: &str) -> Result<(), StrictError> {

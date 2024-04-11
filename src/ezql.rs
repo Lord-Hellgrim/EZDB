@@ -535,7 +535,7 @@ pub fn parse_EZQL(query_string: &str) -> Result<Vec<Query>, QueryError> {
     
     let mut expect = Expect::QueryType;
     let mut query_buf = Query::new();
-    for (index, token) in query_string.split(';').enumerate() {
+    for token in query_string.split(';') {
         // println!("token: {}", token);
         match expect {
             Expect::QueryType => {
@@ -570,7 +570,7 @@ pub fn parse_EZQL(query_string: &str) -> Result<Vec<Query>, QueryError> {
                     },
                     "INSERT" => {
                         query_buf.query_type = QueryType::INSERT;
-                        expect = Expect::TableName;
+                        expect = Expect::Inserts;
                     }
 
                     _ => return Err(QueryError::InvalidQueryType),
@@ -581,9 +581,6 @@ pub fn parse_EZQL(query_string: &str) -> Result<Vec<Query>, QueryError> {
                     x => {
                         if x.len() > 64 {
                             return Err(QueryError::TableNameTooLong);
-                        } else if query_buf.query_type == QueryType::INSERT {
-                            query_buf.table = KeyString::from(x);
-                            expect = Expect::Inserts;
                         } else {
                             query_buf.table = KeyString::from(x);
                             expect = Expect::PrimaryKeys;
@@ -682,8 +679,6 @@ pub fn parse_EZQL(query_string: &str) -> Result<Vec<Query>, QueryError> {
                 query_buf.updates = update_queue;
             },
 
-                
-            },
             Expect::Inserts => {
 
             // INSERT;                             <-- Type of query
@@ -693,14 +688,24 @@ pub fn parse_EZQL(query_string: &str) -> Result<Vec<Query>, QueryError> {
             // screwdriver;100;60401010            <-- | > New values. If a value with the same primary key as a listed value exists in the table;it will not be updated.
             // chewing gum;50;1323                 <-- |/  The inserts should adhere to the EZ-CSV format specified in db_structure.rs
 
-                match token.trim() {
-                    other => {
-                        query_buf.inserts = std::str::from_utf8(
-                            &query_string.as_bytes()[index..]
-                        ).expect("This should always be utf8 since it's from the query_string")
-                        .to_owned();
+                let mut first_semicolon = 0;
+                let mut second_semicolon = 0;
+                for (i, c) in query_string.chars().enumerate() {
+                    if first_semicolon == 0 {
+                        if c == ';' {
+                            first_semicolon = i;
+                        }
+                    } else {
+                        if c == ';' {
+                            second_semicolon = i;
+                            break;
+                        }
                     }
                 }
+                let table_name = &query_string[first_semicolon+1..second_semicolon];
+                let csv = &query_string[second_semicolon+1..];
+                query_buf.table = KeyString::from(table_name);
+                query_buf.inserts = csv.to_owned();
             },
 
             Expect::End => {break}
