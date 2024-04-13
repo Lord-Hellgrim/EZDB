@@ -1477,9 +1477,49 @@ impl EZTable {
 
     pub fn left_join(&mut self, right_table: EZTable, predicate_column: KeyString) -> Result<(), StrictError> {
 
-        if !self.header.contains(predicate_column) {
-            return Err(StrictError::Query("Tables have no common columns".to_owned()))
+        let mut common = false;
+        for item in &self.header {
+            if item.name == predicate_column {
+                common = true;
+                continue;
+            }
         }
+        if common == false {
+            return Err(StrictError::Query("Tables have no common columns".to_owned()));
+        }
+
+        let mut common_columns = Vec::new();
+        for item in &self.header {
+            for thing in &right_table.header {
+                if thing.name == item.name {
+                    common_columns.push(thing.name);
+                }
+            }
+        }
+
+        
+
+        /*
+        
+        EMPLOYEES
+        employee_id;    name;   department; role;
+        1               jim     IT          engineer
+        2               jeff    Sales       Manager
+        3               bob     IT          engineer
+
+        DEPARTMENTS
+        department;     #employees; budget; location;
+        IT              2           100000  'third floor'
+        Sales           1           100     'first floor'
+
+        left join EMPLOYEES DEPARTMENTS
+
+        employee_id;    name;   department; role;       #employees; location;       budget;
+        1               jim     IT          engineer    2           'third floor'   100000
+        2               jeff    Sales       Manager     1           'first floor'   100
+        3               bob     IT          engineer    2           'third floor'   100000
+
+         */
 
         Ok(())
     }
