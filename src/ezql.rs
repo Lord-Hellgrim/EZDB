@@ -162,13 +162,14 @@ pub enum QueryError {
 
 
 /// A database query that has already been parsed from EZQL (see handlers.rs)
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub struct Query {
     pub table: KeyString,
     pub query_type: QueryType,
     pub primary_keys: RangeOrListorAll,
     pub conditions: Vec<OpOrCond>,
     pub updates: Vec<Update>,
+    pub inserts: String,
 }
 
 impl Display for Query {
@@ -214,6 +215,7 @@ impl Query {
             primary_keys: RangeOrListorAll::All,
             conditions: Vec::new(),
             updates: Vec::new(),
+            inserts: String::new(),
         }
     }
 }
@@ -523,6 +525,7 @@ enum Expect {
     Conditions,
     Updates,
     Inserts,
+    End,
 }
 
 #[allow(non_snake_case)]
@@ -532,7 +535,7 @@ pub fn parse_EZQL(query_string: &str) -> Result<Vec<Query>, QueryError> {
     
     let mut expect = Expect::QueryType;
     let mut query_buf = Query::new();
-    for token in query_string.split(';') {
+    for (index, token) in query_string.split(';').enumerate() {
         // println!("token: {}", token);
         match expect {
             Expect::QueryType => {
@@ -574,17 +577,18 @@ pub fn parse_EZQL(query_string: &str) -> Result<Vec<Query>, QueryError> {
                 }
             },
             Expect::TableName => {
-                let x = token.trim();
-                if x.len() > 64 {
-                    return Err(QueryError::TableNameTooLong);
-                } else if query_buf.query_type == QueryType::INSERT {
-                    query_buf.table = KeyString::from(x);
-                    expect = Expect::Inserts;
-
-                } else {
-                    query_buf.table = KeyString::from(x);
-                    expect = Expect::PrimaryKeys;
-
+                match token.trim() {
+                    x => {
+                        if x.len() > 64 {
+                            return Err(QueryError::TableNameTooLong);
+                        } else if query_buf.query_type == QueryType::INSERT {
+                            query_buf.table = KeyString::from(x);
+                            expect = Expect::Inserts;
+                        } else {
+                            query_buf.table = KeyString::from(x);
+                            expect = Expect::PrimaryKeys;
+                        }
+                    }
                 }
             },
             Expect::PrimaryKeys => {
@@ -678,10 +682,29 @@ pub fn parse_EZQL(query_string: &str) -> Result<Vec<Query>, QueryError> {
                 query_buf.updates = update_queue;
             },
 
+                
+            },
             Expect::Inserts => {
-                let tok = token.trim();
+              
 
-            }
+            // INSERT;                             <-- Type of query
+            // Products;                           <-- Table name (Here all the table column names are "id", "name", "price")
+            // name,t-N; price,i-N; id,t-P         <-- Identifies which item in the following list of rows maps to which column in the table. Order is irrelevant.
+            // hammer;500;60401011                 <-- |\  
+            // screwdriver;100;60401010            <-- | > New values. If a value with the same primary key as a listed value exists in the table;it will not be updated.
+            // chewing gum;50;1323                 <-- |/  The inserts should adhere to the EZ-CSV format specified in db_structure.rs
+
+                match token.trim() {
+                    other => {
+                        query_buf.inserts = std::str::from_utf8(
+                            &query_string.as_bytes()[index..]
+                        ).expect("This should always be utf8 since it's from the query_string")
+                        .to_owned();
+                    }
+                }
+            },
+
+            Expect::End => {break}
         };
     }
 
@@ -742,7 +765,7 @@ pub fn parse_contained_token<'a>(s: &'a str, container_open: char, container_clo
 }
 
 #[allow(non_snake_case)]
-pub fn execute_single_EZQL_query(query: Query, database: Arc<Database>) -> Result<EZTable, ServerError> {
+pub fn execute_single_EZQL_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
 
     match query.query_type {
         QueryType::DELETE => {
@@ -772,26 +795,28 @@ pub fn execute_single_EZQL_query(query: Query, database: Arc<Database>) -> Resul
     }
 }
 
-fn execute_delete_query(query: Query, database: Arc<Database>) -> Result<EZTable, ServerError> {
+fn execute_delete_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
     let tables = database.buffer_pool.tables.read().unwrap();
     let mut table = tables.get(&query.table).unwrap().write().unwrap();
     let keepers = filter_keepers(&query, &table)?;
     table.delete_by_indexes(&keepers);
 
     Ok(
-        table.clone()
+        None
     )
 }
 
-fn execute_left_join_query(query: Query, database: Arc<Database>) -> Result<EZTable, ServerError> {
+fn execute_left_join_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
     let tables = database.buffer_pool.tables.read().unwrap();
-    let table = tables.get(&query.table).unwrap().read().unwrap();
-    let keepers = filter_keepers(&query, &table)?;
+    let left_table = tables.get(&query.table).unwrap().read().unwrap();
+    let right_table = tables.get(&query.table).unwrap().read().unwrap();
+    
+
     return Err(ServerError::Unimplemented("Joins are not yet implemented".to_owned()));
     
 }
 
-fn execute_inner_join_query(query: Query, database: Arc<Database>) -> Result<EZTable, ServerError> {
+fn execute_inner_join_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
     let tables = database.buffer_pool.tables.read().unwrap();
     let table = tables.get(&query.table).unwrap().read().unwrap();
     let keepers = filter_keepers(&query, &table)?;
@@ -799,7 +824,7 @@ fn execute_inner_join_query(query: Query, database: Arc<Database>) -> Result<EZT
     return Err(ServerError::Unimplemented("Joins are not yet implemented".to_owned()));
 }
 
-fn execute_right_join_query(query: Query, database: Arc<Database>) -> Result<EZTable, ServerError> {
+fn execute_right_join_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
     let tables = database.buffer_pool.tables.read().unwrap();
     let table = tables.get(&query.table).unwrap().read().unwrap();
     let keepers = filter_keepers(&query, &table)?;
@@ -807,7 +832,7 @@ fn execute_right_join_query(query: Query, database: Arc<Database>) -> Result<EZT
     return Err(ServerError::Unimplemented("Joins are not yet implemented".to_owned()));
 }
 
-fn execute_full_join_query(query: Query, database: Arc<Database>) -> Result<EZTable, ServerError> {
+fn execute_full_join_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
     let tables = database.buffer_pool.tables.read().unwrap();
     let table = tables.get(&query.table).unwrap().read().unwrap();
     let keepers = filter_keepers(&query, &table)?;
@@ -821,7 +846,7 @@ fn execute_full_join_query(query: Query, database: Arc<Database>) -> Result<EZTa
 //     Value: KeyString,
 // }
 
-fn execute_update_query(query: Query, database: Arc<Database>) -> Result<EZTable, ServerError> {
+fn execute_update_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
     let tables = database.buffer_pool.tables.read().unwrap();
     let mut table = tables.get(&query.table).unwrap().write().unwrap();
     let keepers = filter_keepers(&query, &table)?;
@@ -876,28 +901,30 @@ fn execute_update_query(query: Query, database: Arc<Database>) -> Result<EZTable
     }
 
     Ok(
-        table.subtable_from_indexes(&keepers, &KeyString::from("RESULT"))
+        None    
     )
 }
 
-fn execute_insert_query(query: Query, database: Arc<Database>) -> Result<EZTable, ServerError> {
+fn execute_insert_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
     let tables = database.buffer_pool.tables.read().unwrap();
-    let table = tables.get(&query.table).unwrap().read().unwrap();
-    let keepers = filter_keepers(&query, &table)?;
+    let mut table = tables.get(&query.table).unwrap().write().unwrap();
+    let input = EZTable::from_csv_string(&query.inserts, "input_table", "RESULT")?;
+
+    table.insert(input)?;
 
     Ok(
-        table.subtable_from_indexes(&keepers, &KeyString::from("RESULT"))
+        None
     )
 }
 
-fn execute_select_query(query: Query, database: Arc<Database>) -> Result<EZTable, ServerError> {
+fn execute_select_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
     let tables = database.buffer_pool.tables.read().unwrap();
     let table = tables.get(&query.table).unwrap().read().unwrap();
 
     let keepers = filter_keepers(&query, &table)?;
 
     Ok(
-        table.subtable_from_indexes(&keepers, &KeyString::from("RESULT"))
+        Some(table.subtable_from_indexes(&keepers, &KeyString::from("RESULT")))
     )
 }
 
@@ -1173,6 +1200,7 @@ mod tests {
                 )
             ],
             updates: Vec::new(),
+            inserts: String::new(),
         };
 
         dbg!(&query[0]);
