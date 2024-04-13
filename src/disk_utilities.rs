@@ -6,7 +6,7 @@ use std::path::Path;
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, RwLock};
 
-use crate::db_structure::{write_subtable_to_raw_binary, DbType, DbVec, HeaderItem, KeyString, Metadata, StrictError, Value};
+use crate::db_structure::{write_subtable_to_raw_binary, DbType, DbColumn, HeaderItem, KeyString, Metadata, StrictError, Value};
 use crate::networking_utilities::{f32_from_le_slice, i32_from_le_slice, ServerError};
 use crate::{db_structure::EZTable, server_networking::CONFIG_FOLDER};
 use crate::PATH_SEP;
@@ -198,17 +198,17 @@ pub fn write_table_to_binary_directory(table: &EZTable) -> Result<(), std::io::E
         // println!("{}..={}", start, stop);
         
         let mut chunk_path = path_str.clone();
-        match &table.columns[table.get_primary_key_col_index()] {
-            DbVec::Ints(v) => {
+        match &table.columns[&table.get_primary_key_col_index()] {
+            DbColumn::Ints(v) => {
                 // println!("{}..={}", v[start], v[stop]);
                 chunk_path.push_str(&format!("{PATH_SEP}{}..={}", v[start], v[stop]))
             },
-            DbVec::Floats(v) => {
+            DbColumn::Floats(v) => {
                 // println!("{}..={}", v[start], v[stop]);
                 chunk_path.push_str(&format!("{PATH_SEP}{}..={}", v[start], v[stop]))
                 
             },
-            DbVec::Texts(v) => {
+            DbColumn::Texts(v) => {
                 // println!("{}..={}", v[start], v[stop]);
                 chunk_path.push_str(&format!("{PATH_SEP}{}..={}", v[start], v[stop]))
             },
@@ -224,15 +224,15 @@ pub fn write_table_to_binary_directory(table: &EZTable) -> Result<(), std::io::E
     let subtable = table.create_subtable(start, table.len());
     
     let mut chunk_path = path_str.clone();
-    match &table.columns[table.get_primary_key_col_index()] {
-        DbVec::Ints(v) => {
+    match &table.columns[&table.get_primary_key_col_index()] {
+        DbColumn::Ints(v) => {
             chunk_path.push_str(&format!("{PATH_SEP}{}..={}", v[start], v.last().unwrap()))
         },
-        DbVec::Floats(v) => {
+        DbColumn::Floats(v) => {
             chunk_path.push_str(&format!("{PATH_SEP}{}..={}", v[start], v.last().unwrap()))
             
         },
-        DbVec::Texts(v) => {
+        DbColumn::Texts(v) => {
             chunk_path.push_str(&format!("{PATH_SEP}{}..={}", v[start], v.last().unwrap()))
         },
     };
@@ -250,7 +250,7 @@ pub fn read_binary_table_chunk_into_memory(table_file: &str, header: &Vec<Header
     let file_size = file.metadata().unwrap().size();
     let length = file_size / metadata.size_of_row() as u64;
 
-    let mut table = Vec::with_capacity(header.len());
+    let mut table = BTreeMap::new();
     let mut buf = [0u8;1_000_000];
     let mut index = 0;
     let mut total_bytes: usize = 0;
@@ -264,7 +264,7 @@ pub fn read_binary_table_chunk_into_memory(table_file: &str, header: &Vec<Header
                     .chunks(4)
                     .map(|chunk| i32_from_le_slice(chunk))
                     .collect();
-                table.push(DbVec::Ints(v));
+                table.insert(header[index].name.clone(), DbColumn::Ints(v));
                 total_bytes += amount_to_read;
             },
             DbType::Float => {
@@ -274,7 +274,7 @@ pub fn read_binary_table_chunk_into_memory(table_file: &str, header: &Vec<Header
                     .chunks(4)
                     .map(|chunk| f32_from_le_slice(chunk))
                     .collect();
-                table.push(DbVec::Floats(v));
+                table.insert(header[index].name.clone(), DbColumn::Floats(v));
                 total_bytes += amount_to_read;
             },
             DbType::Text => {
@@ -284,7 +284,7 @@ pub fn read_binary_table_chunk_into_memory(table_file: &str, header: &Vec<Header
                     .chunks(64)
                     .map(|chunk| KeyString::from(chunk))
                     .collect();
-                table.push(DbVec::Texts(v));
+                table.insert(header[index].name.clone(), DbColumn::Texts(v));
                 total_bytes += amount_to_read;
             },
         }
