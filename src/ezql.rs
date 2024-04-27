@@ -124,8 +124,9 @@
 
     Chain example1:
     LEFT JOIN;
-    Products, warehouse1, warehouse2;
+    Products, warehouse1;
     *
+
     
     NOT > AND > OR
 
@@ -146,7 +147,7 @@
 
 use std::{fmt::Display, sync::Arc};
 
-use crate::{db_structure::{remove_indices, DbColumn, EZTable, KeyString}, networking_utilities::ServerError, server_networking::Database};
+use crate::{db_structure::{remove_indices, subtable_from_keys, DbColumn, EZTable, KeyString}, networking_utilities::ServerError, server_networking::Database};
 
 
 #[derive(Debug, PartialEq)]
@@ -158,6 +159,13 @@ pub enum QueryError {
     InvalidUpdate,
     TableNameTooLong,
     Unknown,
+    InvalidQueryStructure,
+}
+
+#[derive(Clone, Debug, PartialEq, PartialOrd, Default)]
+pub struct Join {
+    pub table: KeyString,
+    pub join_column: KeyString,
 }
 
 
@@ -170,6 +178,7 @@ pub struct Query {
     pub conditions: Vec<OpOrCond>,
     pub updates: Vec<Update>,
     pub inserts: String,
+    pub join: Join,
 }
 
 impl Display for Query {
@@ -216,6 +225,7 @@ impl Query {
             conditions: Vec::new(),
             updates: Vec::new(),
             inserts: String::new(),
+            join: Join::default(),
         }
     }
 }
@@ -369,6 +379,12 @@ pub enum RangeOrListorAll {
 pub struct Condition {
     pub attribute: KeyString,
     pub test: Test,
+}
+
+impl Display for Condition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} - {}", self.attribute, self.test)
+    }
 }
 
 impl Condition {
@@ -526,6 +542,7 @@ enum Expect {
     Updates,
     Inserts,
     End,
+    LeftJoin,
 }
 
 #[allow(non_snake_case)]
@@ -546,7 +563,7 @@ pub fn parse_EZQL(query_string: &str) -> Result<Vec<Query>, QueryError> {
                     },
                     "LEFT_JOIN" => {
                         query_buf.query_type = QueryType::LEFT_JOIN;
-                        expect = Expect::TableName;
+                        expect = Expect::LeftJoin;
                     },
                     "INNER_JOIN" => {
                         query_buf.query_type = QueryType::INNER_JOIN;
@@ -709,6 +726,37 @@ pub fn parse_EZQL(query_string: &str) -> Result<Vec<Query>, QueryError> {
                 query_buf.inserts = csv.to_owned();
             },
 
+            Expect::LeftJoin => {
+                // LEFT JOIN;
+                // Products, warehouse1;
+                // product.id;
+                // 0113035, 18572054, 0113000, 18572013
+
+                let temp = subsplitter(query_string);
+                if temp.len() != 4 {return Err(QueryError::InvalidQueryStructure)}
+                if temp[1].len() != 2 {return Err(QueryError::InvalidQueryStructure)}
+
+                query_buf.table = KeyString::from(temp[1][0]);
+                query_buf.join.table = KeyString::from(temp[1][1]);
+                query_buf.join.join_column = KeyString::from(temp[2][0]);
+                
+                if temp[3].len() == 1 {
+                    if temp[3][0].trim() == "*" {
+                        query_buf.primary_keys = RangeOrListorAll::All;
+                    } else if temp[3][0].contains("..") {
+                        let mut ranger = temp[3][0].split("..");
+                        let start = KeyString::from(ranger.next().unwrap());
+                        let stop = KeyString::from(ranger.next().unwrap());
+                        query_buf.primary_keys = RangeOrListorAll::Range(start, stop);
+                    }
+                } else {
+                    let keys: Vec<KeyString> = temp[3].iter().map(|n| KeyString::from(*n)).collect();
+                    query_buf.primary_keys = RangeOrListorAll::List(keys);
+                }
+
+
+            }
+
             Expect::End => {break}
         };
     }
@@ -716,6 +764,17 @@ pub fn parse_EZQL(query_string: &str) -> Result<Vec<Query>, QueryError> {
     queries.push(query_buf);
 
     Ok(queries)
+}
+
+pub fn subsplitter<'a>(s: &'a str) -> Vec<Vec<&'a str>> {
+
+    let mut temp = Vec::new();
+    for line in s.split(';') {
+        temp.push(line.split(',').collect::<Vec<&str>>());
+    }
+
+    temp
+
 }
 
 pub fn is_even(x: usize) -> bool {
@@ -814,8 +873,12 @@ fn execute_delete_query(query: Query, database: Arc<Database>) -> Result<Option<
 fn execute_left_join_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
     let tables = database.buffer_pool.tables.read().unwrap();
     let left_table = tables.get(&query.table).unwrap().read().unwrap();
-    let right_table = tables.get(&query.table).unwrap().read().unwrap();
+    let right_table = tables.get(&query.join.table).unwrap().read().unwrap();
     
+    let filtered_indexes = keys_to_indexes(&left_table, &query.primary_keys)?;
+    let mut filtered_table = left_table.subtable_from_indexes(&filtered_indexes, &KeyString::from("__RESULT__"));
+
+    filtered_table.left_join(&right_table, &query.join.join_column);
 
     return Err(ServerError::Unimplemented("Joins are not yet implemented".to_owned()));
     
@@ -933,11 +996,10 @@ fn execute_select_query(query: Query, database: Arc<Database>) -> Result<Option<
     )
 }
 
-
-pub fn filter_keepers(query: &Query, table: &EZTable) -> Result<Vec<usize>, ServerError> {
+fn keys_to_indexes(table: &EZTable, keys: &RangeOrListorAll) -> Result<Vec<usize>, ServerError> {
     let mut indexes = Vec::new();
 
-    match query.primary_keys {
+    match keys {
         RangeOrListorAll::Range(ref start, ref stop) => {
             match &table.columns[&table.get_primary_key_col_index()] {
                 DbColumn::Ints(column) => {
@@ -1003,8 +1065,14 @@ pub fn filter_keepers(query: &Query, table: &EZTable) -> Result<Vec<usize>, Serv
             }
         },
         RangeOrListorAll::All => indexes = (0..table.len()).collect(),
+    };
 
-    } // Match primary keys
+    Ok(indexes)
+}
+
+
+pub fn filter_keepers(query: &Query, table: &EZTable) -> Result<Vec<usize>, ServerError> {
+    let mut indexes = keys_to_indexes(table, &query.primary_keys)?;
 
     let mut keepers = Vec::<usize>::new();
     let mut current_op = Operator::OR;
@@ -1129,8 +1197,13 @@ pub fn filter_keepers(query: &Query, table: &EZTable) -> Result<Vec<usize>, Serv
 }
 
 
+#[allow(non_snake_case)]
+#[allow(unused)]
 #[cfg(test)]
 mod tests {
+
+
+    use std::default;
 
     use super::*;
 
@@ -1148,7 +1221,7 @@ mod tests {
     #[test]
     fn test_Condition_from_str() {
         let test = Condition::from_str("\"att and other\" equals 500").unwrap();
-        dbg!(test);
+        println!("{}", test);
     }
 
     #[test]
@@ -1206,6 +1279,7 @@ mod tests {
             ],
             updates: Vec::new(),
             inserts: String::new(),
+            join: Join::default(),
         };
 
         dbg!(&query[0]);
@@ -1231,6 +1305,45 @@ mod tests {
         println!("{}", parsed[0]);
     }
 
+    #[test]
+    fn test_SELECT() {
+
+    }
+
+    #[test]
+    fn test_LEFT_JOIN() {
+
+    }
+
+    #[test]
+    fn test_INNER_JOIN() {
+
+    }
+
+    #[test]
+    fn test_RIGHT_JOIN() {
+
+    }
+
+    #[test]
+    fn test_FULL_JOIN() {
+
+    }
+
+    #[test]
+    fn test_UPDATE() {
+
+    }
+
+    #[test]
+    fn test_INSERT() {
+
+    }
+
+    #[test]
+    fn test_DELETE() {
+
+    }
 
 
 }

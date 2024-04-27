@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashSet}, fmt::{self, Debug, Display}, fs::File, io::{Read, Write}
+    collections::{BTreeMap, HashSet}, fmt::{self, Debug, Display}, fs::File, io::{Read, Write}, num::{ParseFloatError, ParseIntError}
 };
 
 // use smartstring::{LazyCompact, SmartString, };
@@ -21,6 +21,12 @@ impl fmt::Display for KeyString {
         let text = bytes_to_str(&self.inner).expect("Should always be valid utf8");
         write!(f, "{}", text)
     }   
+}
+
+impl Default for KeyString {
+    fn default() -> Self {
+        Self { inner: [0;64] }
+    }
 }
 
 impl From<&str> for KeyString {
@@ -137,6 +143,15 @@ impl KeyString {
     pub fn to_f32(&self) -> f32 {
         self.as_str().parse::<f32>().unwrap()
     }
+
+    pub fn to_i32_checked(&self) -> Result<i32, ParseIntError> {
+        self.as_str().parse::<i32>()
+    }
+
+    pub fn to_f32_checked(&self) -> Result<f32, ParseFloatError> {
+        self.as_str().parse::<f32>()
+    }
+
 }
 
 
@@ -449,14 +464,14 @@ impl EZTable {
 
     pub fn blank(header: &Vec<HeaderItem>, name: KeyString, created_by: &str) -> Result<EZTable, StrictError> {
 
-        let mut columns = Vec::with_capacity(header.len());
+        let mut columns = BTreeMap::new();
 
         for head in header {
             match head.kind {
-                DbType::Int => columns.push(DbVec::Ints(Vec::new())),
-                DbType::Float => columns.push(DbVec::Floats(Vec::new())),
-                DbType::Text => columns.push(DbVec::Texts(Vec::new())),
-            }
+                DbType::Int => columns.insert(head.name, DbColumn::Ints(Vec::new())),
+                DbType::Float => columns.insert(head.name, DbColumn::Floats(Vec::new())),
+                DbType::Text => columns.insert(head.name, DbColumn::Texts(Vec::new())),
+            };
         }
 
         Ok(
@@ -697,22 +712,22 @@ impl EZTable {
 
         let mut losers = Vec::new();
 
-        match &input_table.columns[input_table.get_primary_key_col_index()] {
-            DbVec::Ints(column) => {
+        match &input_table.columns[&input_table.get_primary_key_col_index()] {
+            DbColumn::Ints(column) => {
                 for item in column {
                     if let Some(index) = self.contains_key_i32(*item) {
                         losers.push(index);
                     }
                 }
             },
-            DbVec::Texts(column) => {
+            DbColumn::Texts(column) => {
                 for item in column {
                     if let Some(index) = self.contains_key_string(*item) {
                         losers.push(index);
                     }
                 }
             },
-            DbVec::Floats(_column) => unreachable!("There should never be a float primary key"),
+            DbColumn::Floats(_column) => unreachable!("There should never be a float primary key"),
         }
 
         input_table.delete_by_indexes(&losers);
@@ -724,8 +739,8 @@ impl EZTable {
 
     pub fn contains_key_i32(&self, key: i32) -> Option<usize> {
 
-        match &self.columns[self.get_primary_key_col_index()] {
-            DbVec::Ints(column) => {
+        match &self.columns[&self.get_primary_key_col_index()] {
+            DbColumn::Ints(column) => {
                 match column.binary_search(&key) {
                     Ok(x) => Some(x),
                     Err(_) => None,
@@ -737,8 +752,8 @@ impl EZTable {
 
     pub fn contains_key_string(&self, key: KeyString) -> Option<usize> {
 
-        match &self.columns[self.get_primary_key_col_index()] {
-            DbVec::Texts(column) => {
+        match &self.columns[&self.get_primary_key_col_index()] {
+            DbColumn::Texts(column) => {
                 match column.binary_search(&key) {
                     Ok(x) => Some(x),
                     Err(_) => None,
@@ -779,6 +794,14 @@ impl EZTable {
         }
 
         unreachable!("There should always be a primary key")
+    }
+
+    pub fn get_primary_key_type(&self) -> DbType {
+        match self.columns[&self.get_primary_key_col_index()] {
+            DbColumn::Ints(_) => DbType::Int,
+            DbColumn::Texts(_) => DbType::Text,
+            DbColumn::Floats(_) => unreachable!("There should never be a float primary key"),
+        }
     }
 
     /// Updates a ColumnTable. Overwrites existing keys and adds new ones in proper order
@@ -838,8 +861,8 @@ impl EZTable {
     }
 
     pub fn key_index(&self, key: &KeyString) -> Option<usize> {
-        match &self.columns[self.get_primary_key_col_index()] {
-            DbVec::Ints(column) => {
+        match &self.columns[&self.get_primary_key_col_index()] {
+            DbColumn::Ints(column) => {
                 match column.binary_search(&key.to_i32()) {
                     Ok(x) => Some(x),
                     Err(_) => None
@@ -851,13 +874,13 @@ impl EZTable {
                     Err(_) => None
                 }
             },
-            DbColumn::Floats(column) => unreachable!("The should never be a primary key"),
+            DbColumn::Floats(_) => unreachable!("The should never be a primary key"),
         }
     }
 
     /// Utility function to get the length of the database columns.
     pub fn len(&self) -> usize {
-        match &self.columns.iter().next().unwrap().1 {
+        match &self.columns.values().next().unwrap() {
             DbColumn::Floats(col) => col.len(),
             DbColumn::Ints(col) => col.len(),
             DbColumn::Texts(col) => col.len(),
@@ -931,6 +954,45 @@ impl EZTable {
         output.pop();
 
         Ok(output)
+    }
+    
+    pub fn get_column_int<'a>(&'a self, index: KeyString) -> Result<&'a Vec<i32>, StrictError> {
+
+        match self.columns.get(&index) {
+            Some(dbcol) => match dbcol {
+                DbColumn::Ints(column) => Ok(column),
+                DbColumn::Texts(_) => Err(StrictError::WrongType),
+                DbColumn::Floats(_) => Err(StrictError::WrongType),
+            },
+            None => Err(StrictError::WrongKey)
+        }
+
+    }
+
+    pub fn get_column_text<'a>(&'a self, index: KeyString) -> Result<&'a Vec<KeyString>, StrictError> {
+
+        match self.columns.get(&index) {
+            Some(dbcol) => match dbcol {
+                DbColumn::Texts(column) => Ok(column),
+                DbColumn::Ints(_) => Err(StrictError::WrongType),
+                DbColumn::Floats(_) => Err(StrictError::WrongType),
+            },
+            None => Err(StrictError::WrongKey)
+        }
+
+    }
+
+    pub fn get_column_float<'a>(&'a self, index: KeyString) -> Result<&'a Vec<f32>, StrictError> {
+
+        match self.columns.get(&index) {
+            Some(dbcol) => match dbcol {
+                DbColumn::Floats(column) => Ok(column),
+                DbColumn::Texts(_) => Err(StrictError::WrongType),
+                DbColumn::Ints(_) => Err(StrictError::WrongType),
+            },
+            None => Err(StrictError::WrongKey)
+        }
+
     }
 
     /// Gets a list of items from the table and returns a csv string containing them
@@ -1469,28 +1531,19 @@ impl EZTable {
     }
 
 
-    pub fn left_join(&mut self, right_table: EZTable, predicate_column: KeyString) -> Result<(), StrictError> {
+    pub fn left_join(&mut self, right_table: &EZTable, predicate_column: &KeyString) -> Result<(), StrictError> {
 
-        let mut common = false;
-        for item in &self.header {
-            if item.name == predicate_column {
-                common = true;
-                continue;
-            }
-        }
-        if common == false {
-            return Err(StrictError::Query("Tables have no common columns".to_owned()));
-        }
+        match self.columns.keys().find(|x| **x == *predicate_column) {
+            Some(_) => (),
+            None => return Err(StrictError::Query("Predicate column is not common".to_owned())),
+        };
 
-        let mut common_columns = Vec::new();
-        for item in &self.header {
-            for thing in &right_table.header {
-                if thing.name == item.name {
-                    common_columns.push(thing.name);
-                }
-            }
-        }
+        match right_table.columns.keys().find(|x| **x == *predicate_column) {
+            Some(_) => (),
+            None => return Err(StrictError::Query("Predicate column is not common".to_owned())),
+        };
 
+        
         
 
         /*
@@ -1801,6 +1854,51 @@ pub fn write_subtable_to_raw_binary(subtable: EZTable) -> Vec<u8> {
         }
         output
 }
+
+
+pub fn subtable_from_keys(table: &EZTable, mut keys: Vec<KeyString>) -> Result<EZTable, StrictError> {
+
+    let mut indexes = Vec::new();
+    match table.get_primary_key_type() {
+        DbType::Int => {
+            let mut int_keys = Vec::new();
+            for key in keys {
+                match key.to_i32_checked() {
+                    Ok(x) => int_keys.push(x),
+                    Err(e) => return Err(StrictError::WrongType),
+                }
+            }
+            int_keys.sort();
+            let mut key_pointer = 0;
+            let col = table.get_column_int(table.get_primary_key_col_index()).unwrap();
+            for index in 0..col.len() {
+                if int_keys[key_pointer] == col[index] {
+                    indexes.push(index);
+                    key_pointer += 1
+                }
+            }
+
+        },
+        DbType::Text => {
+            keys.sort();
+            let mut key_pointer = 0;
+            let col = table.get_column_text(table.get_primary_key_col_index()).unwrap();
+            for index in 0..col.len() {
+                if keys[key_pointer] == col[index] {
+                    indexes.push(index);
+                    key_pointer += 1
+                }
+            }
+        },
+        DbType::Float => unreachable!(),
+    };
+
+    Ok(
+        table.subtable_from_indexes(&indexes, &KeyString::from("__RESULT__"))
+    )
+}
+
+
 
 /// Helper function for the table sorting.
 /// This rearranges a column by a list of given indexes.
