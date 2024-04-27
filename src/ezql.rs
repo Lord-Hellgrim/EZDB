@@ -880,7 +880,7 @@ fn execute_left_join_query(query: Query, database: Arc<Database>) -> Result<Opti
 
     filtered_table.left_join(&right_table, &query.join.join_column);
 
-    return Err(ServerError::Unimplemented("Joins are not yet implemented".to_owned()));
+    Ok(Some(filtered_table))
     
 }
 
