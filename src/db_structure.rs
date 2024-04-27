@@ -1,8 +1,10 @@
 use std::{
-    collections::{BTreeMap, HashSet}, fmt::{self, Debug, Display}, fs::File, io::{Read, Write}, num::{ParseFloatError, ParseIntError}
+    collections::{BTreeMap, HashMap, HashSet}, fmt::{self, Debug, Display}, fs::File, io::{Read, Write}, num::{ParseFloatError, ParseIntError}
 };
 
 // use smartstring::{LazyCompact, SmartString, };
+
+use fnv::{FnvHashMap, FnvHasher};
 
 use crate::networking_utilities::*;
 
@@ -474,11 +476,14 @@ impl EZTable {
             };
         }
 
+        let mut new_header = header.clone();
+        new_header.sort_by_key(|n| n.name);
+
         Ok(
             EZTable {
                 metadata: Metadata::new(created_by),
                 name: name,
-                header: header.clone(),
+                header: new_header,
                 columns,
             }
         )
@@ -956,7 +961,7 @@ impl EZTable {
         Ok(output)
     }
     
-    pub fn get_column_int<'a>(&'a self, index: KeyString) -> Result<&'a Vec<i32>, StrictError> {
+    pub fn get_column_int<'a>(&'a self, index: &KeyString) -> Result<&'a Vec<i32>, StrictError> {
 
         match self.columns.get(&index) {
             Some(dbcol) => match dbcol {
@@ -969,7 +974,7 @@ impl EZTable {
 
     }
 
-    pub fn get_column_text<'a>(&'a self, index: KeyString) -> Result<&'a Vec<KeyString>, StrictError> {
+    pub fn get_column_text<'a>(&'a self, index: &KeyString) -> Result<&'a Vec<KeyString>, StrictError> {
 
         match self.columns.get(&index) {
             Some(dbcol) => match dbcol {
@@ -982,7 +987,7 @@ impl EZTable {
 
     }
 
-    pub fn get_column_float<'a>(&'a self, index: KeyString) -> Result<&'a Vec<f32>, StrictError> {
+    pub fn get_column_float<'a>(&'a self, index: &KeyString) -> Result<&'a Vec<f32>, StrictError> {
 
         match self.columns.get(&index) {
             Some(dbcol) => match dbcol {
@@ -1530,6 +1535,27 @@ impl EZTable {
         }
     }
 
+    pub fn add_column(&mut self, name: KeyString, kind: TableKey, column: DbColumn) -> Result<(), StrictError> {
+
+        let kind = match column {
+            DbColumn::Ints(_) => DbType::Int,
+            DbColumn::Texts(_) => DbType::Text,
+            DbColumn::Floats(_) => DbType::Float,
+        };
+
+        self.header.push(HeaderItem {
+            name: name,
+            key: TableKey::None,
+            kind: kind, 
+        });
+
+        self.columns.insert(name, column);
+
+        self.header.sort_by_key(|x| x.name.clone());
+
+        Ok(())
+    }
+
 
     pub fn left_join(&mut self, right_table: &EZTable, predicate_column: &KeyString) -> Result<(), StrictError> {
 
@@ -1544,6 +1570,77 @@ impl EZTable {
         };
 
         
+        let mut indexes: Vec<usize> = Vec::with_capacity(self.len());
+        match &self.columns[predicate_column] {
+            DbColumn::Ints(column) => {
+                let right_col = right_table.get_column_int(predicate_column)?;
+                let mut lookup = HashMap::with_capacity(right_col.len());
+                for item in column.iter() {
+                    if lookup.contains_key(item) {
+                        indexes.push(lookup[item]);
+                    } else {
+                        match right_col.binary_search(item) {
+                            Ok(x) => {
+                                indexes.push(x);
+                                lookup.insert(item, x);
+                            },
+                            Err(_) => todo!("This should only happen if the database is out of sync"),
+                        };
+                    }
+                }
+            },
+            DbColumn::Texts(column) => {
+                let right_col = right_table.get_column_text(predicate_column)?;
+                let mut lookup = HashMap::with_capacity(right_col.len());
+                for item in column.iter() {
+                    if lookup.contains_key(item) {
+                        indexes.push(lookup[item]);
+                    } else {
+                        match right_col.binary_search(item) {
+                            Ok(x) => {
+                                indexes.push(x);
+                                lookup.insert(item, x);
+                            },
+                            Err(_) => todo!("This should only happen if the database is out of sync"),
+                        };
+                    }
+                }
+            },
+            DbColumn::Floats(_column) => unreachable!("Can never have a float key column"),
+
+        }
+        
+        for (place, (name, column)) in right_table.columns.iter().enumerate() {
+            if name == predicate_column {
+                continue
+            }
+
+            let table_key = right_table.header[place].key.clone();
+
+            match column {
+                DbColumn::Ints(col) => {
+                    let mut new_column = Vec::with_capacity(indexes.len());
+                    for index in &indexes {
+                        new_column.push(col[*index]);
+                    }
+                    self.add_column(name.clone(), table_key, DbColumn::Ints(new_column))?;
+                },
+                DbColumn::Texts(col) => {
+                    let mut new_column = Vec::with_capacity(indexes.len());
+                    for index in &indexes {
+                        new_column.push(col[*index]);
+                    }
+                    self.add_column(name.clone(), table_key, DbColumn::Texts(new_column))?;
+                },
+                DbColumn::Floats(col) => {
+                    let mut new_column = Vec::with_capacity(indexes.len());
+                    for index in &indexes {
+                        new_column.push(col[*index]);
+                    }
+                    self.add_column(name.clone(), table_key, DbColumn::Floats(new_column))?;
+                },
+            }
+        }
         
 
         /*
@@ -1870,7 +1967,7 @@ pub fn subtable_from_keys(table: &EZTable, mut keys: Vec<KeyString>) -> Result<E
             }
             int_keys.sort();
             let mut key_pointer = 0;
-            let col = table.get_column_int(table.get_primary_key_col_index()).unwrap();
+            let col = table.get_column_int(&table.get_primary_key_col_index()).unwrap();
             for index in 0..col.len() {
                 if int_keys[key_pointer] == col[index] {
                     indexes.push(index);
@@ -1882,7 +1979,7 @@ pub fn subtable_from_keys(table: &EZTable, mut keys: Vec<KeyString>) -> Result<E
         DbType::Text => {
             keys.sort();
             let mut key_pointer = 0;
-            let col = table.get_column_text(table.get_primary_key_col_index()).unwrap();
+            let col = table.get_column_text(&table.get_primary_key_col_index()).unwrap();
             for index in 0..col.len() {
                 if keys[key_pointer] == col[index] {
                     indexes.push(index);
@@ -2305,6 +2402,20 @@ mod tests {
         let table = EZTable::from_csv_string(&table_string, "basic_test", "test").unwrap();
         let subtable = table.create_subtable(0, 7515);
         println!("{}", subtable);
+    }
+
+    #[test]
+    fn test_left_join() {
+        let left_string = std::fs::read_to_string(format!("test_files{PATH_SEP}employees.csv")).unwrap();
+        let right_string = std::fs::read_to_string(format!("test_files{PATH_SEP}departments.csv")).unwrap();
+
+        let mut left_table = EZTable::from_csv_string(&left_string, "employees", "test").unwrap();
+        let right_table = EZTable::from_csv_string(&right_string, "departments", "test").unwrap();
+        println!("{}", left_table);
+        println!("{}", right_table);
+        left_table.left_join(&right_table, &KeyString::from("department"));
+        println!("{}", left_table);
+
     }
 }
 

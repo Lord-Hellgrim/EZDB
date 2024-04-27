@@ -1,0 +1,5 @@
+employee_id,i-P;name,t-N;department,t-N;role,t-N
+1;jim;IT;engineer
+2;jeff;Sales;Manager
+3;bob;IT;engineer
+4;John;QA;tester

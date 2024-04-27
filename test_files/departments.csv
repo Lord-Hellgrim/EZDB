@@ -1,0 +1,4 @@
+department,t-P;#employees,i-N;budget,i-N;location,t-N
+IT;2;100000;'third floor'
+Sales;1;100;'first floor'
+QA;10;2342;'second floor'
