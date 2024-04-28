@@ -2293,7 +2293,7 @@ mod tests {
         let t = EZTable::from_csv_string(input, "test", "test").unwrap();
         // println!("t: {}", t.to_string());
         let x = t.query_list(Vec::from(["113035"])).unwrap();
-        assert_eq!(x, "113035;undirlegg;200");
+        assert_eq!(x, "undirlegg;200;113035");
     }
 
     #[test]
@@ -2302,7 +2302,7 @@ mod tests {
         let t = EZTable::from_csv_string(input, "test", "test").unwrap();
         // println!("t: {}", t.to_string());
         let x = t.query("113035").unwrap();
-        assert_eq!(x, "113035;undirlegg;200");
+        assert_eq!(x, "undirlegg;200;113035");
     }
 
     #[test]
@@ -2311,7 +2311,7 @@ mod tests {
         let t = EZTable::from_csv_string(input, "test", "test").unwrap();
         let x = t.query_range(("113035", "113060")).unwrap();
 
-        assert_eq!(x, "113035;undirlegg;200\n113050;annad undirlegg;500")
+        assert_eq!(x, "undirlegg;200;113035\nannad undirlegg;500;113050")
     }
 
     #[test]
