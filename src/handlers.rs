@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, io::Write, sync::{Arc, RwLock}, thread::current};
 
-use crate::{auth::User, db_structure::{EZTable, DbColumn, KeyString, Metadata, Value}, networking_utilities::*, server_networking::{Server, WriteThreadMessage, CONFIG_FOLDER}};
+use crate::{auth::User, db_structure::{DbColumn, EZTable, KeyString, Metadata, Value}, ezql::{execute_EZQL_queries, parse_EZQL}, networking_utilities::*, server_networking::{Database, Server, WriteThreadMessage, CONFIG_FOLDER}};
 
 use crate::PATH_SEP;
 
@@ -123,30 +123,38 @@ pub fn handle_update_request(connection: &mut Connection, name: &str, global_tab
 }
 
 /// This will be totally rewritten to handle EZQL. Don't worry about this garbage.
-pub fn handle_query_request(connection: &mut Connection, name: &str, query: &str, global_tables: Arc<RwLock<BTreeMap<KeyString, RwLock<EZTable>>>>,) -> Result<String, ServerError> {
+pub fn handle_query_request(connection: &mut Connection, query: &str, database: Arc<Database>) -> Result<String, ServerError> {
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e.kind()));},
     };
     connection.stream.flush()?;
 
-    let mutex_binding = global_tables.read().unwrap();
-    let requested_table = mutex_binding.get(&KeyString::from(name)).expect("Instruction parser should have verified table");
     // PARSE INSTRUCTION
-    let query_type: &str;
-    match query.find("..") {
-        Some(_) => query_type = "range",
-        None => query_type = "list"
+
+    let queries = parse_EZQL(query)?;
+
+    let result_table = execute_EZQL_queries(queries, database)?;
+    let requested_csv = match result_table {
+        Some(table) => table.to_string(),
+        None => "Query successfully executed!".to_owned(),
     };
+
+    println!("result_table: {}", requested_csv);
+    // let query_type: &str;
+    // match query.find("..") {
+    //     Some(_) => query_type = "range",
+    //     None => query_type = "list"
+    // };
     
-    let requested_csv: String;
-    if query_type == "range" {
-        let parsed_query: Vec<&str> = query.split("..").collect();
-        requested_csv = requested_table.read().unwrap().query_range((parsed_query[0], parsed_query[1]))?;
-    } else {
-        let parsed_query = query.split(',').collect();
-        requested_csv = requested_table.read().unwrap().query_list(parsed_query)?;
-    }
+    // let requested_csv: String;
+    // if query_type == "range" {
+    //     let parsed_query: Vec<&str> = query.split("..").collect();
+    //     requested_csv = requested_table.read().unwrap().query_range((parsed_query[0], parsed_query[1]))?;
+    // } else {
+    //     let parsed_query = query.split(',').collect();
+    //     requested_csv = requested_table.read().unwrap().query_list(parsed_query)?;
+    // }
 
     let response = data_send_and_confirm(connection, requested_csv.as_bytes())?;
     

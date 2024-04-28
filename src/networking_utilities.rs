@@ -118,7 +118,7 @@ pub enum Instruction {
     Upload(String),
     Download(String),
     Update(String),
-    Query(String /* table_name */, String /* query */),
+    Query(String),
     Delete(String /* table_name */, String /* query */),
     NewUser(String),
     KvUpload(String),
@@ -199,7 +199,7 @@ impl Connection {
         // println!("Sending data...");
         stream.write_all(&encrypted_data_block)?;
         stream.flush()?;
-        stream.set_read_timeout(Some(Duration::from_secs(10)))?;
+        stream.set_read_timeout(Some(Duration::from_secs(20)))?;
 
         let user = username.to_owned();
         Ok(
@@ -374,10 +374,21 @@ pub fn usize_from_le_slice(slice: &[u8]) -> usize {
 pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut Connection) -> Result<String, ServerError> {
 
     let instruction = match instruction {
+        // Instruction::Download(table_name) => format!("Downloading|{}|blank|{}", table_name, connection.user),
+        // Instruction::Upload(table_name) => format!("Uploading|{}|blank|{}", table_name, connection.user),
+        // Instruction::Update(table_name) => format!("Updating|{}|blank|{}", table_name, connection.user),
+        // Instruction::Query(table_name, query) => format!("Querying|{}|{}|{}", table_name, query, connection.user),
+        // Instruction::Delete(table_name, query) => format!("Deleting|{}|{}|{}", table_name, query, connection.user),
+        // Instruction::NewUser(user_string) => format!("NewUser|{}|blank|{}", user_string, connection.user),
+        // Instruction::KvUpload(table_name) => format!("KvUpload|{}|blank|{}", table_name, connection.user),
+        // Instruction::KvUpdate(table_name) => format!("KvUpdate|{}|blank|{}", table_name, connection.user),
+        // Instruction::KvDownload(table_name) => format!("KvDownload|{}|blank|{}", table_name, connection.user),
+        // Instruction::MetaListTables => format!("MetaListTables|blank|blank|{}", connection.user),
+        // Instruction::MetaListKeyValues => format!("MetaListKeyValues|blank|blank|{}", connection.user),
         Instruction::Download(table_name) => format!("Downloading|{}|blank|{}", table_name, connection.user),
         Instruction::Upload(table_name) => format!("Uploading|{}|blank|{}", table_name, connection.user),
         Instruction::Update(table_name) => format!("Updating|{}|blank|{}", table_name, connection.user),
-        Instruction::Query(table_name, query) => format!("Querying|{}|{}|{}", table_name, query, connection.user),
+        Instruction::Query(query) => format!("Querying|blank|{}|{}", query, connection.user),
         Instruction::Delete(table_name, query) => format!("Deleting|{}|{}|{}", table_name, query, connection.user),
         Instruction::NewUser(user_string) => format!("NewUser|{}|blank|{}", user_string, connection.user),
         Instruction::KvUpload(table_name) => format!("KvUpload|{}|blank|{}", table_name, connection.user),
@@ -385,7 +396,6 @@ pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut C
         Instruction::KvDownload(table_name) => format!("KvDownload|{}|blank|{}", table_name, connection.user),
         Instruction::MetaListTables => format!("MetaListTables|blank|blank|{}", connection.user),
         Instruction::MetaListKeyValues => format!("MetaListKeyValues|blank|blank|{}", connection.user),
-
     };
 
     let (encrypted_instructions, nonce) = encrypt_aes256(&instruction.as_bytes(), &connection.aes_key);
@@ -476,9 +486,10 @@ pub fn data_send_and_confirm(connection: &mut Connection, data: &[u8]) -> Result
 /// It receives, decompresses, decrypts, and confirms receipt of the data.
 /// Used by both client and server.
 pub fn receive_data(connection: &mut Connection) -> Result<Vec<u8>, ServerError> {
-
+    
     let mut size_buffer: [u8; 8] = [0; 8];
     connection.stream.read_exact(&mut size_buffer)?;
+    println!("HERE 4!!!");
 
     let data_len = usize::from_le_bytes(size_buffer);
     if data_len > MAX_DATA_LEN {
@@ -499,6 +510,7 @@ pub fn receive_data(connection: &mut Connection) -> Result<Vec<u8>, ServerError>
         total_read += bytes_received;
         println!("Total read: {}", total_read);
     }
+    println!("HERE 3!!!");
     
 
 

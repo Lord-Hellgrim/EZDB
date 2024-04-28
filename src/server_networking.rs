@@ -65,11 +65,8 @@ pub fn parse_instruction(
     println!("parsing 4...");
     match action {
         "Querying" => {
-            if database.buffer_pool.tables.read().unwrap().contains_key(&KeyString::from(table_name)) {
-                return Ok(Instruction::Query(table_name.to_owned(), query.to_owned()));
-            } else {
-                return Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())));
-            }
+            return Ok(Instruction::Query(query.to_owned()));
+            
         }
         "Uploading" => {
             if user_has_permission(table_name, Permission::Upload, username, database.users.clone()) {
@@ -474,12 +471,11 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                                 },
                             }
                         },
-                        Instruction::Query(table_name, query) => {
+                        Instruction::Query(query) => {
                             match handle_query_request(
-                                &mut connection, 
-                                &table_name, 
+                                &mut connection,
                                 &query, 
-                                db_ref.buffer_pool.tables.clone(),
+                                db_ref.clone(),
                             ) {
                                 Ok(_) => {
                                     println!("Operation finished!");

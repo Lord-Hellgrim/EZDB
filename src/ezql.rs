@@ -149,6 +149,7 @@ use std::{fmt::Display, sync::Arc};
 
 use crate::{db_structure::{remove_indices, subtable_from_keys, DbColumn, EZTable, KeyString}, networking_utilities::ServerError, server_networking::Database};
 
+use crate::PATH_SEP;
 
 #[derive(Debug, PartialEq)]
 pub enum QueryError {
@@ -829,40 +830,93 @@ pub fn parse_contained_token<'a>(s: &'a str, container_open: char, container_clo
 }
 
 #[allow(non_snake_case)]
-pub fn execute_single_EZQL_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
+pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
 
-    match query.query_type {
-        QueryType::DELETE => {
-            execute_delete_query(query, database)
-        },
-        QueryType::SELECT => {
-            execute_select_query(query, database)
-        },
-        QueryType::LEFT_JOIN => {
-            execute_left_join_query(query, database)
-        },
-        QueryType::INNER_JOIN => {
-            execute_inner_join_query(query, database)
-        },
-        QueryType::RIGHT_JOIN => {
-            execute_right_join_query(query, database)
-        },
-        QueryType::FULL_JOIN => {
-            execute_full_join_query(query, database)
-        },
-        QueryType::UPDATE => {
-            execute_update_query(query, database)
-        },
-        QueryType::INSERT => {
-            execute_insert_query(query, database)
-        },
+    let mut result_table = None;
+    for query in queries.iter() {
+
+        match query.query_type {
+            QueryType::DELETE => {
+                match result_table {
+                    Some(mut table) => result_table = execute_delete_query(query, &mut table)?,
+                    None => {
+                        let tables = database.buffer_pool.tables.read().unwrap();
+                        let mut table = tables.get(&query.table).unwrap().write().unwrap();
+                        result_table = execute_delete_query(query, &mut table)?;
+                    },
+                }
+                
+            },
+            QueryType::SELECT => {
+                match result_table {
+                    Some(mut table) => result_table = execute_delete_query(query, &mut table)?,
+                    None => {
+                        println!("table name: {}", &query.table);
+                        let tables = database.buffer_pool.tables.read().unwrap();
+                        let table = tables.get(&query.table).unwrap().read().unwrap();
+                        result_table = execute_select_query(query, &table)?;
+                    },
+                }
+            },
+            QueryType::LEFT_JOIN => {
+                match result_table {
+                    Some(table) => {
+                        let tables = database.buffer_pool.tables.read().unwrap();
+                        let right_table = tables.get(&query.join.table).unwrap().read().unwrap();
+                        result_table = execute_left_join_query(query, &table, &right_table)?;
+                    },
+                    None => {
+                        let tables = database.buffer_pool.tables.read().unwrap();
+                        let left_table = tables.get(&query.table).unwrap().read().unwrap();
+                        let right_table = tables.get(&query.join.table).unwrap().read().unwrap();
+                        execute_left_join_query(query, &left_table, &right_table);
+                    },
+                }
+                
+            },
+            QueryType::INNER_JOIN => {
+                unimplemented!("Inner joins are not yet implemented");
+                // execute_inner_join_query(query, database);
+            },
+            QueryType::RIGHT_JOIN => {
+                unimplemented!("Right joins are not yet implemented");
+
+                // execute_right_join_query(query, database);
+            },
+            QueryType::FULL_JOIN => {
+                unimplemented!("Full joins are not yet implemented");
+
+                // execute_full_join_query(query, database);
+            },
+            QueryType::UPDATE => {
+                match result_table {
+                    Some(mut table) => result_table = execute_update_query(query, &mut table)?,
+                    None => {
+                        let tables = database.buffer_pool.tables.read().unwrap();
+                        let mut table = tables.get(&query.table).unwrap().write().unwrap();
+                        result_table = execute_update_query(query, &mut table)?;
+                    },
+                }
+            },
+            QueryType::INSERT => {
+                match result_table {
+                    Some(mut table) => result_table = execute_insert_query(query, &mut table)?,
+                    None => {
+                        let tables = database.buffer_pool.tables.read().unwrap();
+                        let mut table = tables.get(&query.table).unwrap().write().unwrap();
+                        result_table = execute_insert_query(query, &mut table)?;
+                    },
+                }
+            },
+        }
     }
+    Ok(result_table)
 }
 
-fn execute_delete_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
-    let tables = database.buffer_pool.tables.read().unwrap();
-    let mut table = tables.get(&query.table).unwrap().write().unwrap();
-    let keepers = filter_keepers(&query, &table)?;
+
+fn execute_delete_query(query: &Query, table: &mut EZTable) -> Result<Option<EZTable>, ServerError> {
+    
+    let keepers = filter_keepers(query, &table)?;
     table.delete_by_indexes(&keepers);
 
     Ok(
@@ -870,10 +924,7 @@ fn execute_delete_query(query: Query, database: Arc<Database>) -> Result<Option<
     )
 }
 
-fn execute_left_join_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
-    let tables = database.buffer_pool.tables.read().unwrap();
-    let left_table = tables.get(&query.table).unwrap().read().unwrap();
-    let right_table = tables.get(&query.join.table).unwrap().read().unwrap();
+fn execute_left_join_query(query: &Query, left_table: &EZTable, right_table: &EZTable) -> Result<Option<EZTable>, ServerError> {
     
     let filtered_indexes = keys_to_indexes(&left_table, &query.primary_keys)?;
     let mut filtered_table = left_table.subtable_from_indexes(&filtered_indexes, &KeyString::from("__RESULT__"));
@@ -884,28 +935,28 @@ fn execute_left_join_query(query: Query, database: Arc<Database>) -> Result<Opti
     
 }
 
-fn execute_inner_join_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
+fn execute_inner_join_query(query: &Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
     let tables = database.buffer_pool.tables.read().unwrap();
     let table = tables.get(&query.table).unwrap().read().unwrap();
     let keepers = filter_keepers(&query, &table)?;
 
-    return Err(ServerError::Unimplemented("Joins are not yet implemented".to_owned()));
+    return Err(ServerError::Unimplemented("inner joins are not yet implemented".to_owned()));
 }
 
-fn execute_right_join_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
+fn execute_right_join_query(query: &Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
     let tables = database.buffer_pool.tables.read().unwrap();
     let table = tables.get(&query.table).unwrap().read().unwrap();
     let keepers = filter_keepers(&query, &table)?;
 
-    return Err(ServerError::Unimplemented("Joins are not yet implemented".to_owned()));
+    return Err(ServerError::Unimplemented("right joins are not yet implemented".to_owned()));
 }
 
-fn execute_full_join_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
+fn execute_full_join_query(query: &Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
     let tables = database.buffer_pool.tables.read().unwrap();
     let table = tables.get(&query.table).unwrap().read().unwrap();
     let keepers = filter_keepers(&query, &table)?;
 
-    return Err(ServerError::Unimplemented("Joins are not yet implemented".to_owned()));
+    return Err(ServerError::Unimplemented("full joins are not yet implemented".to_owned()));
 }
 
 // pub struct Update {
@@ -914,10 +965,9 @@ fn execute_full_join_query(query: Query, database: Arc<Database>) -> Result<Opti
 //     Value: KeyString,
 // }
 
-fn execute_update_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
-    let tables = database.buffer_pool.tables.read().unwrap();
-    let mut table = tables.get(&query.table).unwrap().write().unwrap();
-    let keepers = filter_keepers(&query, &table)?;
+fn execute_update_query(query: &Query, table: &mut EZTable) -> Result<Option<EZTable>, ServerError> {
+    
+    let keepers = filter_keepers(query, &table)?;
 
     for update in &query.updates{
         for keeper in &keepers {
@@ -973,9 +1023,8 @@ fn execute_update_query(query: Query, database: Arc<Database>) -> Result<Option<
     )
 }
 
-fn execute_insert_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
-    let tables = database.buffer_pool.tables.read().unwrap();
-    let mut table = tables.get(&query.table).unwrap().write().unwrap();
+fn execute_insert_query(query: &Query, table: &mut EZTable) -> Result<Option<EZTable>, ServerError> {
+    
     let input = EZTable::from_csv_string(&query.inserts, "input_table", "RESULT")?;
 
     table.insert(input)?;
@@ -985,11 +1034,9 @@ fn execute_insert_query(query: Query, database: Arc<Database>) -> Result<Option<
     )
 }
 
-fn execute_select_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
-    let tables = database.buffer_pool.tables.read().unwrap();
-    let table = tables.get(&query.table).unwrap().read().unwrap();
+fn execute_select_query(query: &Query, table: &EZTable) -> Result<Option<EZTable>, ServerError> {
 
-    let keepers = filter_keepers(&query, &table)?;
+    let keepers = filter_keepers(query, &table)?;
 
     Ok(
         Some(table.subtable_from_indexes(&keepers, &KeyString::from("RESULT")))
@@ -1072,10 +1119,13 @@ fn keys_to_indexes(table: &EZTable, keys: &RangeOrListorAll) -> Result<Vec<usize
 
 
 pub fn filter_keepers(query: &Query, table: &EZTable) -> Result<Vec<usize>, ServerError> {
-    let mut indexes = keys_to_indexes(table, &query.primary_keys)?;
+    let indexes = keys_to_indexes(table, &query.primary_keys)?;
 
     let mut keepers = Vec::<usize>::new();
     let mut current_op = Operator::OR;
+    if query.conditions.len() == 0 {
+        keepers = (0..table.len()).collect();
+    }
     for condition in query.conditions.iter() {
         match condition {
             OpOrCond::Op(op) => current_op = *op,
@@ -1307,7 +1357,12 @@ mod tests {
 
     #[test]
     fn test_SELECT() {
-
+        let table_string = std::fs::read_to_string(format!("test_files{PATH_SEP}good_csv.txt")).unwrap();
+        let table = EZTable::from_csv_string(&table_string, "good_csv", "test").unwrap();
+        let query = "SELECT;good_csv;*";
+        let parsed = parse_EZQL(query).unwrap();
+        let result = execute_select_query(&parsed[0], &table).unwrap().unwrap();
+        println!("{}", result);
     }
 
     #[test]

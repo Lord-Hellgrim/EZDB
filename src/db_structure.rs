@@ -1838,22 +1838,22 @@ impl EZTable {
                     // println!("x: {}", x);
                     // }
                     total += bin_length * 4;
-                    index += 1;
                     table.insert(header[index].name.clone(), DbColumn::Ints(v));
+                    index += 1;
                 }
                 DbType::Float => {
                     let blob = &bin_body[total..total + (bin_length * 4)];
                     let v: Vec<f32> = blob.chunks(4).map(|n| f32_from_le_slice(n)).collect();
                     total += bin_length * 4;
-                    index += 1;
                     table.insert(header[index].name.clone(), DbColumn::Floats(v));
+                    index += 1;
                 }
                 DbType::Text => {
                     let blob = &bin_body[total..total + (bin_length * 64)];
                     let v: Vec<KeyString> = blob.chunks(64).map(|n| KeyString::from(n)).collect();
                     total += bin_length * 64;
-                    index += 1;
                     table.insert(header[index].name.clone(), DbColumn::Texts(v));
+                    index += 1;
                 }
             }
         }

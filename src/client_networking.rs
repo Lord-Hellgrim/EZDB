@@ -97,23 +97,23 @@ pub fn update_table(
     }
 }
 
-/// This function will be rewritten to use the complex_query() method of the ColumnTable soon. Don't pay too much attention to it
+/// Send an EZQL query to the database server
 pub fn query_table(
     address: &str,
     username: &str,
     password: &str,
-    table_name: &str,
     query: &str,
 ) -> Result<String, ServerError> {
     let mut connection = Connection::connect(address, username, password)?;
 
     let response = instruction_send_and_confirm(
-        Instruction::Query(table_name.to_owned(), query.to_owned()),
+        Instruction::Query(query.to_owned()),
         &mut connection,
     )?;
-
+    println!("HERE 1!!!");
     let csv: Vec<u8>;
     match response.as_str() {
+        
         // THIS IS WHERE YOU SEND THE BULK OF THE DATA
         //########## SUCCESS BRANCH #################################
         "OK" => csv = receive_data(&mut connection)?,
@@ -130,6 +130,8 @@ pub fn query_table(
         }
         e => panic!("Need to handle error: {}", e),
     };
+    println!("HERE 2!!!");
+
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote 'OK' as {n} bytes"),
@@ -412,7 +414,7 @@ mod tests {
     fn test_send_large_csv() {
         // create the large_csv
         let mut i = 0;
-        let mut printer = String::from("vnr;heiti;magn\n");
+        let mut printer = String::from("vnr,t-P;heiti,t-N;magn,i-N\n");
         loop {
             if i > 1_000_000 {
                 break;
@@ -435,11 +437,13 @@ mod tests {
         let e = upload_table(address, username, password, "good_csv", &csv).unwrap();
         assert_eq!(e, "OK");
 
-        let query = "0113000,0113035";
+        let query = "SELECT;good_csv;*";
         let username = "admin";
         let password = "admin";
-        let response = query_table(address, username, password, "good_csv", query).unwrap();
+        let response = query_table(address, username, password, query).unwrap();
+        let full_table = download_table(address, username, password, "good_csv").unwrap();
         println!("{}", response);
+        assert_eq!(response, full_table);
     }
 
     #[test]
