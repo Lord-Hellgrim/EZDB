@@ -562,19 +562,19 @@ pub fn parse_EZQL(query_string: &str) -> Result<Vec<Query>, QueryError> {
                         query_buf.query_type = QueryType::SELECT;
                         expect = Expect::TableName;
                     },
-                    "LEFT_JOIN" => {
+                    "LEFT JOIN" => {
                         query_buf.query_type = QueryType::LEFT_JOIN;
                         expect = Expect::LeftJoin;
                     },
-                    "INNER_JOIN" => {
+                    "INNER JOIN" => {
                         query_buf.query_type = QueryType::INNER_JOIN;
                         expect = Expect::TableName;
                     },
-                    "RIGHT_JOIN" => {
+                    "RIGHT JOIN" => {
                         query_buf.query_type = QueryType::RIGHT_JOIN;
                         expect = Expect::TableName;
                     },
-                    "FULL_JOIN" => {
+                    "FULL JOIN" => {
                         query_buf.query_type = QueryType::FULL_JOIN;
                         expect = Expect::TableName;
                     },
@@ -1362,12 +1362,27 @@ mod tests {
         let query = "SELECT;good_csv;*";
         let parsed = parse_EZQL(query).unwrap();
         let result = execute_select_query(&parsed[0], &table).unwrap().unwrap();
+        assert_eq!("heiti,t-N;magn,i-N;vnr,i-P\nundirlegg2;100;113000\nundirlegg;200;113035\nflísalím;42;18572054", result.to_string());
         println!("{}", result);
     }
 
     #[test]
     fn test_LEFT_JOIN() {
 
+        let left_string = std::fs::read_to_string(format!("test_files{PATH_SEP}employees.csv")).unwrap();
+        let right_string = std::fs::read_to_string(format!("test_files{PATH_SEP}departments.csv")).unwrap();
+
+        let mut left_table = EZTable::from_csv_string(&left_string, "employees", "test").unwrap();
+        let right_table = EZTable::from_csv_string(&right_string, "departments", "test").unwrap();
+
+        let query_string = "LEFT JOIN;\nemployees, departments;\ndepartment;*";
+        let query = parse_EZQL(query_string).unwrap();
+
+        let actual = execute_left_join_query(&query[0], &left_table, &right_table).unwrap().unwrap();
+        println!("{}", actual);
+        // println!("{}", query[0]);
+
+        let expected = "#employees,i-N;budget,i-N;department,t-N;employee_id,i-P;location,t-N;name,t-N;role,t-N\n2;100000;IT;1;'third floor';jim;engineer\n\n1;100;Sales;2;'first floor';jeff;Manager\n2;100000;IT;3;'third floor';bob;engineer\n10;2342;QA;4;'second floor';John;tester";
     }
 
     #[test]
