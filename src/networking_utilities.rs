@@ -534,5 +534,12 @@ mod tests {
         assert_eq!("123", x);
     }
 
+    #[test]
+    fn test_encode_hex() {
+        let byte = [0u8];
+        let x = encode_hex(&byte);
+        println!("{}", x);
+    }
+
 
 }

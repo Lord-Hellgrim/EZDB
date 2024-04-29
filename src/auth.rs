@@ -1,12 +1,12 @@
 use std::{
     collections::BTreeMap,
-    fmt,
+    fmt::{self, Display},
     sync::{Arc, RwLock},
 };
 
 use serde::{Deserialize, Serialize};
 
-use crate::{db_structure::KeyString, networking_utilities::blake3_hash};
+use crate::{db_structure::KeyString, networking_utilities::{blake3_hash, encode_hex}};
 
 /// Defines a permission a user has to interact with a given table
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,6 +49,31 @@ pub struct User {
     pub can_upload: bool,
     pub can_read: Vec<String>,
     pub can_write: Vec<String>,
+}
+
+impl Display for User {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut can_read = String::new();
+        for item in &self.can_read {
+            can_read.push('\t');
+            can_read.push_str(&item);
+            can_read.push('\n');
+        }
+        if can_read.len() > 0 {can_read.pop();}
+
+        let mut can_write = String::new();
+        for item in &self.can_write {
+            can_write.push('\t');
+            can_write.push_str(&item);
+            can_write.push('\n');
+        }
+        if can_write.len() > 0 {can_write.pop();}
+
+        let printer = format!("username\n\t{}\npassword\n\t{}\nadmin\n\t{}\ncan_upload\n\t{}\ncan_read\n{}\ncan_write\n{}",
+            self.username, encode_hex(&self.password), self.admin.to_string(), self.can_upload.to_string(), can_read, can_write
+        );
+        write!(f, "{}", printer)
+    }
 }
 
 impl User {
@@ -149,6 +174,7 @@ pub enum AuthenticationError {
     WrongPassword,
     TooLong,
     Permission,
+    WrongStringFormat,
 }
 
 /// These are all 2 bytes (2 ascii chars) to facilitate known length error reporting back to the client
@@ -160,6 +186,7 @@ impl fmt::Display for AuthenticationError {
             AuthenticationError::WrongPassword => write!(f, "IP"),
             AuthenticationError::TooLong => write!(f, "LA"),
             AuthenticationError::Permission => write!(f, "NP"),
+            AuthenticationError::WrongStringFormat => write!(f, "WF"),
         }
     }
 }
@@ -179,5 +206,20 @@ mod tests {
         println!("{}", user_string);
         let user: User = ron::from_str(&user_string).unwrap();
         assert_eq!(user, User::admin("admin", "admin"));
+    }
+
+    #[test]
+    fn test_user_string_parsing_non_serde() {
+        let user = User {
+            username: "admin".to_owned(),
+            password: blake3_hash("admin".as_bytes()),
+            admin: true,
+            can_upload: true,
+            can_read: vec!["good".to_owned(), "bad".to_owned(), "ugly".to_owned()],
+            can_write: vec!["good".to_owned(), "bad".to_owned(), "ugly".to_owned()],
+        };
+
+        println!("{}", user);
+        println!("xxx");
     }
 }
