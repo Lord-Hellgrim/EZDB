@@ -1,4 +1,9 @@
 /*
+Alternative EZQL
+*/
+
+
+/*
     EZQL spec
     Special reserved characters are
     ; 
@@ -184,31 +189,97 @@ pub struct Query {
 
 impl Display for Query {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+
         let mut printer = String::new();
-        printer.push_str(&self.query_type.to_string());
-        printer.push_str("\n");
-        printer.push_str(self.table.as_str());
-        printer.push_str("\n");
-        match &self.primary_keys {
-            RangeOrListorAll::Range(start, stop) => printer.push_str(&format!("{}..{}", start.as_str(), stop.as_str())),
-            RangeOrListorAll::List(list) => {
-                for item in list {
-                    printer.push_str(item.as_str());
-                    printer.push_str(",");
+        match self.query_type {
+            QueryType::SELECT => {
+                printer.push_str("SELECT;");
+                printer.push_str(self.table.as_str());
+                printer.push(';');
+                printer.push_str(&self.primary_keys.to_string());
+                printer.push(';');
+                for item in &self.conditions {
+                    printer.push_str(&item.to_string());
+                    printer.push(' ');
                 }
+                printer.push(';');
+
+
             },
-            RangeOrListorAll::All => printer.push_str("*"),
-        }
-        printer.push_str("\n");
-        for condition in &self.conditions {
-            printer.push_str(&condition.to_string());
-            printer.push_str("\n");
-        }
-        for update in &self.updates {
-            printer.push_str(&update.to_string());
-            printer.push_str("\n");
-        }
-        printer.pop();
+            QueryType::LEFT_JOIN | QueryType::INNER_JOIN | QueryType::RIGHT_JOIN | QueryType::FULL_JOIN => {
+                printer.push_str("LEFT JOIN;");
+                printer.push_str(self.table.as_str());
+                printer.push(',');
+                printer.push_str(self.join.table.as_str());
+                printer.push(';');
+                printer.push_str(&self.primary_keys.to_string());
+                printer.push(';');
+
+
+            },
+            QueryType::UPDATE => {
+                printer.push_str("UPDATE;");
+                printer.push_str(self.table.as_str());
+                printer.push(';');
+                printer.push_str(&self.primary_keys.to_string());
+                printer.push(';');
+                for item in &self.conditions {
+                    printer.push_str(&item.to_string());
+                    printer.push(' ');
+                }
+                printer.push(';');
+            },
+            QueryType::INSERT => {
+                printer.push_str("INSERT;");
+                printer.push_str(self.table.as_str());
+                printer.push(';');
+                printer.push_str(&self.primary_keys.to_string());
+                printer.push(';');
+                for item in &self.conditions {
+                    printer.push_str(&item.to_string());
+                    printer.push(' ');
+                }
+                printer.push(';');
+            },
+            QueryType::DELETE => {
+                printer.push_str("DELETE;");
+                printer.push_str(self.table.as_str());
+                printer.push(';');
+                printer.push_str(&self.primary_keys.to_string());
+                printer.push(';');
+                for item in &self.conditions {
+                    printer.push_str(&item.to_string());
+                    printer.push(' ');
+                }
+                printer.push(';');
+            },
+        };
+
+        // let mut printer = String::new();
+        // printer.push_str(&self.query_type.to_string());
+        // printer.push_str("\n");
+        // printer.push_str(self.table.as_str());
+        // printer.push_str("\n");
+        // match &self.primary_keys {
+        //     RangeOrListorAll::Range(start, stop) => printer.push_str(&format!("{}..{}", start.as_str(), stop.as_str())),
+        //     RangeOrListorAll::List(list) => {
+        //         for item in list {
+        //             printer.push_str(item.as_str());
+        //             printer.push_str(",");
+        //         }
+        //     },
+        //     RangeOrListorAll::All => printer.push_str("*"),
+        // }
+        // printer.push_str("\n");
+        // for condition in &self.conditions {
+        //     printer.push_str(&condition.to_string());
+        //     printer.push_str("\n");
+        // }
+        // for update in &self.updates {
+        //     printer.push_str(&update.to_string());
+        //     printer.push_str("\n");
+        // }
+        // printer.pop();
 
 
 
@@ -373,6 +444,24 @@ pub enum RangeOrListorAll {
     Range(KeyString, KeyString),
     List(Vec<KeyString>),
     All,
+}
+
+impl Display for RangeOrListorAll {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut printer = String::new();
+        match &self {
+            RangeOrListorAll::Range(start, stop) => printer.push_str(&format!("{}..{}", start, stop)),
+            RangeOrListorAll::List(list) => {
+                for item in list {
+                    printer.push_str(item.as_str());
+                    printer.push(',');
+                }
+                printer.pop();
+            },
+            RangeOrListorAll::All => printer.push_str("*"),
+        };
+        write!(f, "{}", printer)
+    }
 }
 
 /// Represents the condition a item must pass to be included in the result
@@ -733,13 +822,13 @@ pub fn parse_EZQL(query_string: &str) -> Result<Vec<Query>, QueryError> {
                 // product.id;
                 // 0113035, 18572054, 0113000, 18572013
 
-                let temp = subsplitter(query_string);
+                let temp = subsplitter(query_string.trim());
                 if temp.len() != 4 {return Err(QueryError::InvalidQueryStructure)}
                 if temp[1].len() != 2 {return Err(QueryError::InvalidQueryStructure)}
 
-                query_buf.table = KeyString::from(temp[1][0]);
-                query_buf.join.table = KeyString::from(temp[1][1]);
-                query_buf.join.join_column = KeyString::from(temp[2][0]);
+                query_buf.table = KeyString::from(temp[1][0].trim());
+                query_buf.join.table = KeyString::from(temp[1][1].trim());
+                query_buf.join.join_column = KeyString::from(temp[2][0].trim());
                 
                 if temp[3].len() == 1 {
                     if temp[3][0].trim() == "*" {
@@ -929,7 +1018,7 @@ fn execute_left_join_query(query: &Query, left_table: &EZTable, right_table: &EZ
     let filtered_indexes = keys_to_indexes(&left_table, &query.primary_keys)?;
     let mut filtered_table = left_table.subtable_from_indexes(&filtered_indexes, &KeyString::from("__RESULT__"));
 
-    filtered_table.left_join(&right_table, &query.join.join_column);
+    filtered_table.left_join(&right_table, &query.join.join_column)?;
 
     Ok(Some(filtered_table))
     
@@ -1332,10 +1421,9 @@ mod tests {
             join: Join::default(),
         };
 
-        dbg!(&query[0]);
+        println!("{}", &query[0]);
 
         assert_eq!(query[0], test_query);
-        dbg!(query);
     }
 
     #[test]
@@ -1375,14 +1463,18 @@ mod tests {
         let mut left_table = EZTable::from_csv_string(&left_string, "employees", "test").unwrap();
         let right_table = EZTable::from_csv_string(&right_string, "departments", "test").unwrap();
 
+        println!("{}", left_table);
+        println!("{}", right_table);
         let query_string = "LEFT JOIN;\nemployees, departments;\ndepartment;*";
         let query = parse_EZQL(query_string).unwrap();
-
+        
+        println!("{}", query[0]);
         let actual = execute_left_join_query(&query[0], &left_table, &right_table).unwrap().unwrap();
         println!("{}", actual);
-        // println!("{}", query[0]);
 
         let expected = "#employees,i-N;budget,i-N;department,t-N;employee_id,i-P;location,t-N;name,t-N;role,t-N\n2;100000;IT;1;'third floor';jim;engineer\n\n1;100;Sales;2;'first floor';jeff;Manager\n2;100000;IT;3;'third floor';bob;engineer\n10;2342;QA;4;'second floor';John;tester";
+        
+        // assert_eq!(actual.to_string(), expected);
     }
 
     #[test]
