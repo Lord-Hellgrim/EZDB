@@ -148,7 +148,7 @@
 
 */
 
-use std::{fmt::Display, sync::Arc};
+use std::{collections::HashMap, fmt::Display, sync::Arc};
 
 use crate::{db_structure::{remove_indices, subtable_from_keys, DbColumn, EZTable, KeyString}, networking_utilities::ServerError, server_networking::Database};
 
@@ -671,6 +671,12 @@ pub struct ParserState {
 
 #[allow(non_snake_case)]
 pub fn parse_alternate_EZQL(query_string: &str) -> Result<Query, QueryError> {
+
+    const INSERT_ARGS: [&'static str;2] = ["table_name", "new_values"];
+    const SELECT_ARGS: [&'static str;3] = ["table_name", "primary_keys", "conditions"];
+    const UPDATE_ARGS: [&'static str;4] = ["table_name", "primary_keys", "conditions", "updates"];
+    const DELETE_ARGS: [&'static str;3] = ["table_name", "primary_keys", "conditions"];
+    const LEFT_JOIN_ARGS: [&'static str;5] = ["left_table", "right_table", "match_columns", "primary_keys", "chain"];
 
     let state = ParserState {
         depth: 0
