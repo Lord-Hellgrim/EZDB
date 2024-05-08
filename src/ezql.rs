@@ -1,6 +1,4 @@
-/*
-Alternative EZQL
-*/
+
 
 
 /*
@@ -253,6 +251,8 @@ impl Display for Query {
                 }
                 printer.push(';');
             },
+
+            QueryType::STATISTICS => todo!()
         };
 
         // let mut printer = String::new();
@@ -420,19 +420,21 @@ pub enum QueryType {
     UPDATE,
     INSERT,
     DELETE,
+    STATISTICS,
 }
 
 impl Display for QueryType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            QueryType::SELECT => write!(f, "SELECT", ),
-            QueryType::LEFT_JOIN => write!(f, "LEFT_JOIN", ),
-            QueryType::INNER_JOIN => write!(f, "INNER_JOIN", ),
-            QueryType::RIGHT_JOIN => write!(f, "RIGHT_JOIN", ),
-            QueryType::FULL_JOIN => write!(f, "FULL_JOIN", ),
-            QueryType::UPDATE => write!(f, "UPDATE", ),
-            QueryType::INSERT => write!(f, "INSERT", ),
-            QueryType::DELETE => write!(f, "DELETE", ),
+            QueryType::SELECT => write!(f, "SELECT"),
+            QueryType::LEFT_JOIN => write!(f, "LEFT_JOIN"),
+            QueryType::INNER_JOIN => write!(f, "INNER_JOIN"),
+            QueryType::RIGHT_JOIN => write!(f, "RIGHT_JOIN"),
+            QueryType::FULL_JOIN => write!(f, "FULL_JOIN"),
+            QueryType::UPDATE => write!(f, "UPDATE"),
+            QueryType::INSERT => write!(f, "INSERT"),
+            QueryType::DELETE => write!(f, "DELETE"),
+            QueryType::STATISTICS => write!(f, "STATISTICS"),
         }
     }
 }
@@ -634,6 +636,120 @@ enum Expect {
     End,
     LeftJoin,
 }
+
+
+/*
+Alternative EZQL:
+
+EZQL queries are written as functions calls with named parameters. The order of the parameters does not matter.
+
+examples:   
+INSERT(table_name: products, new_values: [(id, stock, location, price), (0113035, 500, LAG15, 995), (0113000, 100, LAG30, 495)])
+SELECT(primary_keys: *, table_name: products, conditions: [(price greater-than 500) AND (stock less-than 1000)])
+UPDATE(table_name: products, primary_keys: [0113035, 0113000], conditions: [(id starts-with 011)], updates: [(price += 100), (stock -= 100)])
+DELETE(primary_keys: *, table_name: products, conditions: [(price greater-than 500) AND (stock less-than 1000)])
+
+LEFT_JOIN(left_table: products, right_table: warehouses, match_columns: [location, id], primary_keys: 0113000..18572054, chain: false)
+
+If the "chain" argument is "true" then you can use the reserved table_name __RESULT__ to apply the following query to the result of the previous one.
+example:
+LEFT_JOIN(left_table: products, right_table: warehouses, match_columns: [location, id], primary_keys: 0113000..18572054, chain: true)
+INNER_JOIN(left_table: products, right_table: warehouses, match_columns: [location, id], primary_keys: [0113000, 0113000, 18572054], chain: true)
+FULL_JOIN(left_table: products, right_table: warehouses, match_columns: [location, id], primary_keys: *, chain: true)
+SELECT(table_name: __RESULT__, primary_keys: *, conditions: [], chain: true)
+
+Special statistical queries cannot be chained:
+Examples:
+STATISTICS(table_name: products, columns: [(SUM stock), (AVERAGE price)])
+
+*/
+
+pub struct ParserState {
+    depth: u8,
+
+}
+
+#[allow(non_snake_case)]
+pub fn parse_alternate_EZQL(query_string: &str) -> Result<Query, QueryError> {
+
+    let state = ParserState {
+        depth: 0
+    };
+
+    let mut query = Query::new();
+
+    let first_paren = match query_string.find('(') {
+        Some(x) => x,
+        None => return Err(QueryError::InvalidQueryStructure)
+    };
+
+    let query_type = match &query_string[0..first_paren] {
+        "INSERT" => QueryType::INSERT,
+        "SELECT" => QueryType::SELECT,
+        "UPDATE" => QueryType::UPDATE,
+        "DELETE" => QueryType::DELETE,
+        "LEFT_JOIN" => QueryType::LEFT_JOIN,
+        "FULL_JOIN" => QueryType::FULL_JOIN,
+        "INNER_JOIN" => QueryType::INNER_JOIN,
+        "STATISTICS" => QueryType::STATISTICS,
+        _ => return Err(QueryError::InvalidQueryType),
+    };
+
+    let mut stack = Vec::with_capacity(256);
+    let mut word_buffer = Vec::new();
+
+    for (index, c) in query_string.as_bytes()[first_paren..].iter().enumerate() {
+        match c {
+            b'(' | b'[' => stack.push(c),
+            b')' => {
+                match stack.last() {
+                    Some(x) => {
+                        if **x == b'(' {stack.pop();}
+                        else {return Err(QueryError::InvalidQueryStructure)}
+                    }
+                    None => return Err(QueryError::InvalidQueryStructure)
+                }
+            },
+            b']' => {
+                match stack.last() {
+                    Some(x) => {
+                        if **x == b'[' {stack.pop();}
+                        else {return Err(QueryError::InvalidQueryStructure)}
+                    }
+                    None => return Err(QueryError::InvalidQueryStructure)
+                }
+            },
+            b',' => {
+                
+            }
+            b':' => {
+                continue
+            }
+            other => {
+                word_buffer.push(*other);
+            }         
+        }
+    }
+
+    query.query_type = query_type;
+
+    // match query.query_type {
+    //     QueryType::SELECT => todo!(),
+    //     QueryType::LEFT_JOIN => todo!(),
+    //     QueryType::INNER_JOIN => todo!(),
+    //     QueryType::RIGHT_JOIN => todo!(),
+    //     QueryType::FULL_JOIN => todo!(),
+    //     QueryType::UPDATE => todo!(),
+    //     QueryType::INSERT => todo!(),
+    //     QueryType::DELETE => todo!(),
+    //     QueryType::STATISTICS => todo!(),
+    // }
+
+
+    Ok(query)
+
+}
+
 
 #[allow(non_snake_case)]
 pub fn parse_EZQL(query_string: &str) -> Result<Vec<Query>, QueryError> {
@@ -997,6 +1113,7 @@ pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Res
                     },
                 }
             },
+            QueryType::STATISTICS => unimplemented!(),
         }
     }
     Ok(result_table)
@@ -1505,6 +1622,16 @@ mod tests {
     #[test]
     fn test_DELETE() {
 
+    }
+
+    #[test]
+    fn test_alternate() {
+        let good = "INSERT(table_name: products, new_values: [(id, stock, location, price), (0113035, 500, LAG15, 995), (0113000, 100, LAG30, 495)])";
+        parse_alternate_EZQL(good).unwrap();
+
+        let bad = "INSERT(table_name: products, new_values: (id, stock, location, price), (0113035, 500, LAG15, 995), (0113000, 100, LAG30, 495)])";
+        let e = parse_alternate_EZQL(bad);
+        assert!(e.is_err());
     }
 
 

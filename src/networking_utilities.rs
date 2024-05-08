@@ -370,6 +370,8 @@ pub fn usize_from_le_slice(slice: &[u8]) -> usize {
     usize::from_le_bytes(l)
 }
 
+
+
 /// This is a utility function that sends an instruction from the client to the server and returns the servers answer.
 pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut Connection) -> Result<String, ServerError> {
 
