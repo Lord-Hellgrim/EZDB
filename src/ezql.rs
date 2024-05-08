@@ -644,42 +644,46 @@ Alternative EZQL:
 EZQL queries are written as functions calls with named parameters. The order of the parameters does not matter.
 
 examples:   
-INSERT(table_name: products, new_values: [(id, stock, location, price), (0113035, 500, LAG15, 995), (0113000, 100, LAG30, 495)])
-SELECT(primary_keys: *, table_name: products, conditions: [(price greater-than 500) AND (stock less-than 1000)])
-UPDATE(table_name: products, primary_keys: [0113035, 0113000], conditions: [(id starts-with 011)], updates: [(price += 100), (stock -= 100)])
-DELETE(primary_keys: *, table_name: products, conditions: [(price greater-than 500) AND (stock less-than 1000)])
+INSERT(table_name: products, value_columns: (id, stock, location, price), new_values: ((0113035, 500, LAG15, 995), (0113000, 100, LAG30, 495)))
+SELECT(primary_keys: *, table_name: products, conditions: ((price greater-than 500) AND (stock less-than 1000)))
+UPDATE(table_name: products, primary_keys: (0113035, 0113000), conditions: ((id starts-with 011)), updates: ((price += 100), (stock -= 100)))
+DELETE(primary_keys: *, table_name: products, conditions: ((price greater-than 500) AND (stock less-than 1000)))
 
-LEFT_JOIN(left_table: products, right_table: warehouses, match_columns: [location, id], primary_keys: 0113000..18572054, chain: false)
+LEFT_JOIN(left_table: products, right_table: warehouses, match_columns: (location, id), primary_keys: 0113000..18572054, chain: false)
 
 If the "chain" argument is "true" then you can use the reserved table_name __RESULT__ to apply the following query to the result of the previous one.
 example:
-LEFT_JOIN(left_table: products, right_table: warehouses, match_columns: [location, id], primary_keys: 0113000..18572054, chain: true)
-INNER_JOIN(left_table: products, right_table: warehouses, match_columns: [location, id], primary_keys: [0113000, 0113000, 18572054], chain: true)
-FULL_JOIN(left_table: products, right_table: warehouses, match_columns: [location, id], primary_keys: *, chain: true)
-SELECT(table_name: __RESULT__, primary_keys: *, conditions: [], chain: true)
+LEFT_JOIN(left_table: products, right_table: warehouses, match_columns: (location, id), primary_keys: 0113000..18572054, chain: true)
+INNER_JOIN(left_table: products, right_table: warehouses, match_columns: (location, id), primary_keys: (0113000, 0113000, 18572054), chain: true)
+FULL_JOIN(left_table: products, right_table: warehouses, match_columns: (location, id), primary_keys: *, chain: true)
+SELECT(table_name: __RESULT__, primary_keys: *, conditions: (), chain: true)
 
 Special statistical queries cannot be chained:
 Examples:
-STATISTICS(table_name: products, columns: [(SUM stock), (AVERAGE price)])
+STATISTICS(table_name: products, columns: ((SUM stock), (AVERAGE price)))
 
 */
 
 pub struct ParserState {
     depth: u8,
+    stack: Vec<u8>,
+    word_buffer: Vec<u8>,
 
 }
 
 #[allow(non_snake_case)]
 pub fn parse_alternate_EZQL(query_string: &str) -> Result<Query, QueryError> {
 
-    const INSERT_ARGS: [&'static str;2] = ["table_name", "new_values"];
-    const SELECT_ARGS: [&'static str;3] = ["table_name", "primary_keys", "conditions"];
-    const UPDATE_ARGS: [&'static str;4] = ["table_name", "primary_keys", "conditions", "updates"];
-    const DELETE_ARGS: [&'static str;3] = ["table_name", "primary_keys", "conditions"];
-    const LEFT_JOIN_ARGS: [&'static str;5] = ["left_table", "right_table", "match_columns", "primary_keys", "chain"];
+    let INSERT_ARGS: [&str;3] = ["table_name", "value_columns", "new_values"];
+    let SELECT_ARGS: [&str;3] = ["table_name", "primary_keys", "conditions"];
+    let UPDATE_ARGS: [&str;4] = ["table_name", "primary_keys", "conditions", "updates"];
+    let DELETE_ARGS: [&str;3] = ["table_name", "primary_keys", "conditions"];
+    let LEFT_JOIN_ARGS: [&str;5] = ["left_table", "right_table", "match_columns", "primary_keys", "chain"];
 
-    let state = ParserState {
-        depth: 0
+    let mut state = ParserState {
+        depth: 0,
+        stack: Vec::with_capacity(256),
+        word_buffer: Vec::with_capacity(64),
     };
 
     let mut query = Query::new();
@@ -701,38 +705,62 @@ pub fn parse_alternate_EZQL(query_string: &str) -> Result<Query, QueryError> {
         _ => return Err(QueryError::InvalidQueryType),
     };
 
-    let mut stack = Vec::with_capacity(256);
-    let mut word_buffer = Vec::new();
-
     for (index, c) in query_string.as_bytes()[first_paren..].iter().enumerate() {
         match c {
-            b'(' | b'[' => stack.push(c),
+            b'(' | b'[' => state.stack.push(*c),
             b')' => {
-                match stack.last() {
+                match state.stack.last() {
                     Some(x) => {
-                        if **x == b'(' {stack.pop();}
+                        if *x == b'(' {state.stack.pop();}
                         else {return Err(QueryError::InvalidQueryStructure)}
                     }
                     None => return Err(QueryError::InvalidQueryStructure)
                 }
             },
-            b']' => {
-                match stack.last() {
-                    Some(x) => {
-                        if **x == b'[' {stack.pop();}
-                        else {return Err(QueryError::InvalidQueryStructure)}
-                    }
-                    None => return Err(QueryError::InvalidQueryStructure)
+            b':' => {
+                let word = match String::from_utf8(state.word_buffer.clone()) {
+                    Ok(s) => s,
+                    Err(e) => return Err(QueryError::InvalidQueryStructure),
+                };
+                if word.len() > 64 {
+                    return Err(QueryError::TableNameTooLong)
                 }
-            },
+
+                match query.query_type {
+                    QueryType::INSERT => {
+                        match word.as_str() {
+                            "table_name" => {
+                                let next_comma = match query_string.find(',') {
+                                    Some(x) => x,
+                                    None => return Err(QueryError::InvalidQueryStructure),
+                                };
+                                let table_name = match std::str::from_utf8(&query_string.as_bytes()[index..next_comma]) {
+                                    Ok(s) => s,
+                                    Err(e) => return Err(QueryError::InvalidQueryStructure),
+                                };
+                                query.table = KeyString::from(table_name);
+                            }
+                            "value_columns" => 
+                            "new_values" => 
+                        }
+                    },
+                    QueryType::SELECT => todo!(),
+                    QueryType::UPDATE => todo!(),
+                    QueryType::DELETE => todo!(),
+                    QueryType::LEFT_JOIN => todo!(),
+                    QueryType::INNER_JOIN => todo!(),
+                    QueryType::RIGHT_JOIN => todo!(),
+                    QueryType::FULL_JOIN => todo!(),
+                    QueryType::STATISTICS => todo!(),
+                }
+                
+
+            }
             b',' => {
                 
             }
-            b':' => {
-                continue
-            }
             other => {
-                word_buffer.push(*other);
+                state.word_buffer.push(*other);
             }         
         }
     }
