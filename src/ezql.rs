@@ -148,7 +148,7 @@
 
 */
 
-use std::{collections::HashMap, fmt::Display, sync::Arc};
+use std::{collections::HashMap, fmt::Display, slice::Chunks, sync::Arc};
 
 use crate::{db_structure::{remove_indices, subtable_from_keys, DbColumn, EZTable, KeyString}, networking_utilities::ServerError, server_networking::Database};
 
@@ -633,8 +633,37 @@ enum Expect {
     Conditions,
     Updates,
     Inserts,
-    End,
+    Any,
     LeftJoin,
+}
+
+impl Expect {
+    pub fn from_string(s: &str) -> Result<Expect, QueryError> {
+        match s {
+            "QueryType" | "query_type" => Ok(Expect::QueryType),
+            "TableName" | "table_name" => Ok(Expect::TableName),
+            "PrimaryKeys" | "primary_keys" => Ok(Expect::PrimaryKeys),
+            "Conditions" | "conditions" => Ok(Expect::Conditions),
+            "Updates" | "updates" => Ok(Expect::Updates),
+            "Inserts" | "inserts" => Ok(Expect::Inserts),
+            "Any" | "any"=> Ok(Expect::Any),
+            "LeftJoin" | "left_join" => Ok(Expect::LeftJoin),
+            _ => Err(QueryError::InvalidQueryStructure)
+        }
+    }
+
+    pub fn to_string(&self) -> String {
+        match self {
+            Expect::QueryType => "query_type".to_owned(),
+            Expect::TableName => "table_name".to_owned(),
+            Expect::PrimaryKeys => "primary_keys".to_owned(),
+            Expect::Conditions => "conditions".to_owned(),
+            Expect::Updates => "updates".to_owned(),
+            Expect::Inserts => "inserts".to_owned(),
+            Expect::Any => "any".to_owned(),
+            Expect::LeftJoin => "left_join".to_owned(),
+        }
+    }
 }
 
 
@@ -693,7 +722,7 @@ pub fn parse_alternate_EZQL(query_string: &str) -> Result<Query, QueryError> {
         None => return Err(QueryError::InvalidQueryStructure)
     };
 
-    let query_type = match &query_string[0..first_paren] {
+    query.query_type = match &query_string[0..first_paren] {
         "INSERT" => QueryType::INSERT,
         "SELECT" => QueryType::SELECT,
         "UPDATE" => QueryType::UPDATE,
@@ -705,13 +734,24 @@ pub fn parse_alternate_EZQL(query_string: &str) -> Result<Query, QueryError> {
         _ => return Err(QueryError::InvalidQueryType),
     };
 
+    let mut expect = Expect::Any;
+
+    let mut args: HashMap<String, Vec<String>> = HashMap::new();
+    let mut current_arg = String::new();
+
     for (index, c) in query_string.as_bytes()[first_paren..].iter().enumerate() {
         match c {
-            b'(' | b'[' => state.stack.push(*c),
+            b'(' | b'[' => {
+                state.stack.push(*c);
+                state.depth += 1;
+            },
             b')' => {
                 match state.stack.last() {
                     Some(x) => {
-                        if *x == b'(' {state.stack.pop();}
+                        if *x == b'(' {
+                            state.stack.pop();
+                            state.depth -= 1;
+                        }
                         else {return Err(QueryError::InvalidQueryStructure)}
                     }
                     None => return Err(QueryError::InvalidQueryStructure)
@@ -719,44 +759,24 @@ pub fn parse_alternate_EZQL(query_string: &str) -> Result<Query, QueryError> {
             },
             b':' => {
                 let word = match String::from_utf8(state.word_buffer.clone()) {
-                    Ok(s) => s,
+                    Ok(s) => s.trim().to_owned(),
                     Err(e) => return Err(QueryError::InvalidQueryStructure),
                 };
                 if word.len() > 64 {
                     return Err(QueryError::TableNameTooLong)
                 }
-
-                match query.query_type {
-                    QueryType::INSERT => {
-                        match word.as_str() {
-                            "table_name" => {
-                                let next_comma = match query_string.find(',') {
-                                    Some(x) => x,
-                                    None => return Err(QueryError::InvalidQueryStructure),
-                                };
-                                let table_name = match std::str::from_utf8(&query_string.as_bytes()[index..next_comma]) {
-                                    Ok(s) => s,
-                                    Err(e) => return Err(QueryError::InvalidQueryStructure),
-                                };
-                                query.table = KeyString::from(table_name);
-                            }
-                            "value_columns" => 
-                            "new_values" => 
-                        }
-                    },
-                    QueryType::SELECT => todo!(),
-                    QueryType::UPDATE => todo!(),
-                    QueryType::DELETE => todo!(),
-                    QueryType::LEFT_JOIN => todo!(),
-                    QueryType::INNER_JOIN => todo!(),
-                    QueryType::RIGHT_JOIN => todo!(),
-                    QueryType::FULL_JOIN => todo!(),
-                    QueryType::STATISTICS => todo!(),
-                }
+                current_arg = word;
+                state.word_buffer.clear();
                 
 
             }
             b',' => {
+                let word = match String::from_utf8(state.word_buffer.clone()) {
+                    Ok(s) => s.trim().to_owned(),
+                    Err(e) => return Err(QueryError::InvalidQueryStructure),
+                };
+                state.word_buffer.clear();
+                args.entry(current_arg.clone()).and_modify(|n| n.push(word.clone())).or_insert(vec![word.clone()]);
                 
             }
             other => {
@@ -765,19 +785,100 @@ pub fn parse_alternate_EZQL(query_string: &str) -> Result<Query, QueryError> {
         }
     }
 
-    query.query_type = query_type;
+    match query.query_type {
+        QueryType::INSERT => {
+            query.table = match args.get("table_name") {
+                Some(x) => {
+                    let x = match x.get(0) {
+                        Some(n) => n,
+                        None => return Err(QueryError::InvalidQueryStructure),
+                    };
+                    KeyString::from(x.as_str())
+                },
+                None => return Err(QueryError::InvalidQueryStructure),
+            };
 
-    // match query.query_type {
-    //     QueryType::SELECT => todo!(),
-    //     QueryType::LEFT_JOIN => todo!(),
-    //     QueryType::INNER_JOIN => todo!(),
-    //     QueryType::RIGHT_JOIN => todo!(),
-    //     QueryType::FULL_JOIN => todo!(),
-    //     QueryType::UPDATE => todo!(),
-    //     QueryType::INSERT => todo!(),
-    //     QueryType::DELETE => todo!(),
-    //     QueryType::STATISTICS => todo!(),
-    // }
+            let value_columns = match args.get("value_columns") {
+                Some(x) => x,
+                None => return Err(QueryError::InvalidQueryStructure),
+            };
+
+            let new_values = match args.get("new_values") {
+                Some(x) => x,
+                None => return Err(QueryError::InvalidQueryStructure),
+            };
+
+
+        },
+        QueryType::SELECT => {
+            query.table = match args.get("table_name") {
+                Some(x) => {
+                    let x = match x.get(0) {
+                        Some(n) => n,
+                        None => return Err(QueryError::InvalidQueryStructure),
+                    };
+                    KeyString::from(x.as_str())
+                },
+                None => return Err(QueryError::InvalidQueryStructure),
+            };
+            let conditions = match args.get("conditions") {
+                Some(x) => x,
+                None => return Err(QueryError::InvalidQueryStructure),
+            };
+
+            let mut conds = Vec::with_capacity(3);
+            for cond in conditions {
+                if conds.len() == 3 {
+                    let temp = OpOrCond::Cond(Condition::new(conds[0], conds[1], conds[2])?);
+                    query.conditions.push(temp);
+                    conds.clear();
+                } else {
+                    match cond.as_str() {
+                        "AND" => query.conditions.push(OpOrCond::Op(Operator::AND)),
+                        "OR" => query.conditions.push(OpOrCond::Op(Operator::OR)),
+                        _ => conds.push(cond),
+                    }
+                }
+            }
+
+            let primary_keys = match args.get("primary_keys") {
+                Some(x) => x,
+                None => return Err(QueryError::InvalidQueryStructure),
+            };
+
+            match primary_keys.len() {
+                0 => return Err(QueryError::InvalidQueryStructure),
+                1 => {
+                    match primary_keys[0].as_str() {
+                        "*" => query.primary_keys = RangeOrListorAll::All,
+                        x => {
+                            let mut split = x.split("..");
+                            let start = match split.next() {
+                                Some(x) => KeyString::from(x),
+                                None => return Err(QueryError::InvalidQueryStructure)
+                            };
+                            let stop = match split.next() {
+                                Some(x) => KeyString::from(x),
+                                None => return Err(QueryError::InvalidQueryStructure)
+                            };
+                            query.primary_keys = RangeOrListorAll::Range(start, stop);
+                        }
+                    }
+                },
+                _ => {
+                    let primary_keys: Vec<KeyString> = primary_keys.iter().map(|n| KeyString::from(n.as_str())).collect();
+                    query.primary_keys = RangeOrListorAll::List(primary_keys);
+                }
+            }
+        },
+        QueryType::LEFT_JOIN => todo!(),
+        QueryType::INNER_JOIN => todo!(),
+        QueryType::RIGHT_JOIN => todo!(),
+        QueryType::FULL_JOIN => todo!(),
+        QueryType::UPDATE => todo!(),
+        QueryType::DELETE => todo!(),
+        QueryType::STATISTICS => todo!(),
+    }
 
 
     Ok(query)
@@ -997,7 +1098,7 @@ pub fn parse_EZQL(query_string: &str) -> Result<Vec<Query>, QueryError> {
 
             }
 
-            Expect::End => {break}
+            Expect::Any => {break}
         };
     }
 
@@ -1660,10 +1761,10 @@ mod tests {
 
     #[test]
     fn test_alternate() {
-        let good = "INSERT(table_name: products, new_values: [(id, stock, location, price), (0113035, 500, LAG15, 995), (0113000, 100, LAG30, 495)])";
+        let good = "INSERT(table_name: products, value_columns: (id, stock, location, price), new_values: ((0113035, 500, LAG15, 995), (0113000, 100, LAG30, 495)))";
         parse_alternate_EZQL(good).unwrap();
 
-        let bad = "INSERT(table_name: products, new_values: (id, stock, location, price), (0113035, 500, LAG15, 995), (0113000, 100, LAG30, 495)])";
+        let bad = "INSERT(table_name: products, value_columns: id, stock, location, price), new_values: ((0113035, 500, LAG15, 995), (0113000, 100, LAG30, 495)))";
         let e = parse_alternate_EZQL(bad);
         assert!(e.is_err());
     }
