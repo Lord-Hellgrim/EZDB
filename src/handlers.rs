@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, io::Write, sync::{Arc, RwLock}, thread::current};
 
-use crate::{auth::User, db_structure::{DbColumn, EZTable, KeyString, Metadata, Value}, ezql::{execute_EZQL_queries, parse_EZQL}, networking_utilities::*, server_networking::{Database, Server, WriteThreadMessage, CONFIG_FOLDER}};
+use crate::{auth::User, db_structure::{DbColumn, EZTable, KeyString, Metadata, Value}, ezql::{execute_EZQL_queries, parse_EZQL, parse_serial_query}, networking_utilities::*, server_networking::{Database, Server, WriteThreadMessage, CONFIG_FOLDER}};
 
 use crate::PATH_SEP;
 
@@ -132,7 +132,7 @@ pub fn handle_query_request(connection: &mut Connection, query: &str, database: 
 
     // PARSE INSTRUCTION
 
-    let queries = parse_EZQL(query)?;
+    let queries = parse_serial_query(query)?;
 
     let result_table = execute_EZQL_queries(queries, database)?;
     let requested_csv = match result_table {

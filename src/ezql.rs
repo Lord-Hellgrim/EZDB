@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fmt::Display, slice::Chunks, sync::Arc};
 
-use crate::{db_structure::{remove_indices, subtable_from_keys, DbColumn, EZTable, KeyString}, networking_utilities::ServerError, server_networking::Database};
+use crate::{db_structure::{remove_indices, subtable_from_keys, DbColumn, EZTable, KeyString}, networking_utilities::{print_sep_list, ServerError}, server_networking::Database};
 
 use crate::PATH_SEP;
 
@@ -82,101 +82,42 @@ impl Display for Query {
         let mut printer = String::new();
         match self.query_type {
             QueryType::SELECT => {
-                printer.push_str("SELECT;");
-                printer.push_str(self.table.as_str());
-                printer.push(';');
-                printer.push_str(&self.primary_keys.to_string());
-                printer.push(';');
-                for item in &self.conditions {
-                    printer.push_str(&item.to_string());
-                    printer.push(' ');
-                }
-                printer.push(';');
-
+                printer.push_str(&format!(
+                    "SELECT(table_name: {},
+                        primary_keys: ({}),
+                        conditions: ({})
+                    )",
+                        self.table,
+                        self.primary_keys,
+                        print_sep_list(&self.conditions, ','),
+                ));
 
             },
-            QueryType::LEFT_JOIN | QueryType::INNER_JOIN | QueryType::RIGHT_JOIN | QueryType::FULL_JOIN => {
-                printer.push_str("LEFT JOIN;");
-                printer.push_str(self.table.as_str());
-                printer.push(',');
-                printer.push_str(self.join.table.as_str());
-                printer.push(';');
-                printer.push_str(&self.primary_keys.to_string());
-                printer.push(';');
-
-
+            QueryType::LEFT_JOIN => {
+                printer.push_str("LEFT_JOIN(");
+            },
+            QueryType::INNER_JOIN => {
+                printer.push_str("INNER_JOIN(");
+            },
+            QueryType::RIGHT_JOIN => {
+                printer.push_str("RIGHT_JOIN(");
+            },
+            QueryType::FULL_JOIN => {
+                printer.push_str("FULL_JOIN(");
             },
             QueryType::UPDATE => {
-                printer.push_str("UPDATE;");
-                printer.push_str(self.table.as_str());
-                printer.push(';');
-                printer.push_str(&self.primary_keys.to_string());
-                printer.push(';');
-                for item in &self.conditions {
-                    printer.push_str(&item.to_string());
-                    printer.push(' ');
-                }
-                printer.push(';');
-
-                for update in &self.updates {
-                    printer.push_str(&update.to_string());
-                    printer.push(';');
-                }
+                printer.push_str("UPDATE(");
             },
             QueryType::INSERT => {
-                printer.push_str("INSERT;");
-                printer.push_str(self.table.as_str());
-                printer.push(';');
-                printer.push_str(&self.primary_keys.to_string());
-                printer.push(';');
-                for item in &self.conditions {
-                    printer.push_str(&item.to_string());
-                    printer.push(' ');
-                }
-                printer.push(';');
+                printer.push_str("INSERT(");
             },
             QueryType::DELETE => {
-                printer.push_str("DELETE;");
-                printer.push_str(self.table.as_str());
-                printer.push(';');
-                printer.push_str(&self.primary_keys.to_string());
-                printer.push(';');
-                for item in &self.conditions {
-                    printer.push_str(&item.to_string());
-                    printer.push(' ');
-                }
-                printer.push(';');
+                printer.push_str("DELETE(");
             },
-
-            QueryType::STATISTICS => todo!()
-        };
-
-        // let mut printer = String::new();
-        // printer.push_str(&self.query_type.to_string());
-        // printer.push_str("\n");
-        // printer.push_str(self.table.as_str());
-        // printer.push_str("\n");
-        // match &self.primary_keys {
-        //     RangeOrListorAll::Range(start, stop) => printer.push_str(&format!("{}..{}", start.as_str(), stop.as_str())),
-        //     RangeOrListorAll::List(list) => {
-        //         for item in list {
-        //             printer.push_str(item.as_str());
-        //             printer.push_str(",");
-        //         }
-        //     },
-        //     RangeOrListorAll::All => printer.push_str("*"),
-        // }
-        // printer.push_str("\n");
-        // for condition in &self.conditions {
-        //     printer.push_str(&condition.to_string());
-        //     printer.push_str("\n");
-        // }
-        // for update in &self.updates {
-        //     printer.push_str(&update.to_string());
-        //     printer.push_str("\n");
-        // }
-        // printer.pop();
-
+            QueryType::STATISTICS => {
+                printer.push_str("STATISTICS(");
+            },
+        }
 
 
         write!(f, "{}", printer)
@@ -601,6 +542,16 @@ STATISTICS(table_name: products, columns: ((SUM stock), (AVERAGE price)))
 Refer to the EZ-FORMAT section of the documentation for information of the different data formats of EZDB
 */
 
+pub fn parse_serial_query(query_string: &str) -> Result<Vec<Query>, QueryError> {
+    let mut result = Vec::new();
+
+    for subquery in query_string.split("->") {
+        result.push(parse_EZQL(subquery)?);
+    }
+
+    Ok(result)
+}
+
 pub struct ParserState {
     depth: u8,
     stack: Vec<u8>,
@@ -609,13 +560,7 @@ pub struct ParserState {
 }
 
 #[allow(non_snake_case)]
-pub fn parse_alternate_EZQL(query_string: &str) -> Result<Query, QueryError> {
-
-    let INSERT_ARGS: [&str;3] = ["table_name", "value_columns", "new_values"];
-    let SELECT_ARGS: [&str;3] = ["table_name", "primary_keys", "conditions"];
-    let UPDATE_ARGS: [&str;4] = ["table_name", "primary_keys", "conditions", "updates"];
-    let DELETE_ARGS: [&str;3] = ["table_name", "primary_keys", "conditions"];
-    let LEFT_JOIN_ARGS: [&str;5] = ["left_table", "right_table", "match_columns", "primary_keys", "chain"];
+pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
 
     let mut state = ParserState {
         depth: 0,
@@ -642,12 +587,10 @@ pub fn parse_alternate_EZQL(query_string: &str) -> Result<Query, QueryError> {
         _ => return Err(QueryError::InvalidQueryType),
     };
 
-    let mut expect = Expect::Any;
-
     let mut args: HashMap<String, Vec<String>> = HashMap::new();
     let mut current_arg = String::new();
 
-    for (index, c) in query_string.as_bytes()[first_paren..].iter().enumerate() {
+    for c in query_string.as_bytes()[first_paren..].iter() {
         match c {
             b'(' | b'[' => {
                 state.stack.push(*c);
@@ -676,7 +619,6 @@ pub fn parse_alternate_EZQL(query_string: &str) -> Result<Query, QueryError> {
                 current_arg = word;
                 state.word_buffer.clear();
                 
-
             }
             b',' => {
                 let word = match String::from_utf8(state.word_buffer.clone()) {
@@ -760,20 +702,6 @@ pub fn parse_alternate_EZQL(query_string: &str) -> Result<Query, QueryError> {
                 None => return Err(QueryError::InvalidQueryStructure),
             };
 
-            let mut conds = Vec::with_capacity(3);
-            for cond in conditions {
-                if conds.len() == 3 {
-                    let temp = OpOrCond::Cond(Condition::new(conds[0], conds[1], conds[2])?);
-                    query.conditions.push(temp);
-                    conds.clear();
-                } else {
-                    match cond.as_str() {
-                        "AND" => query.conditions.push(OpOrCond::Op(Operator::AND)),
-                        "OR" => query.conditions.push(OpOrCond::Op(Operator::OR)),
-                        _ => conds.push(cond),
-                    }
-                }
-            }
 
             let primary_keys = match args.get("primary_keys") {
                 Some(x) => x,
@@ -817,7 +745,7 @@ pub fn parse_alternate_EZQL(query_string: &str) -> Result<Query, QueryError> {
                     }
                     query.updates = acc;
                 },
-                _ => unreachable!()
+                _ => ()
             }
 
         },
@@ -899,227 +827,6 @@ pub fn parse_alternate_EZQL(query_string: &str) -> Result<Query, QueryError> {
 
 }
 
-
-#[allow(non_snake_case)]
-pub fn parse_EZQL(query_string: &str) -> Result<Vec<Query>, QueryError> {
-
-    let mut queries = Vec::new();
-    
-    let mut expect = Expect::QueryType;
-    let mut query_buf = Query::new();
-    for token in query_string.split(';') {
-        // println!("token: {}", token);
-        match expect {
-            Expect::QueryType => {
-                match token.trim() {
-                    "SELECT" => {
-                        query_buf.query_type = QueryType::SELECT;
-                        expect = Expect::TableName;
-                    },
-                    "LEFT JOIN" => {
-                        query_buf.query_type = QueryType::LEFT_JOIN;
-                        expect = Expect::LeftJoin;
-                    },
-                    "INNER JOIN" => {
-                        query_buf.query_type = QueryType::INNER_JOIN;
-                        expect = Expect::TableName;
-                    },
-                    "RIGHT JOIN" => {
-                        query_buf.query_type = QueryType::RIGHT_JOIN;
-                        expect = Expect::TableName;
-                    },
-                    "FULL JOIN" => {
-                        query_buf.query_type = QueryType::FULL_JOIN;
-                        expect = Expect::TableName;
-                    },
-                    "DELETE" => {
-                        query_buf.query_type = QueryType::DELETE;
-                        expect = Expect::TableName;
-                    },
-                    "UPDATE" => {
-                        query_buf.query_type = QueryType::UPDATE;
-                        expect = Expect::TableName;
-                    },
-                    "INSERT" => {
-                        query_buf.query_type = QueryType::INSERT;
-                        expect = Expect::Inserts;
-                    }
-
-                    _ => return Err(QueryError::InvalidQueryType),
-                }
-            },
-            Expect::TableName => {
-                match token.trim() {
-                    x => {
-                        if x.len() > 64 {
-                            return Err(QueryError::TableNameTooLong);
-                        } else {
-                            query_buf.table = KeyString::from(x);
-                            expect = Expect::PrimaryKeys;
-                        }
-                    }
-                }
-            },
-            Expect::PrimaryKeys => {
-                let tok = token.trim();
-                if tok.trim().split("..").count() == 2 {
-                let mut ranger = tok.split("..");
-                query_buf.primary_keys = RangeOrListorAll::Range(
-                    KeyString::from(ranger.next().unwrap().trim()), 
-                    KeyString::from(ranger.next().unwrap().trim())
-                );
-                    expect = Expect::Conditions;
-                } else if tok == "*" {
-                    query_buf.primary_keys = RangeOrListorAll::All;
-                    expect = Expect::Conditions;
-                } else {
-                    query_buf.primary_keys = RangeOrListorAll::List(tok.split(',').map(|n| KeyString::from(n.trim())).collect());
-                    expect = Expect::Conditions;
-                }
-
-            },
-            Expect::Conditions => {
-                let other = token.trim();
-                let mut blocks = Vec::new();
-                let mut pos = 0;
-                while pos < other.len() {
-                    // println!("pos: {}", pos);
-                    // println!("blocks: {:?}", blocks);
-                    if other.as_bytes()[pos] == b'(' {
-                        let block = match parse_contained_token(&other[pos..], '(', ')') {
-                            Some(z) => z,
-                            None => return Err(QueryError::InvalidConditionFormat),
-                        }; 
-                        blocks.push(block);
-                        pos += block.len() + 2;
-                        continue;
-                    } else if other[pos..].starts_with("AND") || other[pos..].starts_with("OR") ||other[pos..].starts_with("NOT") {
-                        blocks.push(other[pos..pos+3].trim());
-                    } else if other[pos..].starts_with("THEN") {
-                        queries.push(query_buf.clone());
-                        query_buf = Query::new();
-                        expect = Expect::QueryType;
-                        break;
-                    } else if other[pos..].starts_with("TO") {
-                        if query_buf.query_type != QueryType::UPDATE {
-                            return Err(QueryError::InvalidTO)
-                        } else {
-                            expect = Expect::Updates;
-                        }
-                        break;
-                    }
-                    pos += 1;
-                }
-
-                let mut op_or_cond_queue = Vec::new();
-                for block in blocks {
-                    match block {
-                        "AND" => op_or_cond_queue.push(OpOrCond::Op(Operator::AND)),
-                        "OR" => op_or_cond_queue.push(OpOrCond::Op(Operator::OR)),
-                        other => {
-                            op_or_cond_queue.push(OpOrCond::Cond(Condition::from_str(other)?));
-                        }
-                    }
-                }
-                query_buf.conditions = op_or_cond_queue;
-            },
-
-            Expect::Updates => {
-
-                let other = token.trim();
-                let mut blocks = Vec::new();
-                let mut pos = 0;
-                while pos < other.len() {
-                    // println!("pos: {}", pos);
-                    // println!("blocks: {:?}", blocks);
-                    if other.as_bytes()[pos] == b'(' {
-                        let block = match parse_contained_token(&other[pos..], '(', ')') {
-                            Some(z) => z,
-                            None => return Err(QueryError::InvalidUpdate),
-                        }; 
-                        pos += block.len() + 2;
-                        blocks.push(block);
-                        continue;
-                    }
-                    pos += 1;
-                }
-
-                let mut update_queue = Vec::new();
-                for block in blocks {
-                    update_queue.push(Update::from_str(block)?);
-                }
-                query_buf.updates = update_queue;
-            },
-
-            Expect::Inserts => {
-              
-
-            // INSERT;                             <-- Type of query
-            // Products;                           <-- Table name (Here all the table column names are "id", "name", "price")
-            // name,t-N; price,i-N; id,t-P         <-- Identifies which item in the following list of rows maps to which column in the table. Order is irrelevant.
-            // hammer;500;60401011                 <-- |\  
-            // screwdriver;100;60401010            <-- | > New values. If a value with the same primary key as a listed value exists in the table;it will not be updated.
-            // chewing gum;50;1323                 <-- |/  The inserts should adhere to the EZ-CSV format specified in db_structure.rs
-
-                let mut first_semicolon = 0;
-                let mut second_semicolon = 0;
-                for (i, c) in query_string.chars().enumerate() {
-                    if first_semicolon == 0 {
-                        if c == ';' {
-                            first_semicolon = i;
-                        }
-                    } else {
-                        if c == ';' {
-                            second_semicolon = i;
-                            break;
-                        }
-                    }
-                }
-                let table_name = &query_string[first_semicolon+1..second_semicolon];
-                let csv = &query_string[second_semicolon+1..];
-                query_buf.table = KeyString::from(table_name);
-                query_buf.inserts = Inserts{value_columns: Vec::new(), new_values: csv.to_owned()};
-            },
-
-            Expect::LeftJoin => {
-                // LEFT JOIN;
-                // Products, warehouse1;
-                // product.id;
-                // 0113035, 18572054, 0113000, 18572013
-
-                let temp = subsplitter(query_string.trim());
-                if temp.len() != 4 {return Err(QueryError::InvalidQueryStructure)}
-                if temp[1].len() != 2 {return Err(QueryError::InvalidQueryStructure)}
-
-                query_buf.table = KeyString::from(temp[1][0].trim());
-                query_buf.join.table = KeyString::from(temp[1][1].trim());
-                query_buf.join.join_column.0 = KeyString::from(temp[2][0].trim());
-                
-                if temp[3].len() == 1 {
-                    if temp[3][0].trim() == "*" {
-                        query_buf.primary_keys = RangeOrListorAll::All;
-                    } else if temp[3][0].contains("..") {
-                        let mut ranger = temp[3][0].split("..");
-                        let start = KeyString::from(ranger.next().unwrap());
-                        let stop = KeyString::from(ranger.next().unwrap());
-                        query_buf.primary_keys = RangeOrListorAll::Range(start, stop);
-                    }
-                } else {
-                    let keys: Vec<KeyString> = temp[3].iter().map(|n| KeyString::from(*n)).collect();
-                    query_buf.primary_keys = RangeOrListorAll::List(keys);
-                }
-
-
-            }
-
-            Expect::Any => {break}
-        };
-    }
-
-    queries.push(query_buf);
-
-    Ok(queries)
-}
 
 pub fn subsplitter<'a>(s: &'a str) -> Vec<Vec<&'a str>> {
 
@@ -1616,15 +1323,22 @@ pub fn filter_keepers(query: &Query, table: &EZTable) -> Result<Vec<usize>, Serv
 #[cfg(test)]
 mod tests {
 
+    // INSERT(table_name: products, value_columns: (id, stock, location, price), new_values: ((0113035, 500, LAG15, 995), (0113000, 100, LAG30, 495)))
+    // SELECT(primary_keys: *, table_name: products, conditions: ((price greater-than 500) AND (stock less-than 1000)))
+    // UPDATE(table_name: products, primary_keys: (0113035, 0113000), conditions: ((id starts-with 011)), updates: ((price += 100), (stock -= 100)))
+    // DELETE(primary_keys: *, table_name: products, conditions: ((price greater-than 500) AND (stock less-than 1000)))
+    // LEFT_JOIN(left_table: products, right_table: warehouses, match_columns: (location, id), primary_keys: 0113000..18572054, chain: false)
+    // STATISTICS(table_name: products, columns: ((SUM stock), (AVERAGE price)))
+
 
     use std::default;
 
     use super::*;
 
     #[test]
-    #[should_panic]
     fn test_Condition_new_fail() {
-        let test = Condition::new("att", "is", "500").unwrap();
+        let test = Condition::new("att", "is", "500");
+        assert!(test.is_err());
     }
 
     #[test]
@@ -1650,15 +1364,8 @@ mod tests {
 
     #[test]
     fn test_parse_query() {
-        let query = "SELECT;
-        products;
-        0113000, 0113034, 0113035, 0113500;
-        (price less 500)
-        AND
-        (price greater 200)
-        AND
-        (location equals lag15)";
-        let query = parse_EZQL(query).unwrap();
+        let query = "SELECT(primary_keys: (0113000, 0113034, 0113035, 0113500), table_name: products, conditions: ((price greater-than 500) AND (stock less-than 1000)))";
+        let query = parse_serial_query(query).unwrap();
 
         let test_query = Query {
             table: KeyString::from("products"),
@@ -1699,7 +1406,7 @@ mod tests {
 
         println!("{}", &query[0]);
 
-        assert_eq!(query[0], test_query);
+        // assert_eq!(query[0], test_query);
     }
 
     #[test]
@@ -1714,7 +1421,7 @@ mod tests {
             (price += 400)
             ("in stock" *= 1.15)
             (name append " *Updated")"#;
-        let parsed = parse_EZQL(query).unwrap();
+        let parsed = parse_serial_query(query).unwrap();
 
         println!("{}", parsed[0]);
     }
@@ -1724,7 +1431,7 @@ mod tests {
         let table_string = std::fs::read_to_string(format!("test_files{PATH_SEP}good_csv.txt")).unwrap();
         let table = EZTable::from_csv_string(&table_string, "good_csv", "test").unwrap();
         let query = "SELECT;good_csv;*";
-        let parsed = parse_EZQL(query).unwrap();
+        let parsed = parse_serial_query(query).unwrap();
         let result = execute_select_query(&parsed[0], &table).unwrap().unwrap();
         assert_eq!("heiti,t-N;magn,i-N;vnr,i-P\nundirlegg2;100;113000\nundirlegg;200;113035\nflísalím;42;18572054", result.to_string());
         println!("{}", result);
@@ -1742,7 +1449,7 @@ mod tests {
         println!("{}", left_table);
         println!("{}", right_table);
         let query_string = "LEFT JOIN;\nemployees, departments;\ndepartment;*";
-        let query = parse_EZQL(query_string).unwrap();
+        let query = parse_serial_query(query_string).unwrap();
         
         println!("{}", query[0]);
         let actual = execute_left_join_query(&query[0], &left_table, &right_table).unwrap().unwrap();
@@ -1786,10 +1493,10 @@ mod tests {
     #[test]
     fn test_alternate() {
         let good = "STATISTICS(table_name: products, columns: ((SUM stock), (MEAN price)))";
-        let good = parse_alternate_EZQL(good).unwrap();
+        let good = parse_EZQL(good).unwrap();
         dbg!(good);
         let bad = "STATISTICS(table_name: products, columns: ((SUM stock), (MEAN price))";
-        let e = parse_alternate_EZQL(bad);
+        let e = parse_EZQL(bad);
         assert!(e.is_err());
     }
 

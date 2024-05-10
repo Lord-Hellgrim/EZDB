@@ -1,4 +1,5 @@
 use std::arch::asm;
+use std::fmt::Display;
 use std::io::{Write, Read, ErrorKind};
 use std::net::TcpStream;
 use std::num::ParseIntError;
@@ -368,6 +369,36 @@ pub fn usize_from_le_slice(slice: &[u8]) -> usize {
     assert!(slice.len() == 8);
     let l: [u8;8] = [slice[0], slice[1], slice[2], slice[3], slice[4], slice[5], slice[6], slice[7]];
     usize::from_le_bytes(l)
+}
+
+pub fn print_sep_list<T>(list: &Vec<T>, sep: char) -> String 
+where T: Display  {
+    let mut printer = String::new();
+    for item in list {
+        printer.push_str(&item.to_string());
+        printer.push(sep);
+    }
+    printer.pop();
+
+    printer
+}
+
+pub fn chunk3_vec<T>(list: &Vec<T>) -> Option<[&T;3]> {
+    let mut i = list.iter();
+    let one = match i.next() {
+        Some(x) => x,
+        None => return None,
+    };
+    let two = match i.next() {
+        Some(x) => x,
+        None => return None,
+    };
+    let three = match i.next() {
+        Some(x) => x,
+        None => return None,
+    };
+
+    Some([one, two, three])
 }
 
 
