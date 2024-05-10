@@ -13,9 +13,15 @@ use crate::PATH_SEP;
 /// Alias for SmartString
 // pub type KeyString = SmartString<LazyCompact>;
 
-#[derive(Clone, Copy, Debug, Hash)]
+#[derive(Clone, Copy, Hash)]
 pub struct KeyString {
     inner: [u8;64],
+}
+
+impl fmt::Debug for KeyString {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("KeyString").field("inner", &self.as_str()).finish()
+    }
 }
 
 impl fmt::Display for KeyString {

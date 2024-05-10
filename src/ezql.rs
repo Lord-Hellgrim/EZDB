@@ -232,6 +232,11 @@ impl Display for Query {
                     printer.push(' ');
                 }
                 printer.push(';');
+
+                for update in &self.updates {
+                    printer.push_str(&update.to_string());
+                    printer.push(';');
+                }
             },
             QueryType::INSERT => {
                 printer.push_str("INSERT;");
@@ -320,6 +325,7 @@ impl Display for Update {
         let op = match self.operator {
             UpdateOp::Assign => "=",
             UpdateOp::PlusEquals => "+=",
+            UpdateOp::MinusEquals => "-=",
             UpdateOp::TimesEquals => "*=",
             UpdateOp::Append => "append",
             UpdateOp::Prepend => "prepend",
@@ -395,6 +401,7 @@ impl Update {
 pub enum UpdateOp {
     Assign,
     PlusEquals,
+    MinusEquals,
     TimesEquals,
     Append,
     Prepend,
@@ -405,6 +412,7 @@ impl UpdateOp {
         match s {
             "=" => Ok(UpdateOp::Assign),
             "+=" => Ok(UpdateOp::PlusEquals),
+            "-=" => Ok(UpdateOp::MinusEquals),
             "*=" => Ok(UpdateOp::TimesEquals),
             "append" => Ok(UpdateOp::Append),
             "assign" => Ok(UpdateOp::Assign),
@@ -686,17 +694,25 @@ DELETE(primary_keys: *, table_name: products, conditions: ((price greater-than 5
 
 LEFT_JOIN(left_table: products, right_table: warehouses, match_columns: (location, id), primary_keys: 0113000..18572054, chain: false)
 
-If the "chain" argument is "true" then you can use the reserved table_name __RESULT__ to apply the following query to the result of the previous one.
-example:
-LEFT_JOIN(left_table: products, right_table: warehouses, match_columns: (location, id), primary_keys: 0113000..18572054, chain: true)
-INNER_JOIN(left_table: products, right_table: warehouses, match_columns: (location, id), primary_keys: (0113000, 0113000, 18572054), chain: true)
-FULL_JOIN(left_table: products, right_table: warehouses, match_columns: (location, id), primary_keys: *, chain: true)
-SELECT(table_name: __RESULT__, primary_keys: *, conditions: (), chain: true)
+LEFT_JOIN(left_table: products, right_table: warehouses, match_columns: (location, id), primary_keys: 0113000..18572054)
+INNER_JOIN(left_table: products, right_table: warehouses, match_columns: (location, id), primary_keys: (0113000, 0113000, 18572054))
+FULL_JOIN(left_table: products, right_table: warehouses, match_columns: (location, id), primary_keys: *)
+SELECT(table_name: __RESULT__, primary_keys: *, conditions: ())
 
-Special statistical queries cannot be chained:
-Examples:
+Chaining queries can be done with the -> operator between subqueries. A chained query uses the table name __RESULT__ to operate on the preivous 
+queries result.
+Example:
+LEFT_JOIN(left_table: products, right_table: warehouses, match_columns: (location, id), primary_keys: 0113000..18572054)
+->
+SELECT(table_name: __RESULT__, primary_keys: *, conditions: ())
+
+The final query in the chain the the one whose result will be sent back to the caller.
+
+The STATISTICS query is a special query that does not return a table but rather returns a list of statistics on a given table
+
 STATISTICS(table_name: products, columns: ((SUM stock), (AVERAGE price)))
 
+Refer to the EZ-FORMAT section of the documentation for information of the different data formats of EZDB
 */
 
 pub struct ParserState {
@@ -915,7 +931,7 @@ pub fn parse_alternate_EZQL(query_string: &str) -> Result<Query, QueryError> {
             }
 
         },
-        QueryType::LEFT_JOIN => {
+        QueryType::LEFT_JOIN | QueryType::INNER_JOIN | QueryType::RIGHT_JOIN | QueryType::FULL_JOIN => {
             query.join.table = match args.get("right_table") {
                 Some(x) => match x.get(0) {
                     Some(n) => KeyString::from(n.as_str()),
@@ -924,11 +940,50 @@ pub fn parse_alternate_EZQL(query_string: &str) -> Result<Query, QueryError> {
                 None => return Err(QueryError::InvalidQueryStructure),
             };
 
-            
+            let primary_keys = match args.get("primary_keys") {
+                Some(x) => x,
+                None => return Err(QueryError::InvalidQueryStructure),
+            };
+
+            match primary_keys.len() {
+                0 => return Err(QueryError::InvalidQueryStructure),
+                1 => {
+                    match primary_keys[0].as_str() {
+                        "*" => query.primary_keys = RangeOrListorAll::All,
+                        x => {
+                            let mut split = x.split("..");
+                            let start = match split.next() {
+                                Some(x) => KeyString::from(x),
+                                None => return Err(QueryError::InvalidQueryStructure)
+                            };
+                            let stop = match split.next() {
+                                Some(x) => KeyString::from(x),
+                                None => return Err(QueryError::InvalidQueryStructure)
+                            };
+                            query.primary_keys = RangeOrListorAll::Range(start, stop);
+                        }
+                    }
+                },
+                _ => {
+                    let primary_keys: Vec<KeyString> = primary_keys.iter().map(|n| KeyString::from(n.as_str())).collect();
+                    query.primary_keys = RangeOrListorAll::List(primary_keys);
+                }
+            };
+
+            let match_columns: Vec<KeyString> = match args.get("match_columns") {
+                Some(x) => x.iter().map(|s| KeyString::from(s.as_str())).collect(),
+                None => return Err(QueryError::InvalidQueryStructure),
+            };
+
+            if match_columns.len() != 2 {
+                return Err(QueryError::InvalidQueryStructure)
+            } else {
+                query.join.join_column = (match_columns[0], match_columns[1]);
+            }
+
+
+
         },
-        QueryType::INNER_JOIN => todo!(),
-        QueryType::RIGHT_JOIN => todo!(),
-        QueryType::FULL_JOIN => todo!(),
         QueryType::STATISTICS => todo!(),
     }
 
@@ -1362,8 +1417,8 @@ fn execute_update_query(query: &Query, table: &mut EZTable) -> Result<Option<EZT
     
     let keepers = filter_keepers(query, &table)?;
 
-    for update in &query.updates{
-        for keeper in &keepers {
+    for keeper in &keepers {
+        for update in &query.updates{
             if !table.columns.contains_key(&update.attribute) {
                 return Err(ServerError::Query)
             }
@@ -1382,6 +1437,13 @@ fn execute_update_query(query: &Query, table: &mut EZTable) -> Result<Option<EZT
                         DbColumn::Texts(ref mut _column) => return Err(ServerError::Query),
                     }
                 },
+                UpdateOp::MinusEquals => {
+                    match table.columns.get_mut(&update.attribute).unwrap() {
+                        DbColumn::Ints(ref mut column) => column[*keeper] -= update.value.to_i32(),
+                        DbColumn::Floats(ref mut column) => column[*keeper] -= update.value.to_f32(),
+                        DbColumn::Texts(ref mut _column) => return Err(ServerError::Query),
+                    }
+                }
                 UpdateOp::TimesEquals => {
                     match table.columns.get_mut(&update.attribute).unwrap() {
                         DbColumn::Ints(ref mut column) => column[*keeper] *= update.value.to_i32(),
@@ -1815,10 +1877,10 @@ mod tests {
 
     #[test]
     fn test_alternate() {
-        let good = "UPDATE(table_name: products, primary_keys: (0113035, 0113000), conditions: ((id starts-with 011)), updates: ((price += 100), (stock -= 100)))";
-        parse_alternate_EZQL(good).unwrap();
-
-        let bad = "UPDATE(table_name: products, primary_keys: 0113035, 0113000), conditions: ((id starts-with 011)), updates: ((price += 100), (stock -= 100)))";
+        let good = "LEFT_JOIN(left_table: products, right_table: warehouses, match_columns: (location, id), primary_keys: 0113000..18572054, chain: false)";
+        let good = parse_alternate_EZQL(good).unwrap();
+        dbg!(good);
+        let bad = "LEFT_JOIN(left_table: products, right_table: warehouses, match_columns: location, id), primary_keys: 0113000..18572054, chain: false)";
         let e = parse_alternate_EZQL(bad);
         assert!(e.is_err());
     }
