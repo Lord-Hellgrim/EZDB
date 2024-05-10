@@ -1,153 +1,3 @@
-
-
-
-/*
-    EZQL spec
-    Special reserved characters are
-    ; 
-    ..
-    You cannot use these in the table header or in the names of primary keys
-
-    Special reserved keywords are
-    SELECT                  <-- \ 
-    LEFT_JOIN               <--  \
-    INNER_JOIN              <--    > Read queries
-    RIGHT_JOIN              <--  /
-    FULL_JOIN               <-- /
-    
-    DELETE                  <-- Write queries
-    UPDATE                  <-- 
-    
-    THEN                    <-- Chain separate queries
-
-    SUM                     <-- \
-    AVERAGE                 <--  \
-    MEDIAN                  <--    > Statistical queries
-    MEAN                    <--  /
-    COUNT(value)            <-- /
-    
-    __ROWID__               <-- Automatic primary key row header
-    __RESULT__              <-- Name of transient table
-
-
-    This is what an EZQL query looks like:
-    [Query Type];
-    [Table name];
-    [Primary keys to test];
-    [Conditions to apply];
-    [New values if any];
-    [Chain if any];
-    ... and next query can be chained
-
-    Example:
-    SELECT;                                     <-- Type of query. See all query types at the top of this file
-    Products;                                   <-- Name of table.
-    *;                                          <-- Primary keys. Can either be full list separated by commas, a range from..to separated by '..'
-    (price greater-than 500)                    <-- \
-    AND                                         <--  \
-    (price less-than 1000)                      <--    > List of conditions to filter by. Conditions should be enclosed in parentheses and 
-    OR                                          <--    > separated by whitespace (attribute test bar). Each condition can then be combined
-    ("in stock" greater-than 50)                <--    > with another with AND, OR, NOT. Precedence is NOT > AND > OR
-    AND                                         <--  /
-    (name contains "steel screw");              <-- /  (note the trailing semicolon here. The list of conditions must end with ';' if you will chain another query)
-    THEN;
-    UPDATE;
-    Products;
-    *;
-    (name contains "steel screw")
-    OR
-    (name contains "wood screw")
-    TO;
-    price += 400;
-    "in stock" *= 1.15;
-    name append " *Updated";
-
-    Whitespace next to separator characters ; : and , is ignored. The newlines are just for clarity.
-    
-    Supported filter tests are: 
-    equals, less-than, greater-than, starts-with, ends-with, contains
-    
-    Supported query types are: 
-    Read queries
-    SELECT, LEFT JOIN, INNER JOIN, RIGHT JOIN, FULL JOIN
-    
-    Write queries
-    DELETE, UPDATE, INSERT, SAVE([new name])
-
-    Supported update operations are:
-    INTS:   '=', '+=', '*='  (Note that -= and /= are not supported but are subclasses of += and *=)
-    FLOATS: '=', '+=', '*='  (Note that -= and /= are not supported but are subclasses of += and *=)
-    TEXT:   append, assign, prepend, 
-
-    The result of a read query is a new reduced or expanded table according to the query.
-    This new table is called __RESULT__. At the end of the query (including all chains),
-    if there is a __RESULT__ table it will be returned to the querying client.
-    The result of a write query is a change to the currently selected table according to the query
-    You can chain read and write queries in any order. If you update a __RESULT__ table, there will
-    be no change to the actual database until you SAVE the __RESULT__ with a name by using 
-    the SAVE([new name]) command at the end of your update query. This will write the resulting 
-    table to the database. The SAVE command does not drop the table and you can keep chaining 
-    queries after it. Saving a __RESULT__ table creates a copy of it in the database. If you then
-    chain a write query with the new table name, you will change the table in the database but if
-    you use the __RESULT__ name, you only change the transient copy that will be returned to the
-    querying client.
-    The only difference between a chained query and a sequence of unchained queries is the __RESULT__ table.
-    At the start of a query, the __RESULT__ table is empty. Essentially, "read" queries are write queries
-    that only write to the __RESULT__ table. Each write query to a table other than __RESULT__ overwrites
-    the current __RESULT__. So if you chain two SELECT queries to different named tables, you only
-    get the result of the second query.
-
-    example3:
-    UPDATE;                             <-- Type of query
-    Products;                           <-- Table name
-    0113000, 0113034, 0113035, 0113500; <-- List or range of keys to check. Use * to check all keys
-    price: less, 500;                   <-- |\
-    price: greater, 200;                <-- | > Filters. Only keys from the list that meet these conditions will be selected
-    location: equals, lag15;            <-- |/
-    TO;                                 <-- Attributes after the TO statement are new values
-    price: 400;                         <-- |\
-    location: lag30;                    <-- | > All values that remain in the selection will be updated according to these specs.
-    price: 500;                         <-- | > If an attribute is listed more than once, there is no guarantee which value will apply.
-    in_stock: 5;                        <-- |/
-
-    example4:
-    INSERT;                             <-- Type of query
-    Products;                           <-- Table name (Here all the table column names are "id", "name", "price")
-    name, price, id;                    <-- Identifies which item in the following list of rows maps to which column in the table. Order is irrelevant.
-    (hammer, 500, 60401011),            <-- |\
-    (screwdriver, 100, 60401010),       <-- | > New values. If a value with the same primary key as a listed value exists in the table, it will not be updated.
-    (chewing gum, 50, 1323),            <-- |/ 
-
-
-
-    Chaining queries:
-    At the end of a query, the server internally has a ColumnTable that contains the elements 
-    remaining after the initial query. If you use the THEN keyword at the end of a query you can then
-    run a second query on the resulting table.
-
-    Chain example1:
-    LEFT JOIN;
-    Products, warehouse1;
-    *
-
-    
-    NOT > AND > OR
-
-    SELECT;
-    Products;
-    *;
-    (price greater-than 500)
-    AND
-    (price less-than 1000)
-    OR
-    ("in stock" greater-than 50)
-    AND
-    (name contains "steel screw")
-    
-
-
-*/
-
 use std::{collections::HashMap, fmt::Display, slice::Chunks, sync::Arc};
 
 use crate::{db_structure::{remove_indices, subtable_from_keys, DbColumn, EZTable, KeyString}, networking_utilities::ServerError, server_networking::Database};
@@ -178,6 +28,40 @@ pub struct Inserts {
     pub new_values: String,
 }
 
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub enum Statistic{
+    SUM(KeyString),
+    MEAN(KeyString),
+    MODE(KeyString),
+    STDEV(KeyString),
+}
+
+impl Default for Statistic {
+    fn default() -> Self {
+        Statistic::SUM(KeyString::from("id"))
+    }
+}
+
+impl Statistic {
+    pub fn from_str(s: &str) -> Result<Statistic, QueryError> {
+        let split = s.split_whitespace();
+        if split.count() != 2 {
+            return Err(QueryError::InvalidQueryStructure)
+        } else {
+            let mut split = s.split_whitespace();
+            let first = split.next().unwrap();
+            let second = split.next().unwrap();
+            match first {
+                "SUM" => Ok(Statistic::SUM(KeyString::from(second))),
+                "MEAN" => Ok(Statistic::MEAN(KeyString::from(second))),
+                "MODE" => Ok(Statistic::MODE(KeyString::from(second))),
+                "STDEV" => Ok(Statistic::STDEV(KeyString::from(second))),
+                _ => return Err(QueryError::InvalidQueryStructure),
+            }
+        }
+
+    }
+}
 
 /// A database query that has already been parsed from EZQL (see handlers.rs)
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
@@ -189,6 +73,7 @@ pub struct Query {
     pub updates: Vec<Update>,
     pub inserts: Inserts,
     pub join: Join,
+    pub statistics: Vec<Statistic>,
 }
 
 impl Display for Query {
@@ -309,6 +194,7 @@ impl Query {
             updates: Vec::new(),
             inserts: Inserts::default(),
             join: Join::default(),
+            statistics: Vec::new(),
         }
     }
 }
@@ -807,6 +693,10 @@ pub fn parse_alternate_EZQL(query_string: &str) -> Result<Query, QueryError> {
         }
     }
 
+    if !state.stack.is_empty() {
+        return Err(QueryError::InvalidQueryStructure)
+    }
+
     let word = match String::from_utf8(state.word_buffer.clone()) {
         Ok(s) => s.trim().to_owned(),
         Err(e) => return Err(QueryError::InvalidQueryStructure),
@@ -984,7 +874,24 @@ pub fn parse_alternate_EZQL(query_string: &str) -> Result<Query, QueryError> {
 
 
         },
-        QueryType::STATISTICS => todo!(),
+        QueryType::STATISTICS => {
+            // STATISTICS(table_name: products, columns: ((SUM stock), (AVERAGE price)))
+            query.statistics = match args.get("columns") {
+                Some(x) => {
+                    x
+                    .iter()
+                    .map(
+                        |s| Statistic::from_str(s.as_str())
+                        .map_err(|e| QueryError::InvalidQueryStructure))
+                        .collect::<Result<Vec<Statistic>, QueryError>>()
+                        ?
+                },
+                None => return Err(QueryError::InvalidQueryStructure),
+            };
+
+
+
+        },
     }
 
 
@@ -1787,6 +1694,7 @@ mod tests {
             updates: Vec::new(),
             inserts: Inserts::default(),
             join: Join::default(),
+            statistics: Vec::new(),
         };
 
         println!("{}", &query[0]);
@@ -1877,10 +1785,10 @@ mod tests {
 
     #[test]
     fn test_alternate() {
-        let good = "LEFT_JOIN(left_table: products, right_table: warehouses, match_columns: (location, id), primary_keys: 0113000..18572054, chain: false)";
+        let good = "STATISTICS(table_name: products, columns: ((SUM stock), (MEAN price)))";
         let good = parse_alternate_EZQL(good).unwrap();
         dbg!(good);
-        let bad = "LEFT_JOIN(left_table: products, right_table: warehouses, match_columns: location, id), primary_keys: 0113000..18572054, chain: false)";
+        let bad = "STATISTICS(table_name: products, columns: ((SUM stock), (MEAN price))";
         let e = parse_alternate_EZQL(bad);
         assert!(e.is_err());
     }
