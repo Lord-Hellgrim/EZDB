@@ -36,6 +36,17 @@ pub enum Statistic{
     STDEV(KeyString),
 }
 
+impl Display for Statistic {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Statistic::SUM(x) => write!(f, "SUM {x}"),
+            Statistic::MEAN(x) => write!(f, "MEAN {x}"),
+            Statistic::MODE(x) => write!(f, "MODE {x}"),
+            Statistic::STDEV(x) => write!(f, "STDEV {x}"),
+        }
+    }
+}
+
 impl Default for Statistic {
     fn default() -> Self {
         Statistic::SUM(KeyString::from("id"))
@@ -76,17 +87,20 @@ pub struct Query {
     pub statistics: Vec<Statistic>,
 }
 
+// INSERT(table_name: products, value_columns: (id, stock, location, price), new_values: ((0113035, 500, LAG15, 995), (0113000, 100, LAG30, 495)))
+// SELECT(primary_keys: *, table_name: products, conditions: ((price greater-than 500) AND (stock less-than 1000)))
+// UPDATE(table_name: products, primary_keys: (0113035, 0113000), conditions: ((id starts-with 011)), updates: ((price += 100), (stock -= 100)))
+// DELETE(primary_keys: *, table_name: products, conditions: ((price greater-than 500) AND (stock less-than 1000)))
+
+// LEFT_JOIN(left_table: products, right_table: warehouses, match_columns: (location, id), primary_keys: 0113000..18572054)
+
 impl Display for Query {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 
         let mut printer = String::new();
         match self.query_type {
             QueryType::SELECT => {
-                printer.push_str(&format!(
-                    "SELECT(table_name: {},
-                        primary_keys: ({}),
-                        conditions: ({})
-                    )",
+                printer.push_str(&format!("SELECT(table_name: {}, primary_keys: ({}), conditions: ({}))",
                         self.table,
                         self.primary_keys,
                         print_sep_list(&self.conditions, ','),
@@ -94,28 +108,78 @@ impl Display for Query {
 
             },
             QueryType::LEFT_JOIN => {
-                printer.push_str("LEFT_JOIN(");
+                printer.push_str(&format!("LEFT_JOIN(left_table: {}, right_table: {}, primary_keys: ({}), match_columns: ({}, {})",
+                        self.table,
+                        self.join.table,
+                        self.primary_keys,
+                        self.join.join_column.0,
+                        self.join.join_column.1,
+                ));
             },
             QueryType::INNER_JOIN => {
-                printer.push_str("INNER_JOIN(");
+                printer.push_str(&format!("INNER_JOIN(left_table: {}, right_table: {}, primary_keys: ({}), match_columns: ({}, {})",
+                self.table,
+                self.join.table,
+                self.primary_keys,
+                self.join.join_column.0,
+                self.join.join_column.1,
+        ));
             },
             QueryType::RIGHT_JOIN => {
-                printer.push_str("RIGHT_JOIN(");
+                printer.push_str(&format!("RIGHT_JOIN(left_table: {}, right_table: {}, primary_keys: ({}), match_columns: ({}, {})",
+                self.table,
+                self.join.table,
+                self.primary_keys,
+                self.join.join_column.0,
+                self.join.join_column.1,
+        ));
             },
             QueryType::FULL_JOIN => {
-                printer.push_str("FULL_JOIN(");
+                printer.push_str(&format!("FULL_JOIN(left_table: {}, right_table: {}, primary_keys: ({}), match_columns: ({}, {})",
+                self.table,
+                self.join.table,
+                self.primary_keys,
+                self.join.join_column.0,
+                self.join.join_column.1,
+        ));
             },
             QueryType::UPDATE => {
-                printer.push_str("UPDATE(");
+                printer.push_str(&format!("UPDATE(table_name: {}, primary_keys: ({}), conditions: ({})), updates: ({})",
+                        self.table,
+                        self.primary_keys,
+                        print_sep_list(&self.conditions, ','),
+                        print_sep_list(&self.updates, ','),
+                ));
             },
             QueryType::INSERT => {
-                printer.push_str("INSERT(");
+
+                let new_values = self.inserts.new_values.clone().replace(';', ",");
+                let mut temp = String::from("");
+                for line in new_values.lines() {
+                    temp.push_str(&format!("({line}), "));
+                }
+                temp.pop();
+                temp.pop();
+                
+
+                printer.push_str(&format!("INSERT(table_name: {}, value_columns: ({}), new_values: ({}))",
+                        self.table,
+                        print_sep_list(&self.inserts.value_columns, ','),
+                        temp,
+                ));
             },
             QueryType::DELETE => {
-                printer.push_str("DELETE(");
+                printer.push_str(&format!("DELETE(table_name: {}, primary_keys: ({}), conditions: ({}))",
+                        self.table,
+                        self.primary_keys,
+                        print_sep_list(&self.conditions, ','),
+                ));
             },
             QueryType::STATISTICS => {
-                printer.push_str("STATISTICS(");
+                printer.push_str(&format!("SELECT(table_name: {}, columns: ({}))",
+                        self.table,
+                        print_sep_list(&self.statistics, ','),
+                ));
             },
         }
 
@@ -452,10 +516,10 @@ impl Test {
         match input.to_lowercase().as_str() {
             "equals" => Test::Equals(KeyString::from(bar)),
             "not_equals" => Test::NotEquals(KeyString::from(bar)),
-            "less" => Test::Less(KeyString::from(bar)),
-            "greater" => Test::Greater(KeyString::from(bar)),
-            "starts" => Test::Starts(KeyString::from(bar)),
-            "ends" => Test::Ends(KeyString::from(bar)),
+            "less-than" => Test::Less(KeyString::from(bar)),
+            "greater-than" => Test::Greater(KeyString::from(bar)),
+            "starts-with" => Test::Starts(KeyString::from(bar)),
+            "ends-with" => Test::Ends(KeyString::from(bar)),
             "contains" => Test::Contains(KeyString::from(bar)),
             _ => todo!(),
         }
@@ -519,7 +583,7 @@ SELECT(primary_keys: *, table_name: products, conditions: ((price greater-than 5
 UPDATE(table_name: products, primary_keys: (0113035, 0113000), conditions: ((id starts-with 011)), updates: ((price += 100), (stock -= 100)))
 DELETE(primary_keys: *, table_name: products, conditions: ((price greater-than 500) AND (stock less-than 1000)))
 
-LEFT_JOIN(left_table: products, right_table: warehouses, match_columns: (location, id), primary_keys: 0113000..18572054, chain: false)
+LEFT_JOIN(left_table: products, right_table: warehouses, match_columns: (location, id), primary_keys: 0113000..18572054)
 
 LEFT_JOIN(left_table: products, right_table: warehouses, match_columns: (location, id), primary_keys: 0113000..18572054)
 INNER_JOIN(left_table: products, right_table: warehouses, match_columns: (location, id), primary_keys: (0113000, 0113000, 18572054))
@@ -698,9 +762,38 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
         },
         QueryType::SELECT | QueryType::UPDATE | QueryType::DELETE => {
             let conditions = match args.get("conditions") {
-                Some(x) => x,
+                Some(x) => {
+                    if x.len() != 1 {
+                        return Err(QueryError::InvalidQueryStructure)
+                    } else {
+                        x[0].split_whitespace().collect::<Vec<&str>>()
+                    }
+                },
                 None => return Err(QueryError::InvalidQueryStructure),
             };
+
+            let mut condition_buffer = String::new();
+            for condition in conditions {
+                match condition {
+                    "AND" => {
+                        query.conditions.push(OpOrCond::Cond(Condition::from_str(&condition_buffer.trim())?));
+                        condition_buffer.clear();
+                        query.conditions.push(OpOrCond::Op(Operator::AND));
+                    },
+                    "OR" => {
+                        query.conditions.push(OpOrCond::Cond(Condition::from_str(&condition_buffer.trim())?));
+                        condition_buffer.clear();
+                        query.conditions.push(OpOrCond::Op(Operator::AND));
+                    },
+                    x => {
+                        condition_buffer.push_str(x);
+                        condition_buffer.push(' ');
+                    }
+                }
+            }
+            if !condition_buffer.is_empty() {
+                query.conditions.push(OpOrCond::Cond(Condition::from_str(&condition_buffer.trim())?));
+            }
 
 
             let primary_keys = match args.get("primary_keys") {
@@ -1327,7 +1420,7 @@ mod tests {
     // SELECT(primary_keys: *, table_name: products, conditions: ((price greater-than 500) AND (stock less-than 1000)))
     // UPDATE(table_name: products, primary_keys: (0113035, 0113000), conditions: ((id starts-with 011)), updates: ((price += 100), (stock -= 100)))
     // DELETE(primary_keys: *, table_name: products, conditions: ((price greater-than 500) AND (stock less-than 1000)))
-    // LEFT_JOIN(left_table: products, right_table: warehouses, match_columns: (location, id), primary_keys: 0113000..18572054, chain: false)
+    // LEFT_JOIN(left_table: products, right_table: warehouses, match_columns: (location, id), primary_keys: 0113000..18572054)
     // STATISTICS(table_name: products, columns: ((SUM stock), (AVERAGE price)))
 
 
@@ -1430,7 +1523,7 @@ mod tests {
     fn test_SELECT() {
         let table_string = std::fs::read_to_string(format!("test_files{PATH_SEP}good_csv.txt")).unwrap();
         let table = EZTable::from_csv_string(&table_string, "good_csv", "test").unwrap();
-        let query = "SELECT;good_csv;*";
+        let query = "SELECT(primary_keys: *, table_name: good_csv, conditions: ())";
         let parsed = parse_serial_query(query).unwrap();
         let result = execute_select_query(&parsed[0], &table).unwrap().unwrap();
         assert_eq!("heiti,t-N;magn,i-N;vnr,i-P\nundirlegg2;100;113000\nundirlegg;200;113035\nflísalím;42;18572054", result.to_string());
@@ -1448,7 +1541,8 @@ mod tests {
 
         println!("{}", left_table);
         println!("{}", right_table);
-        let query_string = "LEFT JOIN;\nemployees, departments;\ndepartment;*";
+        
+        let query_string = "LEFT_JOIN(left_table: employees, right_table: departments, match_columns: (department, department), primary_keys: *)";
         let query = parse_serial_query(query_string).unwrap();
         
         println!("{}", query[0]);
@@ -1482,7 +1576,9 @@ mod tests {
 
     #[test]
     fn test_INSERT() {
-
+        let query = "INSERT(table_name: products, value_columns: (id, stock, location, price), new_values: ((0113035, 500, LAG15, 995), (0113000, 100, LAG30, 495)))";
+        let parsed = parse_EZQL(query).unwrap();
+        println!("{}", parsed);
     }
 
     #[test]
