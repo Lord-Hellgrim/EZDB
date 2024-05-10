@@ -464,7 +464,7 @@ impl Display for EZTable {
 
 impl EZTable {
 
-    pub fn blank(header: &Vec<HeaderItem>, name: KeyString, created_by: &str) -> Result<EZTable, StrictError> {
+    pub fn blank(header: &Vec<HeaderItem>, name: KeyString, created_by: &str) -> EZTable {
 
         let mut columns = BTreeMap::new();
 
@@ -479,14 +479,12 @@ impl EZTable {
         let mut new_header = header.clone();
         new_header.sort_by_key(|n| n.name);
 
-        Ok(
-            EZTable {
-                metadata: Metadata::new(created_by),
-                name: name,
-                header: new_header,
-                columns,
-            }
-        )
+        EZTable {
+            metadata: Metadata::new(created_by),
+            name: name,
+            header: new_header,
+            columns,
+        }
 
     }
 
