@@ -39,10 +39,10 @@ pub enum Statistic{
 impl Display for Statistic {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Statistic::SUM(x) => write!(f, "SUM {x}"),
-            Statistic::MEAN(x) => write!(f, "MEAN {x}"),
-            Statistic::MODE(x) => write!(f, "MODE {x}"),
-            Statistic::STDEV(x) => write!(f, "STDEV {x}"),
+            Statistic::SUM(x) => write!(f, "(SUM {x})"),
+            Statistic::MEAN(x) => write!(f, "(MEAN {x})"),
+            Statistic::MODE(x) => write!(f, "(MODE {x})"),
+            Statistic::STDEV(x) => write!(f, "(STDEV {x})"),
         }
     }
 }
@@ -84,7 +84,7 @@ pub struct Query {
     pub updates: Vec<Update>,
     pub inserts: Inserts,
     pub join: Join,
-    pub statistics: Vec<Statistic>,
+    pub summary: Vec<Statistic>,
 }
 
 // INSERT(table_name: products, value_columns: (id, stock, location, price), new_values: ((0113035, 500, LAG15, 995), (0113000, 100, LAG30, 495)))
@@ -100,15 +100,16 @@ impl Display for Query {
         let mut printer = String::new();
         match self.query_type {
             QueryType::SELECT => {
-                printer.push_str(&format!("SELECT(table_name: {}, primary_keys: ({}), conditions: ({}))",
+                printer.push_str(&format!("SELECT(table_name: {}, primary_keys: {}, conditions: ({}))",
                         self.table,
                         self.primary_keys,
-                        print_sep_list(&self.conditions, ','),
+                        print_sep_list(&self.conditions, " "),
                 ));
 
             },
-            QueryType::LEFT_JOIN => {
-                printer.push_str(&format!("LEFT_JOIN(left_table: {}, right_table: {}, primary_keys: ({}), match_columns: ({}, {})",
+            QueryType::LEFT_JOIN | QueryType::INNER_JOIN | QueryType::FULL_JOIN | QueryType::RIGHT_JOIN => {
+                printer.push_str(&format!("{}(left_table: {}, right_table: {}, primary_keys: {}, match_columns: ({}, {}))",
+                        self.query_type,
                         self.table,
                         self.join.table,
                         self.primary_keys,
@@ -116,44 +117,17 @@ impl Display for Query {
                         self.join.join_column.1,
                 ));
             },
-            QueryType::INNER_JOIN => {
-                printer.push_str(&format!("INNER_JOIN(left_table: {}, right_table: {}, primary_keys: ({}), match_columns: ({}, {})",
-                self.table,
-                self.join.table,
-                self.primary_keys,
-                self.join.join_column.0,
-                self.join.join_column.1,
-        ));
-            },
-            QueryType::RIGHT_JOIN => {
-                printer.push_str(&format!("RIGHT_JOIN(left_table: {}, right_table: {}, primary_keys: ({}), match_columns: ({}, {})",
-                self.table,
-                self.join.table,
-                self.primary_keys,
-                self.join.join_column.0,
-                self.join.join_column.1,
-        ));
-            },
-            QueryType::FULL_JOIN => {
-                printer.push_str(&format!("FULL_JOIN(left_table: {}, right_table: {}, primary_keys: ({}), match_columns: ({}, {})",
-                self.table,
-                self.join.table,
-                self.primary_keys,
-                self.join.join_column.0,
-                self.join.join_column.1,
-        ));
-            },
             QueryType::UPDATE => {
-                printer.push_str(&format!("UPDATE(table_name: {}, primary_keys: ({}), conditions: ({})), updates: ({})",
+                printer.push_str(&format!("UPDATE(table_name: {}, primary_keys: {}, conditions: ({}), updates: ({}))",
                         self.table,
                         self.primary_keys,
-                        print_sep_list(&self.conditions, ','),
-                        print_sep_list(&self.updates, ','),
+                        print_sep_list(&self.conditions, " "),
+                        print_sep_list(&self.updates, ", "),
                 ));
             },
             QueryType::INSERT => {
 
-                let new_values = self.inserts.new_values.clone().replace(';', ",");
+                let new_values = self.inserts.new_values.clone().replace(';', ", ");
                 let mut temp = String::from("");
                 for line in new_values.lines() {
                     temp.push_str(&format!("({line}), "));
@@ -164,21 +138,21 @@ impl Display for Query {
 
                 printer.push_str(&format!("INSERT(table_name: {}, value_columns: ({}), new_values: ({}))",
                         self.table,
-                        print_sep_list(&self.inserts.value_columns, ','),
+                        print_sep_list(&self.inserts.value_columns, ", "),
                         temp,
                 ));
             },
             QueryType::DELETE => {
-                printer.push_str(&format!("DELETE(table_name: {}, primary_keys: ({}), conditions: ({}))",
+                printer.push_str(&format!("DELETE(table_name: {}, primary_keys: {}, conditions: ({}))",
                         self.table,
                         self.primary_keys,
-                        print_sep_list(&self.conditions, ','),
+                        print_sep_list(&self.conditions, " "),
                 ));
             },
-            QueryType::STATISTICS => {
-                printer.push_str(&format!("SELECT(table_name: {}, columns: ({}))",
+            QueryType::SUMMARY => {
+                printer.push_str(&format!("SUMMARY(table_name: {}, columns: ({}))",
                         self.table,
-                        print_sep_list(&self.statistics, ','),
+                        print_sep_list(&self.summary, ", "),
                 ));
             },
         }
@@ -199,7 +173,7 @@ impl Query {
             updates: Vec::new(),
             inserts: Inserts::default(),
             join: Join::default(),
-            statistics: Vec::new(),
+            summary: Vec::new(),
         }
     }
 }
@@ -325,7 +299,7 @@ pub enum QueryType {
     UPDATE,
     INSERT,
     DELETE,
-    STATISTICS,
+    SUMMARY,
 }
 
 impl Display for QueryType {
@@ -339,7 +313,7 @@ impl Display for QueryType {
             QueryType::UPDATE => write!(f, "UPDATE"),
             QueryType::INSERT => write!(f, "INSERT"),
             QueryType::DELETE => write!(f, "DELETE"),
-            QueryType::STATISTICS => write!(f, "STATISTICS"),
+            QueryType::SUMMARY => write!(f, "SUMMARY"),
         }
     }
 }
@@ -359,11 +333,9 @@ impl Display for RangeOrListorAll {
         match &self {
             RangeOrListorAll::Range(start, stop) => printer.push_str(&format!("{}..{}", start, stop)),
             RangeOrListorAll::List(list) => {
-                for item in list {
-                    printer.push_str(item.as_str());
-                    printer.push(',');
-                }
-                printer.pop();
+                printer.push('(');
+                printer.push_str(&print_sep_list(list, ", "));
+                printer.push(')');
             },
             RangeOrListorAll::All => printer.push_str("*"),
         };
@@ -474,7 +446,7 @@ pub enum OpOrCond {
 impl Display for OpOrCond {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            OpOrCond::Cond(cond) => write!(f, "({}: {})", cond.attribute, cond.test.to_string()),
+            OpOrCond::Cond(cond) => write!(f, "({} {})", cond.attribute, cond.test.to_string()),
             OpOrCond::Op(op) => match op {
                 Operator::AND => write!(f, "AND"),
                 Operator::OR => write!(f, "OR"),
@@ -599,9 +571,9 @@ SELECT(table_name: __RESULT__, primary_keys: *, conditions: ())
 
 The final query in the chain the the one whose result will be sent back to the caller.
 
-The STATISTICS query is a special query that does not return a table but rather returns a list of statistics on a given table
+The SUMMARY query is a special query that does not return a table but rather returns a list of SUMMARY on a given table
 
-STATISTICS(table_name: products, columns: ((SUM stock), (AVERAGE price)))
+SUMMARY(table_name: products, columns: ((SUM stock), (MEAN price)))
 
 Refer to the EZ-FORMAT section of the documentation for information of the different data formats of EZDB
 */
@@ -647,7 +619,7 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
         "LEFT_JOIN" => QueryType::LEFT_JOIN,
         "FULL_JOIN" => QueryType::FULL_JOIN,
         "INNER_JOIN" => QueryType::INNER_JOIN,
-        "STATISTICS" => QueryType::STATISTICS,
+        "SUMMARY" => QueryType::SUMMARY,
         _ => return Err(QueryError::InvalidQueryType),
     };
 
@@ -709,9 +681,6 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
     };
     state.word_buffer.clear();
     args.entry(current_arg.clone()).and_modify(|n| n.push(word.clone())).or_insert(vec![word.clone()]);
-
-    dbg!(&args);
-
 
     query.table = match args.get("table_name") {
         Some(x) => {
@@ -895,22 +864,20 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
 
 
         },
-        QueryType::STATISTICS => {
-            // STATISTICS(table_name: products, columns: ((SUM stock), (AVERAGE price)))
-            query.statistics = match args.get("columns") {
-                Some(x) => {
-                    x
-                    .iter()
-                    .map(
-                        |s| Statistic::from_str(s.as_str())
-                        .map_err(|e| QueryError::InvalidQueryStructure))
-                        .collect::<Result<Vec<Statistic>, QueryError>>()
-                        ?
-                },
+        QueryType::SUMMARY => {
+            // SUMMARY(table_name: products, columns: ((SUM stock), (MEAN price)))
+            let summary = match args.get("columns") {
+                Some(x) => x,
                 None => return Err(QueryError::InvalidQueryStructure),
             };
 
+            let mut temp = Vec::with_capacity(summary.len());
+            for stat in summary {
+                let s = Statistic::from_str(stat)?;
+                temp.push(s);
+            }
 
+            query.summary = temp;
 
         },
     }
@@ -987,7 +954,7 @@ pub fn parse_contained_token<'a>(s: &'a str, container_open: char, container_clo
 pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
 
     let mut result_table = None;
-    for query in queries.iter() {
+    for query in queries.into_iter() {
 
         match query.query_type {
             QueryType::DELETE => {
@@ -1062,16 +1029,16 @@ pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Res
                     },
                 }
             },
-            QueryType::STATISTICS => unimplemented!(),
+            QueryType::SUMMARY => unimplemented!(),
         }
     }
     Ok(result_table)
 }
 
 
-fn execute_delete_query(query: &Query, table: &mut EZTable) -> Result<Option<EZTable>, ServerError> {
+fn execute_delete_query(query: Query, table: &mut EZTable) -> Result<Option<EZTable>, ServerError> {
     
-    let keepers = filter_keepers(query, &table)?;
+    let keepers = filter_keepers(&query, &table)?;
     table.delete_by_indexes(&keepers);
 
     Ok(
@@ -1079,7 +1046,7 @@ fn execute_delete_query(query: &Query, table: &mut EZTable) -> Result<Option<EZT
     )
 }
 
-fn execute_left_join_query(query: &Query, left_table: &EZTable, right_table: &EZTable) -> Result<Option<EZTable>, ServerError> {
+fn execute_left_join_query(query: Query, left_table: &EZTable, right_table: &EZTable) -> Result<Option<EZTable>, ServerError> {
     
     let filtered_indexes = keys_to_indexes(&left_table, &query.primary_keys)?;
     let mut filtered_table = left_table.subtable_from_indexes(&filtered_indexes, &KeyString::from("__RESULT__"));
@@ -1090,7 +1057,7 @@ fn execute_left_join_query(query: &Query, left_table: &EZTable, right_table: &EZ
     
 }
 
-fn execute_inner_join_query(query: &Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
+fn execute_inner_join_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
     let tables = database.buffer_pool.tables.read().unwrap();
     let table = tables.get(&query.table).unwrap().read().unwrap();
     let keepers = filter_keepers(&query, &table)?;
@@ -1098,7 +1065,7 @@ fn execute_inner_join_query(query: &Query, database: Arc<Database>) -> Result<Op
     return Err(ServerError::Unimplemented("inner joins are not yet implemented".to_owned()));
 }
 
-fn execute_right_join_query(query: &Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
+fn execute_right_join_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
     let tables = database.buffer_pool.tables.read().unwrap();
     let table = tables.get(&query.table).unwrap().read().unwrap();
     let keepers = filter_keepers(&query, &table)?;
@@ -1106,7 +1073,7 @@ fn execute_right_join_query(query: &Query, database: Arc<Database>) -> Result<Op
     return Err(ServerError::Unimplemented("right joins are not yet implemented".to_owned()));
 }
 
-fn execute_full_join_query(query: &Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
+fn execute_full_join_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
     let tables = database.buffer_pool.tables.read().unwrap();
     let table = tables.get(&query.table).unwrap().read().unwrap();
     let keepers = filter_keepers(&query, &table)?;
@@ -1120,9 +1087,9 @@ fn execute_full_join_query(query: &Query, database: Arc<Database>) -> Result<Opt
 //     Value: KeyString,
 // }
 
-fn execute_update_query(query: &Query, table: &mut EZTable) -> Result<Option<EZTable>, ServerError> {
+fn execute_update_query(query: Query, table: &mut EZTable) -> Result<Option<EZTable>, ServerError> {
     
-    let keepers = filter_keepers(query, &table)?;
+    let keepers = filter_keepers(&query, &table)?;
 
     for keeper in &keepers {
         for update in &query.updates{
@@ -1185,22 +1152,18 @@ fn execute_update_query(query: &Query, table: &mut EZTable) -> Result<Option<EZT
     )
 }
 
-fn execute_insert_query(query: &Query, table: &mut EZTable) -> Result<Option<EZTable>, ServerError> {
-    
-    todo!("Need to finish making table from Inserts struct");
+fn execute_insert_query(query: Query, table: &mut EZTable) -> Result<Option<EZTable>, ServerError> {
 
-    let input = EZTable::from_csv_string(&query.inserts.new_values, "input_table", "RESULT")?;
-
-    table.insert(input)?;
+    table.insert(query.inserts)?;
 
     Ok(
         None
     )
 }
 
-fn execute_select_query(query: &Query, table: &EZTable) -> Result<Option<EZTable>, ServerError> {
+fn execute_select_query(query: Query, table: &EZTable) -> Result<Option<EZTable>, ServerError> {
 
-    let keepers = filter_keepers(query, &table)?;
+    let keepers = filter_keepers(&query, &table)?;
 
     Ok(
         Some(table.subtable_from_indexes(&keepers, &KeyString::from("RESULT")))
@@ -1421,7 +1384,7 @@ mod tests {
     // UPDATE(table_name: products, primary_keys: (0113035, 0113000), conditions: ((id starts-with 011)), updates: ((price += 100), (stock -= 100)))
     // DELETE(primary_keys: *, table_name: products, conditions: ((price greater-than 500) AND (stock less-than 1000)))
     // LEFT_JOIN(left_table: products, right_table: warehouses, match_columns: (location, id), primary_keys: 0113000..18572054)
-    // STATISTICS(table_name: products, columns: ((SUM stock), (AVERAGE price)))
+    // SUMMARY(table_name: products, columns: ((SUM stock), (MEAN price)))
 
 
     use std::default;
@@ -1457,63 +1420,57 @@ mod tests {
 
     #[test]
     fn test_parse_query() {
-        let query = "SELECT(primary_keys: (0113000, 0113034, 0113035, 0113500), table_name: products, conditions: ((price greater-than 500) AND (stock less-than 1000)))";
-        let query = parse_serial_query(query).unwrap();
+        let INSERT_query_string =  "INSERT(table_name: products, value_columns: (id, stock, location, price), new_values: ((0113035, 500, LAG15, 995), (0113000, 100, LAG30, 495)))";
+        let SELECT_query_string = "SELECT(table_name: products, primary_keys: (0113000, 0113034, 0113035, 0113500), conditions: ((price less-than 500) AND (price greater-than 200) AND (location equals lag15)))";
+        let UPDATE_query_string = "UPDATE(table_name: products, primary_keys: (0113035, 0113000), conditions: ((id starts-with 011)), updates: ((price += 100), (stock -= 100)))";
+        let DELETE_query_string = "DELETE(table_name: products, primary_keys: *, conditions: ((price greater-than 500) AND (stock less-than 1000)))";
+        let LEFT_JOIN_query_string = "LEFT_JOIN(left_table: products, right_table: warehouses, primary_keys: 0113000..18572054, match_columns: (location, id))";
+        let SUMMARY_query_string = "SUMMARY(table_name: products, columns: ((SUM stock), (MEAN price)))";
+        
+        let INSERT_query = parse_EZQL(INSERT_query_string).unwrap();
+        let SELECT_query = parse_EZQL(SELECT_query_string).unwrap();
+        let UPDATE_query = parse_EZQL(UPDATE_query_string).unwrap();
+        let DELETE_query = parse_EZQL(DELETE_query_string).unwrap();
+        let LEFT_JOIN_query = parse_EZQL(LEFT_JOIN_query_string).unwrap();
+        let SUMMARY_query = parse_EZQL(SUMMARY_query_string).unwrap();
 
-        let test_query = Query {
-            table: KeyString::from("products"),
-            query_type: QueryType::SELECT,
-            primary_keys: RangeOrListorAll::List(vec![
-                KeyString::from("0113000"),
-                KeyString::from("0113034"),
-                KeyString::from("0113035"),
-                KeyString::from("0113500"),
-            ]),
-            conditions: vec![
-                OpOrCond::Cond(
-                    Condition {
-                        attribute: KeyString::from("price"),
-                        test: Test::Less(KeyString::from("500")),
-                    },
-                ),
-                OpOrCond::Op(Operator::AND),
-                OpOrCond::Cond(
-                    Condition {
-                        attribute: KeyString::from("price"),
-                        test: Test::Greater(KeyString::from("200")),
-                    },
-                ),
-                OpOrCond::Op(Operator::AND),
-                OpOrCond::Cond(
-                    Condition {
-                        attribute: KeyString::from("location"),
-                        test: Test::Equals(KeyString::from("lag15")),
-                    },
-                )
-            ],
-            updates: Vec::new(),
-            inserts: Inserts::default(),
-            join: Join::default(),
-            statistics: Vec::new(),
-        };
+        println!("{}", &INSERT_query);
+        println!("{}", INSERT_query_string);
+        println!();
 
-        println!("{}", &query[0]);
+        println!("{}", &SELECT_query);
+        println!("{}", SELECT_query_string);
+        println!();
 
-        // assert_eq!(query[0], test_query);
+        println!("{}", &UPDATE_query);
+        println!("{}", UPDATE_query_string);
+        println!();
+
+        println!("{}", &DELETE_query);
+        println!("{}", DELETE_query_string);
+        println!();
+
+        println!("{}", &LEFT_JOIN_query);
+        println!("{}", LEFT_JOIN_query_string);
+        println!();
+
+        println!("{}", &SUMMARY_query);
+        println!("{}", SUMMARY_query_string);
+        println!();
+        
+
+        assert_eq!(INSERT_query.to_string(), INSERT_query_string);
+        assert_eq!(SELECT_query.to_string(), SELECT_query_string);
+        assert_eq!(DELETE_query.to_string(), DELETE_query_string);
+        assert_eq!(UPDATE_query.to_string(), UPDATE_query_string);
+        assert_eq!(LEFT_JOIN_query.to_string(), LEFT_JOIN_query_string);
+        assert_eq!(SUMMARY_query.to_string(), SUMMARY_query_string);
     }
 
     #[test]
     fn test_updates() {
-        let query = r#"UPDATE;
-            Products;
-            *;
-            (name contains "steel screw")
-            OR
-            (name contains "wood screw")
-            TO;
-            (price += 400)
-            ("in stock" *= 1.15)
-            (name append " *Updated")"#;
+        let query = "UPDATE(table_name: products, primary_keys: (0113035, 0113000), conditions: ((id starts-with 011)), updates: ((price += 100), (stock -= 100)))";
+        
         let parsed = parse_serial_query(query).unwrap();
 
         println!("{}", parsed[0]);
@@ -1525,7 +1482,7 @@ mod tests {
         let table = EZTable::from_csv_string(&table_string, "good_csv", "test").unwrap();
         let query = "SELECT(primary_keys: *, table_name: good_csv, conditions: ())";
         let parsed = parse_serial_query(query).unwrap();
-        let result = execute_select_query(&parsed[0], &table).unwrap().unwrap();
+        let result = execute_select_query(parsed[0].clone(), &table).unwrap().unwrap();
         assert_eq!("heiti,t-N;magn,i-N;vnr,i-P\nundirlegg2;100;113000\nundirlegg;200;113035\nflísalím;42;18572054", result.to_string());
         println!("{}", result);
     }
@@ -1546,7 +1503,7 @@ mod tests {
         let query = parse_serial_query(query_string).unwrap();
         
         println!("{}", query[0]);
-        let actual = execute_left_join_query(&query[0], &left_table, &right_table).unwrap().unwrap();
+        let actual = execute_left_join_query(query[0].clone(), &left_table, &right_table).unwrap().unwrap();
         println!("{}", actual);
 
         let expected = "#employees,i-N;budget,i-N;department,t-N;employee_id,i-P;location,t-N;name,t-N;role,t-N\n2;100000;IT;1;'third floor';jim;engineer\n\n1;100;Sales;2;'first floor';jeff;Manager\n2;100000;IT;3;'third floor';bob;engineer\n10;2342;QA;4;'second floor';John;tester";
@@ -1578,7 +1535,10 @@ mod tests {
     fn test_INSERT() {
         let query = "INSERT(table_name: products, value_columns: (id, stock, location, price), new_values: ((0113035, 500, LAG15, 995), (0113000, 100, LAG30, 495)))";
         let parsed = parse_EZQL(query).unwrap();
-        println!("{}", parsed);
+        let products = std::fs::read_to_string(format!("test_files{PATH_SEP}products.csv")).unwrap();
+        let mut table = EZTable::from_csv_string(&products, "products", "test").unwrap();
+        println!("table:\n{}", table);
+        execute_insert_query(parsed, &mut table).unwrap();
     }
 
     #[test]
@@ -1588,10 +1548,10 @@ mod tests {
 
     #[test]
     fn test_alternate() {
-        let good = "STATISTICS(table_name: products, columns: ((SUM stock), (MEAN price)))";
+        let good = "SUMMARY(table_name: products, columns: ((SUM stock), (MEAN price)))";
         let good = parse_EZQL(good).unwrap();
         dbg!(good);
-        let bad = "STATISTICS(table_name: products, columns: ((SUM stock), (MEAN price))";
+        let bad = "SUMMARY(table_name: products, columns: ((SUM stock), (MEAN price))";
         let e = parse_EZQL(bad);
         assert!(e.is_err());
     }

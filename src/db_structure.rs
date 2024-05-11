@@ -6,7 +6,7 @@ use std::{
 
 use fnv::{FnvHashMap, FnvHasher};
 
-use crate::networking_utilities::*;
+use crate::{ezql::Inserts, networking_utilities::*};
 
 use crate::PATH_SEP;
 
@@ -713,7 +713,22 @@ impl EZTable {
         Ok(())
     }
 
-    pub fn insert(&mut self, mut input_table: EZTable) -> Result<(), StrictError> {
+    pub fn insert(&mut self, inserts: Inserts) -> Result<(), StrictError> {
+
+        let mut test_copy = inserts.value_columns.clone();
+        test_copy.sort();
+        for i in 0..self.header.len() {
+            if test_copy[i] != self.header[i].name {
+                println!("test: {}\treal: {}", test_copy[i], self.header[i].name);
+                return Err(StrictError::Query("Insert header does not match target table".to_owned()))
+            }
+        }
+
+        let mut csv = String::from(print_sep_list(&self.header, ";"));
+        csv.push('\n');
+        csv.push_str(&inserts.new_values);
+
+        let mut input_table = EZTable::from_csv_string(&csv, "input", "inserts")?;
 
         if self.header != input_table.header {
             return Err(StrictError::Query("Input table header does not match target table header".to_owned()));

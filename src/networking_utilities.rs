@@ -371,14 +371,16 @@ pub fn usize_from_le_slice(slice: &[u8]) -> usize {
     usize::from_le_bytes(l)
 }
 
-pub fn print_sep_list<T>(list: &Vec<T>, sep: char) -> String 
+pub fn print_sep_list<T>(list: &Vec<T>, sep: &str) -> String 
 where T: Display  {
     let mut printer = String::new();
     for item in list {
         printer.push_str(&item.to_string());
-        printer.push(sep);
+        printer.push_str(sep);
     }
-    printer.pop();
+    for i in 0..sep.len() {
+        printer.pop();
+    }
 
     printer
 }
