@@ -367,6 +367,27 @@ impl DbColumn {
             DbColumn::Texts(v) => v.len(),
         }
     }
+
+    pub fn get_i32_col(&self) -> &Vec<i32> {
+        match self {
+            DbColumn::Ints(col) => col,
+            _ => panic!("Never call this function unless you are sure its an i32 column"),
+        }
+    }
+
+    pub fn get_f32_col(&self) -> &Vec<f32> {
+        match self {
+            DbColumn::Floats(col) => col,
+            _ => panic!("Never call this function unless you are sure its an f32 column"),
+        }
+    }
+
+    pub fn get_text_col(&self) -> &Vec<KeyString> {
+        match self {
+            DbColumn::Texts(col) => col,
+            _ => panic!("Never call this function unless you are sure its a KeyString column"),
+        }
+    }
 }
 
 /// The header of a database column. Identifies name, type, and whether it is the primary key,
@@ -715,21 +736,22 @@ impl EZTable {
 
     pub fn insert(&mut self, inserts: Inserts) -> Result<(), StrictError> {
 
-        let mut test_copy = inserts.value_columns.clone();
-        test_copy.sort();
-        for i in 0..self.header.len() {
-            if test_copy[i] != self.header[i].name {
-                println!("test: {}\treal: {}", test_copy[i], self.header[i].name);
-                return Err(StrictError::Query("Insert header does not match target table".to_owned()))
+        let mut new_header = Vec::new();
+
+        for item in inserts.value_columns {
+            match self.header.iter().find(|x| x.name == item) {
+                Some(x) => {
+                    new_header.push(x.clone());
+                },
+                None => return Err(StrictError::Query("Input table header does not match target table header".to_owned()))
             }
         }
 
-        let mut csv = String::from(print_sep_list(&self.header, ";"));
+        let mut csv = String::from(print_sep_list(&new_header, ";"));
         csv.push('\n');
         csv.push_str(&inserts.new_values);
 
         let mut input_table = EZTable::from_csv_string(&csv, "input", "inserts")?;
-
         if self.header != input_table.header {
             return Err(StrictError::Query("Input table header does not match target table header".to_owned()));
         }
@@ -831,6 +853,8 @@ impl EZTable {
     /// Updates a ColumnTable. Overwrites existing keys and adds new ones in proper order
     pub fn update(&mut self, other_table: &EZTable) -> Result<(), StrictError> {
 
+        
+
         if self.header != other_table.header {
             return Err(StrictError::Update("Headers don't match".to_owned()));
         }
@@ -843,20 +867,26 @@ impl EZTable {
         match self.columns.get_mut(&self_primary_key_index).unwrap() {
             DbColumn::Ints(col) => match &other_table.columns[&self_primary_key_index] {
                 DbColumn::Ints(other_col) => {
+                    
                     (*col, record_vec) = merge_sorted(col, other_col);
                 }
                 _ => unreachable!("Should always have the same primary key column"),
             },
             DbColumn::Texts(col) => match &other_table.columns[&self_primary_key_index] {
                 DbColumn::Texts(other_col) => {
+                    
                     (*col, record_vec) = merge_sorted(col, other_col);
                 }
                 _ => unreachable!("Should always have the same primary key column"),
             },
             DbColumn::Floats(_) => unreachable!("Should never have a float primary key column"),
         }
-        for (key, column) in self.columns.iter_mut() {
 
+        let pk = self.get_primary_key_col_index();
+        for (key, column) in self.columns.iter_mut() {
+           if key == &pk {
+            continue
+           }
             match column {
                 DbColumn::Ints(col) => match &other_table.columns[key] {
                     DbColumn::Ints(other_col) => {
@@ -877,6 +907,9 @@ impl EZTable {
                     _ => unreachable!("Should always have the same type column"),
                 },
             }
+        }
+        for item in self.columns[&self.get_primary_key_col_index()].get_text_col() {
+            println!("{}", item);
         }
 
         self.metadata.update_size(&self.header, &self.columns);

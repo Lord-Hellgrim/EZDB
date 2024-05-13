@@ -1537,8 +1537,10 @@ mod tests {
         let parsed = parse_EZQL(query).unwrap();
         let products = std::fs::read_to_string(format!("test_files{PATH_SEP}products.csv")).unwrap();
         let mut table = EZTable::from_csv_string(&products, "products", "test").unwrap();
-        println!("table:\n{}", table);
+        println!("before:\n{}", table);
+        println!();
         execute_insert_query(parsed, &mut table).unwrap();
+        println!("after:\n{}", table);
     }
 
     #[test]
