@@ -429,7 +429,7 @@ mod tests {
     }
 
     #[test]
-    fn test_query_list() {
+    fn test_query() {
         let csv = std::fs::read_to_string(format!("test_files{PATH_SEP}good_csv.txt")).unwrap();
         let address = "127.0.0.1:3004";
         let username = "admin";
@@ -437,7 +437,7 @@ mod tests {
         let e = upload_table(address, username, password, "good_csv", &csv).unwrap();
         assert_eq!(e, "OK");
 
-        let query = "SELECT;good_csv;*";
+        let query = "SELECT(table_name: good_csv, primary_keys: *, conditions: ())";
         let username = "admin";
         let password = "admin";
         let response = query_table(address, username, password, query).unwrap();
