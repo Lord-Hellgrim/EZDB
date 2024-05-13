@@ -1528,7 +1528,17 @@ mod tests {
 
     #[test]
     fn test_UPDATE() {
+        let query = "UPDATE(table_name: products, primary_keys: *, conditions: ((id starts-with 011)), updates: ((price += 100), (stock -= 100)))";
+        let parsed = parse_EZQL(query).unwrap();
+        let products = std::fs::read_to_string(format!("test_files{PATH_SEP}products.csv")).unwrap();
+        let mut table = EZTable::from_csv_string(&products, "products", "test").unwrap();
+        println!("before:\n{}", table);
+        println!();
+        execute_update_query(parsed, &mut table).unwrap();
+        println!("after:\n{}", table);
 
+        let expected_table = "id,t-P;location,t-F;price,f-N;stock,i-N\n0113446;LAG12;2600;0\n18572054;LAG12;4500;42";
+        assert_eq!(table.to_string(), expected_table);
     }
 
     #[test]
@@ -1541,11 +1551,23 @@ mod tests {
         println!();
         execute_insert_query(parsed, &mut table).unwrap();
         println!("after:\n{}", table);
+        let expected_table = "id,t-P;location,t-F;price,f-N;stock,i-N\n0113000;LAG30;495;100\n0113035;LAG15;995;500\n0113446;LAG12;2500;100\n18572054;LAG12;4500;42";
+        assert_eq!(table.to_string(), expected_table);
     }
 
     #[test]
     fn test_DELETE() {
-
+        let query = "DELETE(table_name: products, primary_keys: *, conditions: ((price greater-than 3000) AND (stock less-than 1000)))";
+        let parsed = parse_EZQL(query).unwrap();
+        let products = std::fs::read_to_string(format!("test_files{PATH_SEP}products.csv")).unwrap();
+        let mut table = EZTable::from_csv_string(&products, "products", "test").unwrap();
+        println!("before:\n{}", table);
+        println!();
+        execute_delete_query(parsed, &mut table).unwrap();
+        println!("after:\n{}", table);
+        println!();
+        let expected = "id,t-P;location,t-F;price,f-N;stock,i-N\n0113446;LAG12;2500;100";
+        assert_eq!(table.to_string(), expected);
     }
 
     #[test]

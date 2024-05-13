@@ -908,9 +908,6 @@ impl EZTable {
                 },
             }
         }
-        for item in self.columns[&self.get_primary_key_col_index()].get_text_col() {
-            println!("{}", item);
-        }
 
         self.metadata.update_size(&self.header, &self.columns);
 
