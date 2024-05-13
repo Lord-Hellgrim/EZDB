@@ -6,7 +6,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::{db_structure::KeyString, networking_utilities::{blake3_hash, encode_hex}};
+use crate::{db_structure::KeyString, networking_utilities::{blake3_hash, decode_hex, decode_hex_to_arr32, encode_hex, ServerError}};
 
 /// Defines a permission a user has to interact with a given table
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,44 +101,43 @@ impl User {
         }
     }
 
-    // pub fn from_str(s: &str) -> Result<Self, ServerError> {
+    // pub fn from_str(s: &str) -> Result<User, ServerError> {
 
-    //     let s: Vec<&str> = s.split(';').collect();
-
-    //     let username = s[0].to_owned();
-    //     let password = decode_hex(s[1]).expect("User config file must have been corrupted"); // safe because we are reading froma file that was written to by encode_hex
-    //     let permissions_temp = s[2];
-    //     if permissions_temp == "Admin" {
-    //         return Ok(User::admin(&username))
-    //     }
-    //     let permissions_temp: Vec<&str> = permissions_temp.split('-').collect();
-    //     let mut user = User::new(&username);
-    //     for permission in permissions_temp {
-    //         let t: Vec<&str> = permission.split(':').collect();
-    //         if t.len() >= 2 {
-    //             match t[0] {
-    //                 "Upload" => user.can_upload = t[1].parse::<bool>().expect("Config file must be wrongly spelled. Make sure upload is ony eith 'false' or 'true"),
-    //                 "Download" => user.can_download = t[1].split(',').map(|n| n.to_owned()).collect() ,
-    //                 "Update" => user.can_update = t[1].split(',').map(|n| n.to_owned()).collect(),
-    //                 "Query" => user.can_query = t[1].split(',').map(|n| n.to_owned()).collect(),
+    //     let mut user = User::new("", "");
+    //     let mut expect = "";
+    //     let keywords = ["username", "password", "admin", "can_upload", "can_read", "can_write"];
+    //     for line in s.lines() {
+    //         println!("line: {}", line.trim());
+    //         let k = keywords.iter().position(|x| *x == line);
+    //         match k {
+    //             Some(l) => expect = keywords[l],
+    //             None => {
+    //                 match expect {
+    //                     "username" => user.username = line.trim().to_owned(),
+    //                     "password" => user.password = decode_hex_to_arr32(line.trim())?,
+    //                     "admin" => user.admin = {
+    //                         match line.trim().parse::<bool>() {
+    //                             Ok(x) => x,
+    //                             Err(e) => return Err(ServerError::ParseUser(e.to_string())),
+    //                         }
+    //                     },
+    //                     "can_upload" => user.can_upload = {
+    //                         match line.trim().parse::<bool>() {
+    //                             Ok(x) => x,
+    //                             Err(e) => return Err(ServerError::ParseUser(e.to_string())),
+    //                         }
+    //                     },
+    //                     "can_read" => user.can_read.push(line.trim().to_owned()),
+    //                     "can_write" => user.can_write.push(line.trim().to_owned()),
+    //                     _ => (),
+    //                 }
     //             }
     //         }
     //     }
+
     //     Ok(user)
     // }
-
-    // pub fn to_str(&self) -> String {
-    //     let mut output = String::new();
-    //     output.push_str(&self.username);
-    //     output.push_str(&encode_hex(&self.password));
-    //     output.push_str(&format!("Upload:{}", self.can_upload));
-    //     output.push_str("Download");
-    //     for permission in self.can_download {
-    //         output.push_str(string)
-    //     }
-
-    //     guest;0d99d15ec31cb06b828ed4de120e2f82a3b3d1ca716b4fd574159d97f13cf6b3;Upload:false-Download:good_csv,test_csv-Update:good_csv-Query:All
-    // }
+    
 }
 
 /// Check if the user has permission to access a given table.
@@ -208,18 +207,20 @@ mod tests {
         assert_eq!(user, User::admin("admin", "admin"));
     }
 
-    #[test]
-    fn test_user_string_parsing_non_serde() {
-        let user = User {
-            username: "admin".to_owned(),
-            password: blake3_hash("admin".as_bytes()),
-            admin: true,
-            can_upload: true,
-            can_read: vec!["good".to_owned(), "bad".to_owned(), "ugly".to_owned()],
-            can_write: vec!["good".to_owned(), "bad".to_owned(), "ugly".to_owned()],
-        };
+    // #[test]
+    // fn test_user_string_parsing_non_serde() {
+    //     let user = User {
+    //         username: "admin".to_owned(),
+    //         password: blake3_hash("admin".as_bytes()),
+    //         admin: true,
+    //         can_upload: true,
+    //         can_read: vec!["good".to_owned(), "bad".to_owned(), "ugly".to_owned()],
+    //         can_write: vec!["good".to_owned(), "bad".to_owned(), "ugly".to_owned()],
+    //     };
 
-        println!("{}", user);
-        println!("xxx");
-    }
+    //     let s = user.to_string();
+    //     println!("user:\n{}", s);
+    //     let parsed_user = User::from_str(&s).unwrap();
+    //     println!("parsed:\n{}", parsed_user);
+    // }
 }

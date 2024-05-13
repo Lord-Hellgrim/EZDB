@@ -35,6 +35,7 @@ pub enum ServerError {
     Crypto(aead::Error),
     ParseInt(ParseIntError),
     ParseResponse(String),
+    ParseUser(String),
     OversizedData,
     Decompression(miniz_oxide::inflate::DecompressError),
     Query,
@@ -53,6 +54,7 @@ impl fmt::Display for ServerError {
             ServerError::Strict(e) => write!(f, "{}", e),
             ServerError::Crypto(e) => write!(f, "There has been a crypto error. Most likely the nonce was incorrect. The error is: {}", e),
             ServerError::ParseInt(e) => write!(f, "There has been a problem parsing an integer, presumably while sending a data_len. The error signature is: {}", e),
+            ServerError::ParseUser(e) => write!(f, "Failed to parse user from string because: {}", e),
             ServerError::OversizedData => write!(f, "Sent data is too long. Maximum data size is {MAX_DATA_LEN}"),
             ServerError::ParseResponse(e) => write!(f, "{}", e),
             ServerError::Decompression(e) => write!(f, "Decompression error occurred from miniz_oxide library.\nLibrary error: {}", e),
@@ -324,6 +326,18 @@ pub fn decode_hex(s: &str) -> Result<Vec<u8>, ParseIntError> {
         .step_by(2)
         .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
         .collect()
+}
+
+pub fn decode_hex_to_arr32(s: &str) -> Result<[u8;32], ParseIntError> {
+    // println!("s.len(): {}", s.len());
+    let mut arr = [0u8;32];
+    let mut i = 0;
+    for pos in (0..s.len()).step_by(2) {
+        arr[i] = u8::from_str_radix(&s[i..i+2], 16)?;
+        i += 1;
+    }
+
+    Ok(arr)
 }
 
 /// Just a blake3 hash
