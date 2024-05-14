@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fmt::Display, slice::Chunks, sync::Arc};
 
-use crate::{db_structure::{remove_indices, subtable_from_keys, DbColumn, EZTable, KeyString}, networking_utilities::{print_sep_list, ServerError}, server_networking::Database};
+use crate::{db_structure::{remove_indices, subtable_from_keys, DbColumn, EZTable, KeyString, StrictError}, networking_utilities::{print_sep_list, ServerError}, server_networking::Database};
 
 use crate::PATH_SEP;
 
@@ -14,6 +14,21 @@ pub enum QueryError {
     TableNameTooLong,
     Unknown,
     InvalidQueryStructure,
+}
+
+impl Display for QueryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            QueryError::InvalidQueryType => write!(f, "InvalidQueryType,"),
+            QueryError::InvalidConditionFormat => write!(f, "    InvalidConditionFormat,"),
+            QueryError::InvalidTest => write!(f, "InvalidTest,"),
+            QueryError::InvalidTO => write!(f, "InvalidTO,"),
+            QueryError::InvalidUpdate => write!(f, "InvalidUpdate,"),
+            QueryError::TableNameTooLong => write!(f, "TableNameTooLong,"),
+            QueryError::Unknown => write!(f, "Unknown,"),
+            QueryError::InvalidQueryStructure => write!(f, "InvalidQueryStructure,"),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Default)]
@@ -1094,7 +1109,7 @@ fn execute_update_query(query: Query, table: &mut EZTable) -> Result<Option<EZTa
     for keeper in &keepers {
         for update in &query.updates{
             if !table.columns.contains_key(&update.attribute) {
-                return Err(ServerError::Query)
+                return Err(ServerError::Query(format!("Table does not contain column {}", update.attribute)))
             }
             match update.operator {
                 UpdateOp::Assign => {
@@ -1108,14 +1123,14 @@ fn execute_update_query(query: Query, table: &mut EZTable) -> Result<Option<EZTa
                     match table.columns.get_mut(&update.attribute).unwrap() {
                         DbColumn::Ints(ref mut column) => column[*keeper] += update.value.to_i32(),
                         DbColumn::Floats(ref mut column) => column[*keeper] += update.value.to_f32(),
-                        DbColumn::Texts(ref mut _column) => return Err(ServerError::Query),
+                        DbColumn::Texts(ref mut _column) => return Err(ServerError::Query("'+=' operator cannot be performed on text data".to_owned())),
                     }
                 },
                 UpdateOp::MinusEquals => {
                     match table.columns.get_mut(&update.attribute).unwrap() {
                         DbColumn::Ints(ref mut column) => column[*keeper] -= update.value.to_i32(),
                         DbColumn::Floats(ref mut column) => column[*keeper] -= update.value.to_f32(),
-                        DbColumn::Texts(ref mut _column) => return Err(ServerError::Query),
+                        DbColumn::Texts(ref mut _column) => return Err(ServerError::Query("'-=' operator cannot be performed on text data".to_owned())),
                     }
                 }
                 UpdateOp::TimesEquals => {
@@ -1127,15 +1142,15 @@ fn execute_update_query(query: Query, table: &mut EZTable) -> Result<Option<EZTa
                 },
                 UpdateOp::Append => {
                     match table.columns.get_mut(&update.attribute).unwrap() {
-                        DbColumn::Ints(ref mut _column) => return Err(ServerError::Query),
-                        DbColumn::Floats(ref mut _column) => return Err(ServerError::Query),
+                        DbColumn::Ints(ref mut _column) => return Err(ServerError::Query("'append' operator can only be performed on text data".to_owned())),
+                        DbColumn::Floats(ref mut _column) => return Err(ServerError::Query("'append' operator can only be performed on text data".to_owned())),
                         DbColumn::Texts(ref mut column) => column[*keeper].push(update.value.as_str())?,
                     }
                 },
                 UpdateOp::Prepend => {
                     match table.columns.get_mut(&update.attribute).unwrap() {
-                        DbColumn::Ints(ref mut _column) => return Err(ServerError::Query),
-                        DbColumn::Floats(ref mut _column) => return Err(ServerError::Query),
+                        DbColumn::Ints(ref mut _column) => return Err(ServerError::Query("'prepend' operator can only be performed on text data".to_owned())),
+                        DbColumn::Floats(ref mut _column) => return Err(ServerError::Query("'prepend' operator can only be performed on text data".to_owned())),
                         DbColumn::Texts(ref mut column) => {
                             let mut new = update.value.clone();
                             new.push(column[*keeper].as_str())?;
@@ -1170,7 +1185,7 @@ fn execute_select_query(query: Query, table: &EZTable) -> Result<Option<EZTable>
     )
 }
 
-fn keys_to_indexes(table: &EZTable, keys: &RangeOrListorAll) -> Result<Vec<usize>, ServerError> {
+fn keys_to_indexes(table: &EZTable, keys: &RangeOrListorAll) -> Result<Vec<usize>, StrictError> {
     let mut indexes = Vec::new();
 
     match keys {
@@ -1207,7 +1222,7 @@ fn keys_to_indexes(table: &EZTable, keys: &RangeOrListorAll) -> Result<Vec<usize
             match &table.columns[&table.get_primary_key_col_index()] {
                 DbColumn::Ints(column) => {
                     if keys.len() > column.len() {
-                        return Err(ServerError::Query)
+                        return Err(StrictError::Query("There are more keys requested than there are indexes to get".to_owned()))
                     }
                     let mut keys = keys.clone();
                     keys.sort();
@@ -1224,7 +1239,7 @@ fn keys_to_indexes(table: &EZTable, keys: &RangeOrListorAll) -> Result<Vec<usize
                 },
                 DbColumn::Texts(column) => {
                     if keys.len() > column.len() {
-                        return Err(ServerError::Query)
+                        return Err(StrictError::Query("There are more keys requested than there are indexes to get".to_owned()))
                     }
                     let mut keys = keys.clone();
                     keys.sort();
@@ -1258,7 +1273,7 @@ pub fn filter_keepers(query: &Query, table: &EZTable) -> Result<Vec<usize>, Serv
             OpOrCond::Op(op) => current_op = *op,
             OpOrCond::Cond(cond) => {
                 if !table.columns.contains_key(&cond.attribute) {
-                    return Err(ServerError::Query)
+                    return Err(ServerError::Query(format!("table does not contain column {}", cond.attribute)))
                 }
                 let column = &table.columns[&cond.attribute];
                 if current_op == Operator::OR {
@@ -1295,19 +1310,19 @@ pub fn filter_keepers(query: &Query, table: &EZTable) -> Result<Vec<usize>, Serv
                             Test::Starts(bar) => {
                                 match column {
                                     DbColumn::Texts(col) => if col[*index].as_str().starts_with(bar.as_str()) {keepers.push(*index)},
-                                    _ => return Err(ServerError::Query),
+                                    _ => return Err(ServerError::Query("Can only filter by 'starts-with' on text values".to_owned())),
                                 }
                             },
                             Test::Ends(bar) => {
                                 match column {
                                     DbColumn::Texts(col) => if col[*index].as_str().ends_with(bar.as_str()) {keepers.push(*index)},
-                                    _ => return Err(ServerError::Query),
+                                    _ => return Err(ServerError::Query("Can only filter by 'ends-with' on text values".to_owned())),
                                 }
                             },
                             Test::Contains(bar) => {
                                 match column {
                                     DbColumn::Texts(col) => if col[*index].as_str().contains(bar.as_str()) {keepers.push(*index)},
-                                    _ => return Err(ServerError::Query),
+                                    _ => return Err(ServerError::Query("Can only filter by 'contains' on text values".to_owned())),
                                 }
                             },
                         }
@@ -1347,19 +1362,19 @@ pub fn filter_keepers(query: &Query, table: &EZTable) -> Result<Vec<usize>, Serv
                             Test::Starts(bar) => {
                                 match column {
                                     DbColumn::Texts(col) => if col[*keeper].as_str().starts_with(bar.as_str()) {losers.push(*keeper)},
-                                    _ => return Err(ServerError::Query),
+                                    _ => return Err(ServerError::Query("Can only filter by 'starts-with' on text values".to_owned())),
                                 }
                             },
                             Test::Ends(bar) => {
                                 match column {
                                     DbColumn::Texts(col) => if col[*keeper].as_str().ends_with(bar.as_str()) {losers.push(*keeper)},
-                                    _ => return Err(ServerError::Query),
+                                    _ => return Err(ServerError::Query("Can only filter by 'ends-with' on text values".to_owned())),
                                 }
                             },
                             Test::Contains(bar) => {
                                 match column {
                                     DbColumn::Texts(col) => if col[*keeper].as_str().contains(bar.as_str()) {losers.push(*keeper)},
-                                    _ => return Err(ServerError::Query),
+                                    _ => return Err(ServerError::Query("Can only filter by 'contains' on text values".to_owned())),
                                 }
                             },
                         }

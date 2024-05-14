@@ -3,7 +3,7 @@ use std::fmt::Display;
 use std::io::{Write, Read, ErrorKind};
 use std::net::TcpStream;
 use std::num::ParseIntError;
-use std::str::{self, Utf8Error};
+use std::str::{self, FromStr, Utf8Error};
 use std::time::Duration;
 use std::{usize, fmt};
 
@@ -23,6 +23,7 @@ pub const INSTRUCTION_LENGTH: usize = 4;
 pub const MAX_DATA_LEN: usize = u32::MAX as usize;
 
 
+
 /// The main error of all networking. Any error that can occur during a networking function should be covered here.
 #[derive(Debug)]
 pub enum ServerError {
@@ -38,7 +39,8 @@ pub enum ServerError {
     ParseUser(String),
     OversizedData,
     Decompression(miniz_oxide::inflate::DecompressError),
-    Query,
+    Query(String),
+    Debug(String),
     NoMoreBufferSpace(usize),
     Unimplemented(String),
 }
@@ -58,9 +60,10 @@ impl fmt::Display for ServerError {
             ServerError::OversizedData => write!(f, "Sent data is too long. Maximum data size is {MAX_DATA_LEN}"),
             ServerError::ParseResponse(e) => write!(f, "{}", e),
             ServerError::Decompression(e) => write!(f, "Decompression error occurred from miniz_oxide library.\nLibrary error: {}", e),
-            ServerError::Query => write!(f, "Query was incorrectly formatted"),
+            ServerError::Query(s) => write!(f, "Query could not be processed because of: {}", s),
             ServerError::NoMoreBufferSpace(x) => write!(f, "No more space in buffer pool. Need to free {x} bytes"),
             ServerError::Unimplemented(s) => write!(f, "{}", s),
+            ServerError::Debug(s) => write!(f, "{}", s),
 
         }
     }
@@ -110,7 +113,7 @@ impl From<ParseIntError> for ServerError {
 
 impl From<QueryError> for ServerError {
     fn from(e: QueryError) -> Self {
-        ServerError::Query
+        ServerError::Query(e.to_string())
     }
 }
 
