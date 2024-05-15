@@ -152,20 +152,6 @@ pub fn handle_query_request(
     };
 
     println!("result_table: {}", requested_csv);
-    // let query_type: &str;
-    // match query.find("..") {
-    //     Some(_) => query_type = "range",
-    //     None => query_type = "list"
-    // };
-    
-    // let requested_csv: String;
-    // if query_type == "range" {
-    //     let parsed_query: Vec<&str> = query.split("..").collect();
-    //     requested_csv = requested_table.read().unwrap().query_range((parsed_query[0], parsed_query[1]))?;
-    // } else {
-    //     let parsed_query = query.split(',').collect();
-    //     requested_csv = requested_table.read().unwrap().query_list(parsed_query)?;
-    // }
 
     let response = data_send_and_confirm(connection, requested_csv.as_bytes())?;
     

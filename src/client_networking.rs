@@ -131,7 +131,7 @@ pub fn query_table(
         e => panic!("Need to handle error: {}", e),
     };
     println!("HERE 2!!!");
-
+    println!("received csv:\n{}", bytes_to_str(&csv)?);
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote 'OK' as {n} bytes"),
@@ -139,6 +139,7 @@ pub fn query_table(
             return Err(ServerError::Io(e.kind()));
         }
     };
+
 
     Ok(bytes_to_str(&csv)?.to_owned())
 }
