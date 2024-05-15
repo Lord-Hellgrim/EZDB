@@ -1238,7 +1238,7 @@ fn keys_to_indexes(table: &EZTable, keys: &RangeOrListorAll) -> Result<Vec<usize
                     let mut keys = keys.clone();
                     keys.sort();
                     let mut key_index: usize = 0;
-                    for index in 0..column.len() {
+                    for index in 0..keys.len() {
                         if column[index] == keys[key_index].to_i32() {
                             indexes.push(index);
                             key_index += 1;
@@ -1273,12 +1273,12 @@ fn keys_to_indexes(table: &EZTable, keys: &RangeOrListorAll) -> Result<Vec<usize
 
 pub fn filter_keepers(query: &Query, table: &EZTable) -> Result<Vec<usize>, ServerError> {
     let indexes = keys_to_indexes(table, &query.primary_keys)?;
-
+    
+    if query.conditions.len() == 0 {
+        return Ok(indexes);
+    }
     let mut keepers = Vec::<usize>::new();
     let mut current_op = Operator::OR;
-    if query.conditions.len() == 0 {
-        keepers = (0..table.len()).collect();
-    }
     for condition in query.conditions.iter() {
         match condition {
             OpOrCond::Op(op) => current_op = *op,
