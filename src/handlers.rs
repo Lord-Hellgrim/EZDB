@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, io::Write, sync::{Arc, RwLock}, thread::current};
+use std::{collections::BTreeMap, fs::File, io::Write, sync::{Arc, RwLock}, thread::current};
 
 use crate::{auth::User, db_structure::{DbColumn, EZTable, KeyString, Metadata, Value}, ezql::{execute_EZQL_queries, parse_EZQL, parse_serial_query}, networking_utilities::*, server_networking::{Database, Server, WriteThreadMessage, CONFIG_FOLDER}};
 
@@ -84,6 +84,8 @@ pub fn handle_upload_request(
     let table_name = table.name;
     database.buffer_pool.tables.write().unwrap().insert(KeyString::from(name), RwLock::new(table));
     database.buffer_pool.naughty_list.write().unwrap().insert(table_name);
+    let f = File::create(format!("EZconfig{PATH_SEP}raw_tables{PATH_SEP}{table_name}")).expect("There should never be a duplicate file name");
+    database.buffer_pool.files.write().unwrap().insert(table_name, RwLock::new(f));
     
 
     Ok("OK".to_owned())
