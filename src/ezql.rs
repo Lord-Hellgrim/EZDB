@@ -1506,7 +1506,7 @@ mod tests {
     fn test_SELECT() {
         let table_string = std::fs::read_to_string(format!("test_files{PATH_SEP}good_csv.txt")).unwrap();
         let table = EZTable::from_csv_string(&table_string, "good_csv", "test").unwrap();
-        let query = "SELECT(primary_keys: (0113000), table_name: good_csv, conditions: ())";
+        let query = "SELECT(primary_keys: *, table_name: good_csv, conditions: ())";
         let parsed = parse_serial_query(query).unwrap();
         let result = execute_select_query(parsed[0].clone(), &table).unwrap().unwrap();
         println!("{}", result);
