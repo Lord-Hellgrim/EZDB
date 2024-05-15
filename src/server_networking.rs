@@ -286,19 +286,22 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
         
         let _background_thread = 
         outer_scope.spawn(move || {
-            std::thread::sleep(Duration::from_secs(10));
             println!("Background thread running");
-            for key in writer_thread_db_ref.buffer_pool.tables.read().unwrap().keys() {
-                let mut naughty_list = writer_thread_db_ref.buffer_pool.naughty_list.write().unwrap();
-                if naughty_list.contains(key) {
-                    match writer_thread_db_ref.buffer_pool.write_table_to_file(key) {
-                        Ok(_) => (),
-                        Err(e) => match e {
-                            ServerError::Io(e) => println!("{}", e),
-                            e => panic!("The write thread should only ever throw IO errors and it just threw this error:\n {}", e),
-                        }
-                    };
-                    naughty_list.remove(key);
+            loop {
+                std::thread::sleep(Duration::from_secs(10));
+                println!("Background thread still running");
+                for key in writer_thread_db_ref.buffer_pool.tables.read().unwrap().keys() {
+                    let mut naughty_list = writer_thread_db_ref.buffer_pool.naughty_list.write().unwrap();
+                    if naughty_list.contains(key) {
+                        match writer_thread_db_ref.buffer_pool.write_table_to_file(key) {
+                            Ok(_) => (),
+                            Err(e) => match e {
+                                ServerError::Io(e) => println!("{}", e),
+                                e => panic!("The write thread should only ever throw IO errors and it just threw this error:\n {}", e),
+                            }
+                        };
+                        naughty_list.remove(key);
+                    }
                 }
             }
         }); // Thread that writes in memory tables to disk
