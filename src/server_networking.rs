@@ -14,7 +14,6 @@ use crate::disk_utilities::{BufferPool, MAX_BUFFERPOOL_SIZE};
 use crate::networking_utilities::*;
 use crate::db_structure::{remove_indices, DbColumn, EZTable, KeyString, Metadata, StrictError, Value};
 use crate::handlers::*;
-use crate::ezql::{self, parse_EZQL, OpOrCond, Operator};
 use crate::PATH_SEP;
 
 pub const CONFIG_FOLDER: &str = "EZconfig/";
@@ -433,7 +432,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                             match handle_download_request(
                                 &mut connection, 
                                 &name, 
-                                db_ref.buffer_pool.tables.clone(),
+                                db_ref.clone(),
                             ) {
                                 Ok(_) => {
                                     println!("Operation finished!");
@@ -446,7 +445,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                         Instruction::Upload(name) => {
                             match handle_upload_request(
                                 &mut connection,
-                                db_ref.buffer_pool.tables.clone(),
+                                db_ref.clone(),
                                 &name
                             ) {
                                 Ok(_) => {
@@ -461,7 +460,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                             match handle_update_request(
                                 &mut connection, 
                                 &name, 
-                                db_ref.buffer_pool.tables.clone(),
+                                db_ref.clone(),
                             ) {
                                 Ok(_) => {
                                     println!("Operation finished!");
@@ -490,7 +489,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                                 &mut connection, 
                                 &table_name, 
                                 &query, 
-                                db_ref.buffer_pool.tables.clone(),
+                                db_ref.clone(),
                             ) {
                                 Ok(_) => {
                                     println!("Operation finished!");
@@ -504,7 +503,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                             match handle_new_user_request(
                                 &mut connection, 
                                 &user_string, 
-                                db_ref.users.clone(),
+                                db_ref.clone(),
                             ) {
                                 Ok(_) => {
                                     println!("New user added!");
@@ -519,7 +518,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                             match handle_kv_upload(
                                 &mut connection, 
                                 &table_name,
-                                db_ref.buffer_pool.values.clone(),
+                                db_ref.clone(),
                             ) {
                                 Ok(_) => {
                                     println!("Operation finished!");
@@ -533,7 +532,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                             match handle_kv_update(
                                 &mut connection, 
                                 &table_name, 
-                                db_ref.buffer_pool.values.clone(),
+                                db_ref.clone(),
                             ) {
                                 Ok(_) => {
                                     println!("Operation finished!");
@@ -547,7 +546,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                             match handle_kv_download(
                                 &mut connection, 
                                 &table_name, 
-                                db_ref.buffer_pool.values.clone(),
+                                db_ref.clone(),
                             ) {
                                 Ok(_) => {
                                     println!("Operation finished!");
@@ -560,7 +559,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                         Instruction::MetaListTables => {
                             match handle_meta_list_tables(
                                 &mut connection, 
-                                db_ref.buffer_pool.tables.clone(),
+                                db_ref.clone(),
                             ) {
                                 Ok(_) => {
                                     println!("Operation finished");
@@ -573,7 +572,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                         Instruction::MetaListKeyValues => {
                             match handle_meta_list_key_values(
                                 &mut connection, 
-                                db_ref.buffer_pool.values.clone(),
+                                db_ref.clone(),
                             ) {
                                 Ok(_) => {
                                     println!("Operation finished");
