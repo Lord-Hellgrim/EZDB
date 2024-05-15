@@ -791,16 +791,24 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
                     match primary_keys[0].as_str() {
                         "*" => query.primary_keys = RangeOrListorAll::All,
                         x => {
-                            let mut split = x.split("..");
-                            let start = match split.next() {
-                                Some(x) => KeyString::from(x),
-                                None => return Err(QueryError::InvalidQueryStructure)
-                            };
-                            let stop = match split.next() {
-                                Some(x) => KeyString::from(x),
-                                None => return Err(QueryError::InvalidQueryStructure)
-                            };
-                            query.primary_keys = RangeOrListorAll::Range(start, stop);
+                            match x.find("..") {
+                                Some(_) => {
+                                    let mut split = x.split("..");
+                                    let start = match split.next() {
+                                        Some(x) => KeyString::from(x),
+                                        None => return Err(QueryError::InvalidQueryStructure)
+                                    };
+                                    let stop = match split.next() {
+                                        Some(x) => KeyString::from(x),
+                                        None => return Err(QueryError::InvalidQueryStructure)
+                                    };
+                                    query.primary_keys = RangeOrListorAll::Range(start, stop);
+                                },
+                                None => {
+                                    query.primary_keys = RangeOrListorAll::List(vec![KeyString::from(x)]);
+                                }
+                            }
+                            
                         }
                     }
                 },
@@ -1498,11 +1506,11 @@ mod tests {
     fn test_SELECT() {
         let table_string = std::fs::read_to_string(format!("test_files{PATH_SEP}good_csv.txt")).unwrap();
         let table = EZTable::from_csv_string(&table_string, "good_csv", "test").unwrap();
-        let query = "SELECT(primary_keys: *, table_name: good_csv, conditions: ())";
+        let query = "SELECT(primary_keys: (0113000), table_name: good_csv, conditions: ())";
         let parsed = parse_serial_query(query).unwrap();
         let result = execute_select_query(parsed[0].clone(), &table).unwrap().unwrap();
-        assert_eq!("heiti,t-N;magn,i-N;vnr,i-P\nundirlegg2;100;113000\nundirlegg;200;113035\nflísalím;42;18572054", result.to_string());
         println!("{}", result);
+        assert_eq!("heiti,t-N;magn,i-N;vnr,i-P\nundirlegg2;100;113000\nundirlegg;200;113035\nflísalím;42;18572054", result.to_string());
     }
 
     #[test]
