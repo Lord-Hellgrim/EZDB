@@ -11,8 +11,8 @@ use crate::networking_utilities::{f32_from_le_slice, i32_from_le_slice, ServerEr
 use crate::{db_structure::EZTable, server_networking::CONFIG_FOLDER};
 use crate::PATH_SEP;
 
-pub const BIN_TABLE_DIR: &'static str = "Binary_tables";
-pub const MAX_BUFFERPOOL_SIZE: AtomicU64 = AtomicU64::new(4_000_000_000);   // 4gb
+pub const BIN_TABLE_DIR: &str = "Binary_tables";
+pub const MAX_BUFFERPOOL_SIZE: u64 = 4_000_000_000;   // 4gb
 pub const CHUNK_SIZE: usize = 1_000_000;                // 1mb
 
 
@@ -108,8 +108,8 @@ impl BufferPool {
             return Err(ServerError::NoMoreBufferSpace(table.metadata.size_of_table()))
         }
 
-        self.files.write().unwrap().insert(table.name.clone(), RwLock::new(table_file));
-        self.tables.write().unwrap().insert(table.name.clone(), RwLock::new(table));
+        self.files.write().unwrap().insert(table.name, RwLock::new(table_file));
+        self.tables.write().unwrap().insert(table.name, RwLock::new(table));
 
 
         Ok(())
@@ -131,7 +131,7 @@ impl BufferPool {
             .values()
             .map(|n| {
                 let x = n.read().unwrap();
-                (x.metadata.last_access, x.name.clone())
+                (x.metadata.last_access, x.name)
             })
             .min_by(|x, y| x.0.cmp(&y.0))
             .unwrap();
@@ -142,7 +142,7 @@ impl BufferPool {
             .values()
             .map(|n| {
                 let x = n.read().unwrap();
-                (x.metadata.last_access, x.name.clone())
+                (x.metadata.last_access, x.name)
             })
             .min_by(|x, y| x.0.cmp(&y.0))
             .unwrap();
@@ -152,7 +152,7 @@ impl BufferPool {
             self.tables.write().unwrap()[&lru_table.1].write().unwrap().clear();
         }
 
-        if self.occupied_buffer() as u64 + space_to_clear < self.max_size() {   
+        if self.occupied_buffer() + space_to_clear < self.max_size() {   
             Ok(())
         } else {
             self.clear_space(space_to_clear)
@@ -179,7 +179,6 @@ pub fn write_table_to_binary_directory(table: &EZTable) -> Result<(), std::io::E
     
     let mut header_file_path = path_str.clone();
     header_file_path.push_str(&format!("{PATH_SEP}header"));
-    let mut header_file = File::create(header_file_path)?;
     let mut full_header = String::new();
     for head in &table.header {
         full_header.push_str(&head.to_string());
@@ -243,7 +242,7 @@ pub fn write_table_to_binary_directory(table: &EZTable) -> Result<(), std::io::E
     Ok(())
 }
 
-pub fn read_binary_table_chunk_into_memory(table_file: &str, header: &Vec<HeaderItem>, metadata: &Metadata) -> Result<EZTable, StrictError> {
+pub fn read_binary_table_chunk_into_memory(table_file: &str, header: &[HeaderItem], metadata: &Metadata) -> Result<EZTable, StrictError> {
 
     let mut file = File::open(table_file)?;
 
@@ -262,9 +261,9 @@ pub fn read_binary_table_chunk_into_memory(table_file: &str, header: &Vec<Header
                 file.read_exact(&mut buf[..amount_to_read])?;
                 let v: Vec<i32> = buf[..(length * 4) as usize]
                     .chunks(4)
-                    .map(|chunk| i32_from_le_slice(chunk))
+                    .map(i32_from_le_slice)
                     .collect();
-                table.insert(header[index].name.clone(), DbColumn::Ints(v));
+                table.insert(header[index].name, DbColumn::Ints(v));
                 total_bytes += amount_to_read;
             },
             DbType::Float => {
@@ -272,9 +271,9 @@ pub fn read_binary_table_chunk_into_memory(table_file: &str, header: &Vec<Header
                 file.read_exact(&mut buf[..amount_to_read])?;
                 let v: Vec<f32> = buf[..(length * 4) as usize]
                     .chunks(4)
-                    .map(|chunk| f32_from_le_slice(chunk))
+                    .map(f32_from_le_slice)
                     .collect();
-                table.insert(header[index].name.clone(), DbColumn::Floats(v));
+                table.insert(header[index].name, DbColumn::Floats(v));
                 total_bytes += amount_to_read;
             },
             DbType::Text => {
@@ -282,9 +281,9 @@ pub fn read_binary_table_chunk_into_memory(table_file: &str, header: &Vec<Header
                 file.read_exact(&mut buf[..amount_to_read])?;
                 let v: Vec<KeyString> = buf[..(length * 64) as usize]
                     .chunks(64)
-                    .map(|chunk| KeyString::from(chunk))
+                    .map(KeyString::from)
                     .collect();
-                table.insert(header[index].name.clone(), DbColumn::Texts(v));
+                table.insert(header[index].name, DbColumn::Texts(v));
                 total_bytes += amount_to_read;
             },
         }
@@ -296,7 +295,7 @@ pub fn read_binary_table_chunk_into_memory(table_file: &str, header: &Vec<Header
         EZTable {
             name: KeyString::from("test"),
             metadata: metadata.clone(),
-            header: header.clone(),
+            header: header.to_owned(),
             columns: table,
         }
     )

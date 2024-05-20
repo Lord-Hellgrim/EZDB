@@ -25,7 +25,7 @@ pub fn download_table(
     match parse_response(&response, &connection.user, table_name) {
         Ok(_) => csv = receive_data(&mut connection)?,
         Err(e) => return Err(e),
-    }
+    };
     println!("received: {}", bytes_to_str(&csv)?);
 
     match connection.stream.write("OK".as_bytes()) {
@@ -61,9 +61,9 @@ pub fn upload_table(
     println!("confirmation: {}", confirmation);
 
     if confirmation == "OK" {
-        return Ok("OK".to_owned());
+        Ok("OK".to_owned())
     } else {
-        return Err(ServerError::Confirmation(confirmation));
+        Err(ServerError::Confirmation(confirmation))
     }
 }
 
@@ -90,10 +90,10 @@ pub fn update_table(
 
     if confirmation == "OK" {
         println!("Confirmation from server: {}", confirmation);
-        return Ok("OK".to_owned());
+        Ok("OK".to_owned())
     } else {
         println!("Confirmation from server: {}", confirmation);
-        return Err(ServerError::Confirmation(confirmation));
+        Err(ServerError::Confirmation(confirmation))
     }
 }
 
@@ -154,8 +154,9 @@ pub fn kv_upload(
 ) -> Result<(), ServerError> {
     let mut connection = Connection::connect(address, username, password)?;
 
-    let response =
-        instruction_send_and_confirm(Instruction::KvUpload(key.to_owned()), &mut connection)?;
+    let response = instruction_send_and_confirm(Instruction::KvUpload(key.to_owned()), &mut connection)?;
+
+    println!("Response: {}", response);
 
     println!("upload_value - parsing response");
     let confirmation: String = match parse_response(&response, &connection.user, key) {
@@ -165,9 +166,9 @@ pub fn kv_upload(
     println!("value uploaded successfully");
 
     if confirmation == "OK" {
-        return Ok(());
+        Ok(())
     } else {
-        return Err(ServerError::Confirmation(confirmation));
+        Err(ServerError::Confirmation(confirmation))
     }
 }
 
@@ -180,15 +181,13 @@ pub fn kv_download(
 ) -> Result<Vec<u8>, ServerError> {
     let mut connection = Connection::connect(address, username, password)?;
 
-    let response =
-        instruction_send_and_confirm(Instruction::KvDownload(key.to_owned()), &mut connection)?;
+    let response = instruction_send_and_confirm(Instruction::KvDownload(key.to_owned()), &mut connection)?;
 
     let value: Vec<u8>;
-
     match parse_response(&response, &connection.user, key) {
         Ok(_) => value = receive_data(&mut connection)?,
         Err(e) => return Err(e),
-    }
+    };
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote 'OK' as {n} bytes"),
@@ -214,21 +213,20 @@ pub fn kv_update(
         instruction_send_and_confirm(Instruction::KvUpdate(key.to_owned()), &mut connection)?;
 
     let confirmation: String;
-
     println!("upload_value - parsing response");
     match parse_response(&response, &connection.user, key) {
         Ok(_) => confirmation = data_send_and_confirm(&mut connection, value)?,
         Err(e) => return Err(e),
-    }
+    };
     println!("value uploaded successfully");
 
     // The reason for the +28 in the length checker is that it accounts for the length of the nonce (IV) and the authentication tag
     // in the aes-gcm encryption. The nonce is 12 bytes and the auth tag is 16 bytes
     let data_len = (value.len() + 28).to_string();
     if confirmation == data_len {
-        return Ok(());
+        Ok(())
     } else {
-        return Err(ServerError::Confirmation(confirmation));
+        Err(ServerError::Confirmation(confirmation))
     }
 }
 
@@ -243,11 +241,10 @@ pub fn meta_list_tables(
     let response = instruction_send_and_confirm(Instruction::MetaListTables, &mut connection)?;
 
     let value: Vec<u8>;
-
     match parse_response(&response, &connection.user, "") {
         Ok(_) => value = receive_data(&mut connection)?,
         Err(e) => return Err(e),
-    }
+    };
     println!("value downloaded successfully");
 
     match connection.stream.write("OK".as_bytes()) {
@@ -273,11 +270,10 @@ pub fn meta_list_key_values(
     let response = instruction_send_and_confirm(Instruction::MetaListKeyValues, &mut connection)?;
 
     let value: Vec<u8>;
-
     match parse_response(&response, &connection.user, "") {
         Ok(_) => value = receive_data(&mut connection)?,
         Err(e) => return Err(e),
-    }
+    };
     println!("value downloaded successfully");
 
     match connection.stream.write("OK".as_bytes()) {
@@ -310,7 +306,7 @@ pub fn meta_create_new_user(
 
     println!("Create new user - parsing response");
     let confirmation: String = match parse_response(&response, &connection.user, "no table") {
-        Ok(s) => "OK".to_owned(),
+        Ok(_) => "OK".to_owned(),
         Err(e) => return Err(e),
     };
     println!("confirmation: {}", confirmation);
@@ -318,7 +314,7 @@ pub fn meta_create_new_user(
     if confirmation == "OK" {
         Ok(())
     } else {
-        return Err(ServerError::Confirmation(confirmation));
+        Err(ServerError::Confirmation(confirmation))
     }
 }
 

@@ -1,6 +1,6 @@
-use std::{collections::HashMap, fmt::Display, slice::Chunks, sync::Arc};
+use std::{collections::HashMap, fmt::Display, str::FromStr, sync::Arc};
 
-use crate::{db_structure::{remove_indices, subtable_from_keys, DbColumn, EZTable, KeyString, StrictError}, networking_utilities::{print_sep_list, ServerError}, server_networking::Database};
+use crate::{db_structure::{remove_indices, DbColumn, EZTable, KeyString, StrictError}, networking_utilities::{print_sep_list, ServerError}, server_networking::Database};
 
 use crate::PATH_SEP;
 
@@ -13,7 +13,7 @@ pub enum QueryError {
     InvalidUpdate,
     TableNameTooLong,
     Unknown,
-    InvalidQueryStructure,
+    InvalidQueryStructure(String),
 }
 
 impl Display for QueryError {
@@ -26,7 +26,7 @@ impl Display for QueryError {
             QueryError::InvalidUpdate => write!(f, "InvalidUpdate,"),
             QueryError::TableNameTooLong => write!(f, "TableNameTooLong,"),
             QueryError::Unknown => write!(f, "Unknown,"),
-            QueryError::InvalidQueryStructure => write!(f, "InvalidQueryStructure,"),
+            QueryError::InvalidQueryStructure(s) => write!(f, "InvalidQueryStructure because of: {s},"),
         }
     }
 }
@@ -68,11 +68,13 @@ impl Default for Statistic {
     }
 }
 
-impl Statistic {
-    pub fn from_str(s: &str) -> Result<Statistic, QueryError> {
+impl FromStr for Statistic {
+    type Err = QueryError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         let split = s.split_whitespace();
         if split.count() != 2 {
-            return Err(QueryError::InvalidQueryStructure)
+            Err(QueryError::InvalidQueryStructure("Statistic must be 2 items separated by whitespace".to_owned()))
         } else {
             let mut split = s.split_whitespace();
             let first = split.next().unwrap();
@@ -82,10 +84,9 @@ impl Statistic {
                 "MEAN" => Ok(Statistic::MEAN(KeyString::from(second))),
                 "MODE" => Ok(Statistic::MODE(KeyString::from(second))),
                 "STDEV" => Ok(Statistic::STDEV(KeyString::from(second))),
-                _ => return Err(QueryError::InvalidQueryStructure),
+                _ => Err(QueryError::InvalidQueryStructure("First Statistic item must be SUM, MEAN, MODE, or STDEV".to_owned())),
             }
         }
-
     }
 }
 
@@ -101,13 +102,6 @@ pub struct Query {
     pub join: Join,
     pub summary: Vec<Statistic>,
 }
-
-// INSERT(table_name: products, value_columns: (id, stock, location, price), new_values: ((0113035, 500, LAG15, 995), (0113000, 100, LAG30, 495)))
-// SELECT(primary_keys: *, table_name: products, conditions: ((price greater-than 500) AND (stock less-than 1000)))
-// UPDATE(table_name: products, primary_keys: (0113035, 0113000), conditions: ((id starts-with 011)), updates: ((price += 100), (stock -= 100)))
-// DELETE(primary_keys: *, table_name: products, conditions: ((price greater-than 500) AND (stock less-than 1000)))
-
-// LEFT_JOIN(left_table: products, right_table: warehouses, match_columns: (location, id), primary_keys: 0113000..18572054)
 
 impl Display for Query {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -178,6 +172,12 @@ impl Display for Query {
 
 }
 
+impl Default for Query {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Query {
     pub fn new() -> Self {
         Query {
@@ -214,17 +214,10 @@ impl Display for Update {
     }
 }
 
-impl Update {
+impl FromStr for Update {
+    type Err = QueryError;
 
-    pub fn blank() -> Self{
-        Update {
-            attribute: KeyString::new(),
-            operator: UpdateOp::Assign,
-            value: KeyString::new(),
-        }
-    }
-
-    pub fn from_str(s: &str) -> Result<Self, QueryError> {
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         let output: Update;
         let mut t = s.split_whitespace();
         if s.split_whitespace().count() < 3 {
@@ -254,7 +247,7 @@ impl Update {
                         continue;
                     }
                 } else if c == '"' {
-                    inside = inside ^ true;
+                    inside ^= true;
                     continue;
                 } else {
                     buf.push(c);
@@ -274,6 +267,17 @@ impl Update {
         }
 
         Ok(output)
+    }
+}
+
+impl Update {
+
+    pub fn blank() -> Self{
+        Update {
+            attribute: KeyString::new(),
+            operator: UpdateOp::Assign,
+            value: KeyString::new(),
+        }
     }
 }
 
@@ -297,7 +301,7 @@ impl UpdateOp {
             "append" => Ok(UpdateOp::Append),
             "assign" => Ok(UpdateOp::Assign),
             "prepend" => Ok(UpdateOp::Prepend),
-            _ => return Err(QueryError::InvalidUpdate),
+            _ => Err(QueryError::InvalidUpdate),
         }
     }
 }
@@ -352,7 +356,7 @@ impl Display for RangeOrListorAll {
                 printer.push_str(&print_sep_list(list, ", "));
                 printer.push(')');
             },
-            RangeOrListorAll::All => printer.push_str("*"),
+            RangeOrListorAll::All => printer.push('*'),
         };
         write!(f, "{}", printer)
     }
@@ -418,7 +422,7 @@ impl Condition {
                         continue;
                     }
                 } else if c == '"' {
-                    inside = inside ^ true;
+                    inside ^= true;
                     continue;
                 } else {
                     buf.push(c);
@@ -461,7 +465,7 @@ pub enum OpOrCond {
 impl Display for OpOrCond {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            OpOrCond::Cond(cond) => write!(f, "({} {})", cond.attribute, cond.test.to_string()),
+            OpOrCond::Cond(cond) => write!(f, "({} {})", cond.attribute, cond.test),
             OpOrCond::Op(op) => match op {
                 Operator::AND => write!(f, "AND"),
                 Operator::OR => write!(f, "OR"),
@@ -516,46 +520,6 @@ impl Test {
 pub enum ConditionBranch<'a> {
     Branch(Vec<&'a ConditionBranch<'a>>),
     Leaf(Condition),
-}
-
-enum Expect {
-    QueryType,
-    TableName,
-    PrimaryKeys,
-    Conditions,
-    Updates,
-    Inserts,
-    Any,
-    LeftJoin,
-}
-
-impl Expect {
-    pub fn from_string(s: &str) -> Result<Expect, QueryError> {
-        match s {
-            "QueryType" | "query_type" => Ok(Expect::QueryType),
-            "TableName" | "table_name" => Ok(Expect::TableName),
-            "PrimaryKeys" | "primary_keys" => Ok(Expect::PrimaryKeys),
-            "Conditions" | "conditions" => Ok(Expect::Conditions),
-            "Updates" | "updates" => Ok(Expect::Updates),
-            "Inserts" | "inserts" => Ok(Expect::Inserts),
-            "Any" | "any"=> Ok(Expect::Any),
-            "LeftJoin" | "left_join" => Ok(Expect::LeftJoin),
-            _ => Err(QueryError::InvalidQueryStructure)
-        }
-    }
-
-    pub fn to_string(&self) -> String {
-        match self {
-            Expect::QueryType => "query_type".to_owned(),
-            Expect::TableName => "table_name".to_owned(),
-            Expect::PrimaryKeys => "primary_keys".to_owned(),
-            Expect::Conditions => "conditions".to_owned(),
-            Expect::Updates => "updates".to_owned(),
-            Expect::Inserts => "inserts".to_owned(),
-            Expect::Any => "any".to_owned(),
-            Expect::LeftJoin => "left_join".to_owned(),
-        }
-    }
 }
 
 
@@ -623,7 +587,7 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
 
     let first_paren = match query_string.find('(') {
         Some(x) => x,
-        None => return Err(QueryError::InvalidQueryStructure)
+        None => return Err(QueryError::InvalidQueryStructure("The arguments to the query must be surrounded by parentheses".to_owned()))
     };
 
     query.query_type = match &query_string[0..first_paren] {
@@ -654,15 +618,15 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
                             state.stack.pop();
                             state.depth -= 1;
                         }
-                        else {return Err(QueryError::InvalidQueryStructure)}
+                        else {return Err(QueryError::InvalidQueryStructure("Parentheses do not match".to_owned()))}
                     }
-                    None => return Err(QueryError::InvalidQueryStructure)
+                    None => return Err(QueryError::InvalidQueryStructure("Parentheses do not match".to_owned()))
                 }
             },
             b':' => {
                 let word = match String::from_utf8(state.word_buffer.clone()) {
                     Ok(s) => s.trim().to_owned(),
-                    Err(e) => return Err(QueryError::InvalidQueryStructure),
+                    Err(e) => return Err(QueryError::InvalidQueryStructure(format!("Invalid utf8 encountered\nERROR TEXT: {e}"))),
                 };
                 if word.len() > 64 {
                     return Err(QueryError::TableNameTooLong)
@@ -674,7 +638,7 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
             b',' => {
                 let word = match String::from_utf8(state.word_buffer.clone()) {
                     Ok(s) => s.trim().to_owned(),
-                    Err(e) => return Err(QueryError::InvalidQueryStructure),
+                    Err(e) => return Err(QueryError::InvalidQueryStructure(format!("Invalid utf8 encountered\nERROR TEXT: {e}"))),
                 };
                 state.word_buffer.clear();
                 args.entry(current_arg.clone()).and_modify(|n| n.push(word.clone())).or_insert(vec![word.clone()]);
@@ -687,31 +651,31 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
     }
 
     if !state.stack.is_empty() {
-        return Err(QueryError::InvalidQueryStructure)
+        return Err(QueryError::InvalidQueryStructure("Parentheses do not match".to_owned()))
     }
 
     let word = match String::from_utf8(state.word_buffer.clone()) {
         Ok(s) => s.trim().to_owned(),
-        Err(e) => return Err(QueryError::InvalidQueryStructure),
+        Err(e) => return Err(QueryError::InvalidQueryStructure(format!("Invalid utf8 encountered\nERROR TEXT: {e}"))),
     };
     state.word_buffer.clear();
     args.entry(current_arg.clone()).and_modify(|n| n.push(word.clone())).or_insert(vec![word.clone()]);
 
     query.table = match args.get("table_name") {
         Some(x) => {
-            let x = match x.get(0) {
+            let x = match x.first() {
                 Some(n) => n,
-                None => return Err(QueryError::InvalidQueryStructure),
+                None => return Err(QueryError::InvalidQueryStructure("Missing table_name".to_owned())),
             };
             KeyString::from(x.as_str())
         },
         None => {
             match args.get("left_table") {
-                Some(x) => match x.get(0) {
+                Some(x) => match x.first() {
                     Some(n) => KeyString::from(n.as_str()),
-                    None => return Err(QueryError::InvalidQueryStructure),
+                    None => return Err(QueryError::InvalidQueryStructure("Missing argument for left_table".to_owned())),
                 },
-                None => return Err(QueryError::InvalidQueryStructure),
+                None => return Err(QueryError::InvalidQueryStructure("Missing left_table".to_owned())),
             }
         },
     };
@@ -720,20 +684,20 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
 
             let value_columns: Vec<KeyString> = match args.get("value_columns") {
                 Some(x) => x.iter().map(|n| KeyString::from(n.as_str())).collect(),
-                None => return Err(QueryError::InvalidQueryStructure),
+                None => return Err(QueryError::InvalidQueryStructure("Missing value_columns".to_owned())),
             };
             let new_values = match args.get("new_values") {
                 Some(x) => x,
-                None => return Err(QueryError::InvalidQueryStructure),
+                None => return Err(QueryError::InvalidQueryStructure("Missing new_values".to_owned())),
             };
             
             if new_values.len() % value_columns.len() != 0 {
-                return Err(QueryError::InvalidQueryStructure);
+                return Err(QueryError::InvalidQueryStructure("Number of values does not match number of columns".to_owned()));
             } else {
                 let mut acc = String::with_capacity(2*new_values.len()*new_values[0].len());
                 for tuple in new_values.chunks(value_columns.len()) {
                     for value in tuple {
-                        acc.push_str(&value);
+                        acc.push_str(value);
                         acc.push(';');
                     }
                     acc.pop();
@@ -748,24 +712,24 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
             let conditions = match args.get("conditions") {
                 Some(x) => {
                     if x.len() != 1 {
-                        return Err(QueryError::InvalidQueryStructure)
+                        return Err(QueryError::InvalidQueryStructure("Conditions should be enclosed in parentheses and separated by whitespace".to_owned()))
                     } else {
                         x[0].split_whitespace().collect::<Vec<&str>>()
                     }
                 },
-                None => return Err(QueryError::InvalidQueryStructure),
+                None => return Err(QueryError::InvalidQueryStructure("Missing conditions. If you want no conditions just write 'conditions: ()'".to_owned())),
             };
 
             let mut condition_buffer = String::new();
             for condition in conditions {
                 match condition {
                     "AND" => {
-                        query.conditions.push(OpOrCond::Cond(Condition::from_str(&condition_buffer.trim())?));
+                        query.conditions.push(OpOrCond::Cond(Condition::from_str(condition_buffer.trim())?));
                         condition_buffer.clear();
                         query.conditions.push(OpOrCond::Op(Operator::AND));
                     },
                     "OR" => {
-                        query.conditions.push(OpOrCond::Cond(Condition::from_str(&condition_buffer.trim())?));
+                        query.conditions.push(OpOrCond::Cond(Condition::from_str(condition_buffer.trim())?));
                         condition_buffer.clear();
                         query.conditions.push(OpOrCond::Op(Operator::AND));
                     },
@@ -776,17 +740,17 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
                 }
             }
             if !condition_buffer.is_empty() {
-                query.conditions.push(OpOrCond::Cond(Condition::from_str(&condition_buffer.trim())?));
+                query.conditions.push(OpOrCond::Cond(Condition::from_str(condition_buffer.trim())?));
             }
 
 
             let primary_keys = match args.get("primary_keys") {
                 Some(x) => x,
-                None => return Err(QueryError::InvalidQueryStructure),
+                None => return Err(QueryError::InvalidQueryStructure("Missing primary_keys. To select all write: 'primary_keys: *'".to_owned())),
             };
 
             match primary_keys.len() {
-                0 => return Err(QueryError::InvalidQueryStructure),
+                0 => return Err(QueryError::InvalidQueryStructure("Missing argument for primary_keys".to_owned())),
                 1 => {
                     match primary_keys[0].as_str() {
                         "*" => query.primary_keys = RangeOrListorAll::All,
@@ -796,11 +760,11 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
                                     let mut split = x.split("..");
                                     let start = match split.next() {
                                         Some(x) => KeyString::from(x),
-                                        None => return Err(QueryError::InvalidQueryStructure)
+                                        None => return Err(QueryError::InvalidQueryStructure("Ranges must have start and stop values".to_owned())),
                                     };
                                     let stop = match split.next() {
                                         Some(x) => KeyString::from(x),
-                                        None => return Err(QueryError::InvalidQueryStructure)
+                                        None => return Err(QueryError::InvalidQueryStructure("Ranges must have both start and stop values".to_owned()))
                                     };
                                     query.primary_keys = RangeOrListorAll::Range(start, stop);
                                 },
@@ -818,38 +782,35 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
                 }
             };
 
-            match query.query_type {
-                QueryType::UPDATE => {
-                    let updates = match args.get("updates") {
-                        Some(x) => x,
-                        None => return Err(QueryError::InvalidQueryStructure),
-                    };
-                    let mut acc = Vec::with_capacity(updates.len());
-                    for update in updates {
-                        acc.push(Update::from_str(update)?);
-                    }
-                    query.updates = acc;
-                },
-                _ => ()
+            if query.query_type == QueryType::UPDATE {
+                let updates = match args.get("updates") {
+                    Some(x) => x,
+                    None => return Err(QueryError::InvalidQueryStructure("Missing updates".to_owned())),
+                };
+                let mut acc = Vec::with_capacity(updates.len());
+                for update in updates {
+                    acc.push(Update::from_str(update)?);
+                }
+                query.updates = acc;
             }
 
         },
         QueryType::LEFT_JOIN | QueryType::INNER_JOIN | QueryType::RIGHT_JOIN | QueryType::FULL_JOIN => {
             query.join.table = match args.get("right_table") {
-                Some(x) => match x.get(0) {
+                Some(x) => match x.first() {
                     Some(n) => KeyString::from(n.as_str()),
-                    None => return Err(QueryError::InvalidQueryStructure),
+                    None => return Err(QueryError::InvalidQueryStructure("Missing argument for right_table".to_owned())),
                 },
-                None => return Err(QueryError::InvalidQueryStructure),
+                None => return Err(QueryError::InvalidQueryStructure("Missing right_table".to_owned())),
             };
 
             let primary_keys = match args.get("primary_keys") {
                 Some(x) => x,
-                None => return Err(QueryError::InvalidQueryStructure),
+                None => return Err(QueryError::InvalidQueryStructure("Missing primary_keys".to_owned())),
             };
 
             match primary_keys.len() {
-                0 => return Err(QueryError::InvalidQueryStructure),
+                0 => return Err(QueryError::InvalidQueryStructure("Missing argumenr for primary_keys".to_owned())),
                 1 => {
                     match primary_keys[0].as_str() {
                         "*" => query.primary_keys = RangeOrListorAll::All,
@@ -857,11 +818,11 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
                             let mut split = x.split("..");
                             let start = match split.next() {
                                 Some(x) => KeyString::from(x),
-                                None => return Err(QueryError::InvalidQueryStructure)
+                                None => return Err(QueryError::InvalidQueryStructure("Ranges must have start and stop values".to_owned())),
                             };
                             let stop = match split.next() {
                                 Some(x) => KeyString::from(x),
-                                None => return Err(QueryError::InvalidQueryStructure)
+                                None => return Err(QueryError::InvalidQueryStructure("Ranges must have start and stop values".to_owned())),
                             };
                             query.primary_keys = RangeOrListorAll::Range(start, stop);
                         }
@@ -875,11 +836,11 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
 
             let match_columns: Vec<KeyString> = match args.get("match_columns") {
                 Some(x) => x.iter().map(|s| KeyString::from(s.as_str())).collect(),
-                None => return Err(QueryError::InvalidQueryStructure),
+                None => return Err(QueryError::InvalidQueryStructure("Missing match_columns".to_owned())),
             };
 
             if match_columns.len() != 2 {
-                return Err(QueryError::InvalidQueryStructure)
+                return Err(QueryError::InvalidQueryStructure("There should always be exactly two match columns, separated by a comma".to_owned()))
             } else {
                 query.join.join_column = (match_columns[0], match_columns[1]);
             }
@@ -891,7 +852,7 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
             // SUMMARY(table_name: products, columns: ((SUM stock), (MEAN price)))
             let summary = match args.get("columns") {
                 Some(x) => x,
-                None => return Err(QueryError::InvalidQueryStructure),
+                None => return Err(QueryError::InvalidQueryStructure("Missing columns".to_owned())),
             };
 
             let mut temp = Vec::with_capacity(summary.len());
@@ -911,7 +872,7 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
 }
 
 
-pub fn subsplitter<'a>(s: &'a str) -> Vec<Vec<&'a str>> {
+pub fn subsplitter(s: &str) -> Vec<Vec<&str>> {
 
     let mut temp = Vec::new();
     for line in s.split(';') {
@@ -927,7 +888,7 @@ pub fn is_even(x: usize) -> bool {
 }
 
 
-pub fn parse_contained_token<'a>(s: &'a str, container_open: char, container_close: char) -> Option<&'a str> {
+pub fn parse_contained_token(s: &str, container_open: char, container_close: char) -> Option<&str> {
     let mut start = std::usize::MAX;
     let mut stop = 0;
     let mut inside = false;
@@ -1064,7 +1025,7 @@ pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Res
 
 fn execute_delete_query(query: Query, table: &mut EZTable) -> Result<Option<EZTable>, ServerError> {
     
-    let keepers = filter_keepers(&query, &table)?;
+    let keepers = filter_keepers(&query, table)?;
     table.delete_by_indexes(&keepers);
 
     Ok(
@@ -1074,10 +1035,10 @@ fn execute_delete_query(query: Query, table: &mut EZTable) -> Result<Option<EZTa
 
 fn execute_left_join_query(query: Query, left_table: &EZTable, right_table: &EZTable) -> Result<Option<EZTable>, ServerError> {
     
-    let filtered_indexes = keys_to_indexes(&left_table, &query.primary_keys)?;
+    let filtered_indexes = keys_to_indexes(left_table, &query.primary_keys)?;
     let mut filtered_table = left_table.subtable_from_indexes(&filtered_indexes, &KeyString::from("__RESULT__"));
 
-    filtered_table.left_join(&right_table, &query.join.join_column.0)?;
+    filtered_table.left_join(right_table, &query.join.join_column.0)?;
 
     Ok(Some(filtered_table))
     
@@ -1088,7 +1049,7 @@ fn execute_inner_join_query(query: Query, database: Arc<Database>) -> Result<Opt
     let table = tables.get(&query.table).unwrap().read().unwrap();
     let keepers = filter_keepers(&query, &table)?;
 
-    return Err(ServerError::Unimplemented("inner joins are not yet implemented".to_owned()));
+    Err(ServerError::Unimplemented("inner joins are not yet implemented".to_owned()))
 }
 
 fn execute_right_join_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
@@ -1096,7 +1057,7 @@ fn execute_right_join_query(query: Query, database: Arc<Database>) -> Result<Opt
     let table = tables.get(&query.table).unwrap().read().unwrap();
     let keepers = filter_keepers(&query, &table)?;
 
-    return Err(ServerError::Unimplemented("right joins are not yet implemented".to_owned()));
+    Err(ServerError::Unimplemented("right joins are not yet implemented".to_owned()))
 }
 
 fn execute_full_join_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
@@ -1104,7 +1065,7 @@ fn execute_full_join_query(query: Query, database: Arc<Database>) -> Result<Opti
     let table = tables.get(&query.table).unwrap().read().unwrap();
     let keepers = filter_keepers(&query, &table)?;
 
-    return Err(ServerError::Unimplemented("full joins are not yet implemented".to_owned()));
+    Err(ServerError::Unimplemented("full joins are not yet implemented".to_owned()))
 }
 
 // pub struct Update {
@@ -1115,7 +1076,7 @@ fn execute_full_join_query(query: Query, database: Arc<Database>) -> Result<Opti
 
 fn execute_update_query(query: Query, table: &mut EZTable) -> Result<Option<EZTable>, ServerError> {
     
-    let keepers = filter_keepers(&query, &table)?;
+    let keepers = filter_keepers(&query, table)?;
 
     for keeper in &keepers {
         for update in &query.updates{
@@ -1127,7 +1088,7 @@ fn execute_update_query(query: Query, table: &mut EZTable) -> Result<Option<EZTa
                     match table.columns.get_mut(&update.attribute).unwrap() {
                         DbColumn::Ints(ref mut column) => column[*keeper] = update.value.to_i32(),
                         DbColumn::Floats(ref mut column) => column[*keeper] = update.value.to_f32(),
-                        DbColumn::Texts(ref mut column) => column[*keeper] = update.value.clone(),
+                        DbColumn::Texts(ref mut column) => column[*keeper] = update.value,
                     }
                 },
                 UpdateOp::PlusEquals => {
@@ -1148,7 +1109,7 @@ fn execute_update_query(query: Query, table: &mut EZTable) -> Result<Option<EZTa
                     match table.columns.get_mut(&update.attribute).unwrap() {
                         DbColumn::Ints(ref mut column) => column[*keeper] *= update.value.to_i32(),
                         DbColumn::Floats(ref mut column) => column[*keeper] *= update.value.to_f32(),
-                        DbColumn::Texts(ref mut column) => column[*keeper] = update.value.clone(),
+                        DbColumn::Texts(ref mut column) => column[*keeper] = update.value,
                     }
                 },
                 UpdateOp::Append => {
@@ -1163,7 +1124,7 @@ fn execute_update_query(query: Query, table: &mut EZTable) -> Result<Option<EZTa
                         DbColumn::Ints(ref mut _column) => return Err(ServerError::Query("'prepend' operator can only be performed on text data".to_owned())),
                         DbColumn::Floats(ref mut _column) => return Err(ServerError::Query("'prepend' operator can only be performed on text data".to_owned())),
                         DbColumn::Texts(ref mut column) => {
-                            let mut new = update.value.clone();
+                            let mut new = update.value;
                             new.push(column[*keeper].as_str())?;
                             column[*keeper] = new;
                         },
@@ -1189,7 +1150,7 @@ fn execute_insert_query(query: Query, table: &mut EZTable) -> Result<Option<EZTa
 
 fn execute_select_query(query: Query, table: &EZTable) -> Result<Option<EZTable>, ServerError> {
 
-    let keepers = filter_keepers(&query, &table)?;
+    let keepers = filter_keepers(&query, table)?;
 
     Ok(
         Some(table.subtable_from_indexes(&keepers, &KeyString::from("RESULT")))
@@ -1214,11 +1175,11 @@ fn keys_to_indexes(table: &EZTable, keys: &RangeOrListorAll) -> Result<Vec<usize
                     indexes = (first..last).collect();
                 },
                 DbColumn::Texts(column) => {
-                    let first = match column.binary_search(&start) {
+                    let first = match column.binary_search(start) {
                         Ok(x) => x,
                         Err(x) => x,
                     };
-                    let last = match column.binary_search(&stop) {
+                    let last = match column.binary_search(stop) {
                         Ok(x) => x,
                         Err(x) => x,
                     };
@@ -1274,7 +1235,7 @@ fn keys_to_indexes(table: &EZTable, keys: &RangeOrListorAll) -> Result<Vec<usize
 pub fn filter_keepers(query: &Query, table: &EZTable) -> Result<Vec<usize>, ServerError> {
     let indexes = keys_to_indexes(table, &query.primary_keys)?;
     
-    if query.conditions.len() == 0 {
+    if query.conditions.is_empty() {
         return Ok(indexes);
     }
     let mut keepers = Vec::<usize>::new();

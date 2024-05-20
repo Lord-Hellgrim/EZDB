@@ -3,7 +3,7 @@ use std::fmt::Display;
 use std::io::{Write, Read, ErrorKind};
 use std::net::TcpStream;
 use std::num::ParseIntError;
-use std::str::{self, FromStr, Utf8Error};
+use std::str::{self, Utf8Error};
 use std::time::Duration;
 use std::{usize, fmt};
 
@@ -335,7 +335,7 @@ pub fn decode_hex_to_arr32(s: &str) -> Result<[u8;32], ParseIntError> {
     // println!("s.len(): {}", s.len());
     let mut arr = [0u8;32];
     let mut i = 0;
-    for pos in (0..s.len()).step_by(2) {
+    for _ in (0..s.len()).step_by(2) {
         arr[i] = u8::from_str_radix(&s[i..i+2], 16)?;
         i += 1;
     }
@@ -395,14 +395,14 @@ where T: Display  {
         printer.push_str(&item.to_string());
         printer.push_str(sep);
     }
-    for i in 0..sep.len() {
+    for _ in 0..sep.len() {
         printer.pop();
     }
 
     printer
 }
 
-pub fn chunk3_vec<T>(list: &Vec<T>) -> Option<[&T;3]> {
+pub fn chunk3_vec<T>(list: &[T]) -> Option<[&T;3]> {
     let mut i = list.iter();
     let one = match i.next() {
         Some(x) => x,
@@ -426,17 +426,6 @@ pub fn chunk3_vec<T>(list: &Vec<T>) -> Option<[&T;3]> {
 pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut Connection) -> Result<String, ServerError> {
 
     let instruction = match instruction {
-        // Instruction::Download(table_name) => format!("Downloading|{}|blank|{}", table_name, connection.user),
-        // Instruction::Upload(table_name) => format!("Uploading|{}|blank|{}", table_name, connection.user),
-        // Instruction::Update(table_name) => format!("Updating|{}|blank|{}", table_name, connection.user),
-        // Instruction::Query(table_name, query) => format!("Querying|{}|{}|{}", table_name, query, connection.user),
-        // Instruction::Delete(table_name, query) => format!("Deleting|{}|{}|{}", table_name, query, connection.user),
-        // Instruction::NewUser(user_string) => format!("NewUser|{}|blank|{}", user_string, connection.user),
-        // Instruction::KvUpload(table_name) => format!("KvUpload|{}|blank|{}", table_name, connection.user),
-        // Instruction::KvUpdate(table_name) => format!("KvUpdate|{}|blank|{}", table_name, connection.user),
-        // Instruction::KvDownload(table_name) => format!("KvDownload|{}|blank|{}", table_name, connection.user),
-        // Instruction::MetaListTables => format!("MetaListTables|blank|blank|{}", connection.user),
-        // Instruction::MetaListKeyValues => format!("MetaListKeyValues|blank|blank|{}", connection.user),
         Instruction::Download(table_name) => format!("Downloading|{}|blank|{}", table_name, connection.user),
         Instruction::Upload(table_name) => format!("Uploading|{}|blank|{}", table_name, connection.user),
         Instruction::Update(table_name) => format!("Updating|{}|blank|{}", table_name, connection.user),
@@ -450,7 +439,7 @@ pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut C
         Instruction::MetaListKeyValues => format!("MetaListKeyValues|blank|blank|{}", connection.user),
     };
 
-    let (encrypted_instructions, nonce) = encrypt_aes256(&instruction.as_bytes(), &connection.aes_key);
+    let (encrypted_instructions, nonce) = encrypt_aes256(instruction.as_bytes(), &connection.aes_key);
 
     // // println!("encrypted instructions: {:x?}", encrypted_instructions);
     // // println!("nonce: {:x?}", nonce);
@@ -484,13 +473,13 @@ pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut C
 pub fn parse_response(response: &str, username: &str, table_name: &str) -> Result<(), ServerError> {
 
     if response == "OK" {
-        return Ok(())
+        Ok(())
     } else if response == "IU" {
-        return Err(ServerError::ParseResponse(format!("Username: {}, is invalid", username)));
+        Err(ServerError::ParseResponse(format!("Username: {}, is invalid", username)))
     } else if response == "IP" {
-        return Err(ServerError::ParseResponse(format!("Password is invalid")));
+        Err(ServerError::ParseResponse("Password is invalid".to_owned()))
     } else if response == ("NT") {
-        return Err(ServerError::ParseResponse(format!("No such table as {}", table_name)));
+        Err(ServerError::ParseResponse(format!("No such table as {}", table_name)))
     } else {
         panic!("Need to handle error: {}", response);
     }
@@ -504,7 +493,7 @@ pub fn data_send_and_confirm(connection: &mut Connection, data: &[u8]) -> Result
 
     // // println!("data: {:x?}", data);
 
-    let data = compression::miniz_compress(&data)?;
+    let data = compression::miniz_compress(data)?;
     let (encrypted_data, data_nonce) = encrypt_aes256(&data, &connection.aes_key);
 
     let mut encrypted_data_block = Vec::with_capacity(data.len() + 28);
@@ -567,7 +556,7 @@ pub fn receive_data(connection: &mut Connection) -> Result<Vec<u8>, ServerError>
 
 
     let (ciphertext, nonce) = (&data[0..data.len()-12], &data[data.len()-12..]);
-    let csv = decrypt_aes256(&ciphertext, &connection.aes_key, nonce)?;
+    let csv = decrypt_aes256(ciphertext, &connection.aes_key, nonce)?;
 
     let csv = compression::miniz_decompress(&csv)?;
     Ok(csv)

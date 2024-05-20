@@ -1,10 +1,9 @@
 use std::{
-    collections::{BTreeMap, HashMap, HashSet}, fmt::{self, Debug, Display}, fs::File, io::{Read, Write}, num::{ParseFloatError, ParseIntError}
+    collections::{BTreeMap, HashMap, HashSet}, fmt::{self, Debug, Display}, io::Write, num::{ParseFloatError, ParseIntError}
 };
 
 // use smartstring::{LazyCompact, SmartString, };
 
-use fnv::{FnvHashMap, FnvHasher};
 
 use crate::{ezql::Inserts, networking_utilities::*};
 
@@ -13,7 +12,7 @@ use crate::PATH_SEP;
 /// Alias for SmartString
 // pub type KeyString = SmartString<LazyCompact>;
 
-#[derive(Clone, Copy, Hash)]
+#[derive(Clone, Copy, Hash, PartialEq)]
 pub struct KeyString {
     inner: [u8;64],
 }
@@ -42,8 +41,15 @@ impl From<&str> for KeyString {
 
         let mut inner = [0u8;64];
 
-        for i in 0..std::cmp::min(s.len(), 63) {
-            inner[i] = s.as_bytes()[i];
+        let mut min = std::cmp::min(s.len(), 64);
+        inner[0..min].copy_from_slice(&s.as_bytes()[0..min]);
+
+        loop {
+            if min == 0 {break}
+            match std::str::from_utf8(&inner[0..min]) {
+                Ok(_) => break,
+                Err(_) => min -= 1,
+            }
         }
 
         KeyString {
@@ -58,9 +64,8 @@ impl From<&[u8]> for KeyString {
 
         let mut inner = [0u8;64];
 
-        for i in 0..std::cmp::min(s.len(), 63) {
-            inner[i] = s[i];
-        }
+        let min = std::cmp::min(s.len(), 64);
+        inner.copy_from_slice(&s[0..min]);
 
         KeyString {
             inner
@@ -69,27 +74,17 @@ impl From<&[u8]> for KeyString {
     }
 }
 
-impl PartialEq for KeyString {
-    fn eq(&self, other: &Self) -> bool {
-        if self.as_bytes() == other.as_bytes() {
-            true
-        } else {
-            false
-        }
-    }
-}
-
 impl Eq for KeyString {}
-
-impl PartialOrd for KeyString {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.as_str().partial_cmp(other.as_str())
-    }
-}
 
 impl Ord for KeyString {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.as_str().cmp(other.as_str())
+    }
+}
+
+impl PartialOrd for KeyString {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.as_str().cmp(other.as_str()))
     }
 }
 
@@ -133,7 +128,8 @@ impl KeyString {
     }
 
     pub fn as_str(&self) -> &str {
-        unsafe { &std::str::from_utf8_unchecked(&self.inner[0..self.len()]) }
+        // This is safe since an enforced invariant of KeyString is that it is utf8
+        unsafe { std::str::from_utf8_unchecked(&self.inner[0..self.len()]) }
     }
 
     pub fn as_bytes(&self) -> &[u8] {
@@ -190,23 +186,10 @@ impl fmt::Display for StrictError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             StrictError::Copy(s) => write!(f, "There has been a Copy error:\n{}", s),
-            StrictError::MoreItemsThanHeader(n) => write!(
-                f,
-                "There are more items in line {} than in the header.\n",
-                n
-            ),
-            StrictError::FewerItemsThanHeader(n) => write!(
-                f,
-                "There are less items in line {} than in the header.\n",
-                n
-            ),
-            StrictError::RepeatingHeader(n, m) => {
-                write!(f, "Item {} and {} are repeated in the header.\n", n, m)
-            }
-            StrictError::FloatPrimaryKey => write!(
-                f,
-                "Primary key can't be a floating point number. Must be an integer or string."
-            ),
+            StrictError::MoreItemsThanHeader(n) => writeln!(f, "There are more items in line {} than in the header.", n),
+            StrictError::FewerItemsThanHeader(n) => writeln!(f, "There are less items in line {} than in the header.", n),
+            StrictError::RepeatingHeader(n, m) => writeln!(f, "Item {} and {} are repeated in the header.", n, m),
+            StrictError::FloatPrimaryKey => write!(f, "Primary key can't be a floating point number. Must be an integer or string."),
             StrictError::Empty => write!(f, "Don't pass an empty string."),
             StrictError::Update(s) => write!(f, "Failed to update because:\n{s}"),
             StrictError::Io(e) => write!(f, "Failed to write to disk because: \n--> {e}"),
@@ -214,14 +197,9 @@ impl fmt::Display for StrictError {
             StrictError::TooManyHeaderFields => write!(f, "Too many fields in header"),
             StrictError::WrongType => write!(f, "Wrong type specified in header"),
             StrictError::Parse(i) => write!(f, "Item in line {i} cannot be parsed"),
-            StrictError::TooManyPrimaryKeys => {
-                write!(f, "There can only be one primary key column")
-            }
+            StrictError::TooManyPrimaryKeys => write!(f, "There can only be one primary key column"),
             StrictError::WrongKey => write!(f, "The type of the primary key is wrong"),
-            StrictError::NonUniquePrimaryKey(i) => write!(
-                f,
-                "The primary key at position {i} in the sorted table is repeated"
-            ),
+            StrictError::NonUniquePrimaryKey(i) => write!(f, "The primary key at position {i} in the sorted table is repeated"),
             StrictError::BinaryRead(s) => write!(f, "{}", s),
             StrictError::Query(s) => write!(f, "Query item {s} is incorrectly formatted"),
             StrictError::TooLongKeyString => write!(f, "KeyStrings can only be 64 bytes long"),
@@ -269,7 +247,7 @@ impl Metadata {
         }
     }
 
-    pub fn from_table(client: &str, header: &Vec<HeaderItem>, table: &BTreeMap<KeyString, DbColumn>) -> Metadata {
+    pub fn from_table(client: &str, header: &[HeaderItem], table: &BTreeMap<KeyString, DbColumn>) -> Metadata {
         let size_of_row = header.iter().fold(0, |acc: usize, x| {
             match x.kind {
                 DbType::Float => acc + 4,
@@ -296,7 +274,7 @@ impl Metadata {
     }
 
     #[inline]
-    pub fn update_size(&mut self, header: &Vec<HeaderItem>, table: &BTreeMap<KeyString, DbColumn>) {
+    pub fn update_size(&mut self, header: &[HeaderItem], table: &BTreeMap<KeyString, DbColumn>) {
         self.size_of_row = header.iter().fold(0, |acc: usize, x| {
             match x.kind {
                 DbType::Float => acc + 4,
@@ -415,6 +393,12 @@ impl Display for HeaderItem {
             TableKey::None => printer.push_str("-N"),
         }
         write!(f, "{}", printer)
+    }
+}
+
+impl Default for HeaderItem {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -633,13 +617,11 @@ impl EZTable {
         }
 
         let mut result = BTreeMap::new();
-        let mut i = 0;
-        for col in data {
+        for (i, col) in data.into_iter().enumerate() {
             let db_vec = match header[i].kind {
                 DbType::Float => {
                     let mut outvec = Vec::with_capacity(col.len());
-                    let mut index = 0;
-                    for cell in col {
+                    for (index, cell) in col.iter().enumerate() {
                         let temp = match cell.parse::<f32>() {
                             Ok(x) => x,
                             Err(_) => {
@@ -648,21 +630,19 @@ impl EZTable {
                             }
                         };
                         outvec.push(temp);
-                        index += 1;
                     }
                     DbColumn::Floats(outvec)
                 }
                 DbType::Int => {
+
                     let mut outvec = Vec::with_capacity(col.len());
-                    let mut index = 0;
-                    for cell in col {
+                    for (index, cell) in col.iter().enumerate() {
                         // println!("index: {} - cell: {}",index, cell);
                         let temp = match cell.parse::<i32>() {
                             Ok(x) => x,
                             Err(_) => return Err(StrictError::Parse(index)),
                         };
                         outvec.push(temp);
-                        index += 1;
                     }
                     DbColumn::Ints(outvec)
                 }
@@ -675,14 +655,13 @@ impl EZTable {
                 }
             };
 
-            result.insert(header[i].name.clone(), db_vec);
-            i += 1;
+            result.insert(header[i].name, db_vec);
         }
 
         let mut primary_key_index = None;
         for item in header.iter() {
             if item.key == TableKey::Primary {
-                primary_key_index = Some(item.name.clone());
+                primary_key_index = Some(item.name);
             }
         }
 
@@ -713,7 +692,7 @@ impl EZTable {
             DbColumn::Floats(_) => unreachable!("Should never have a float primary key"),
         }
 
-        header.sort_by_key(|x| x.name.clone());
+        header.sort_by_key(|x| x.name);
 
         let mut output = EZTable {
             metadata: Metadata::from_table(created_by, &header, &result),
@@ -747,7 +726,7 @@ impl EZTable {
             }
         }
 
-        let mut csv = String::from(print_sep_list(&new_header, ";"));
+        let mut csv = print_sep_list(&new_header, ";");
         csv.push('\n');
         csv.push_str(&inserts.new_values);
 
@@ -835,7 +814,7 @@ impl EZTable {
         
         for item in &self.header {
             if item.key == TableKey::Primary {
-                return item.name.clone();
+                return item.name;
             }
         }
 
@@ -860,8 +839,6 @@ impl EZTable {
         }
 
         let self_primary_key_index = self.get_primary_key_col_index();
-
-        let minlen = std::cmp::min(self.columns.len(), other_table.columns.len());
 
         let record_vec: Vec<u8>;
         match self.columns.get_mut(&self_primary_key_index).unwrap() {
@@ -1012,7 +989,7 @@ impl EZTable {
     
     pub fn get_column_int<'a>(&'a self, index: &KeyString) -> Result<&'a Vec<i32>, StrictError> {
 
-        match self.columns.get(&index) {
+        match self.columns.get(index) {
             Some(dbcol) => match dbcol {
                 DbColumn::Ints(column) => Ok(column),
                 DbColumn::Texts(_) => Err(StrictError::WrongType),
@@ -1025,7 +1002,7 @@ impl EZTable {
 
     pub fn get_column_text<'a>(&'a self, index: &KeyString) -> Result<&'a Vec<KeyString>, StrictError> {
 
-        match self.columns.get(&index) {
+        match self.columns.get(index) {
             Some(dbcol) => match dbcol {
                 DbColumn::Texts(column) => Ok(column),
                 DbColumn::Ints(_) => Err(StrictError::WrongType),
@@ -1038,7 +1015,7 @@ impl EZTable {
 
     pub fn get_column_float<'a>(&'a self, index: &KeyString) -> Result<&'a Vec<f32>, StrictError> {
 
-        match self.columns.get(&index) {
+        match self.columns.get(index) {
             Some(dbcol) => match dbcol {
                 DbColumn::Floats(column) => Ok(column),
                 DbColumn::Texts(_) => Err(StrictError::WrongType),
@@ -1060,24 +1037,22 @@ impl EZTable {
             match &self.columns[&primary_index] {
                 DbColumn::Floats(_) => return Err(StrictError::FloatPrimaryKey),
                 DbColumn::Ints(col) => {
-                    let key: i32;
-                    match item.parse::<i32>() {
-                        Ok(num) => key = num,
+                    let key: i32 = match item.parse::<i32>() {
+                        Ok(num) => num,
                         Err(_) => continue,
                     };
-                    let index: usize;
-                    match col.binary_search(&key) {
-                        Ok(num) => index = num,
+                    let index: usize = match col.binary_search(&key) {
+                        Ok(num) => num,
                         Err(_) => continue,
-                    }
+                    };
                     indexes.push(index);
                 }
+
                 DbColumn::Texts(col) => {
-                    let index: usize;
-                    match col.binary_search(&KeyString::from(item)) {
-                        Ok(num) => index = num,
+                    let index: usize = match col.binary_search(&KeyString::from(item)) {
+                        Ok(num) => num,
                         Err(_) => continue,
-                    }
+                    };
                     indexes.push(index);
                 }
             }
@@ -1110,23 +1085,23 @@ impl EZTable {
                     DbColumn::Ints(column) => {
                         let mut temp = Vec::with_capacity(indexes.len());
                         for index in indexes {
-                            temp.push(column[*index].clone());
+                            temp.push(column[*index]);
                         }
-                        result_columns.insert(key.clone(), DbColumn::Ints(temp));
+                        result_columns.insert(*key, DbColumn::Ints(temp));
                     },
                     DbColumn::Floats(column) => {
                         let mut temp = Vec::with_capacity(indexes.len());
                         for index in indexes {
-                            temp.push(column[*index].clone());
+                            temp.push(column[*index]);
                         }
-                        result_columns.insert(key.clone(), DbColumn::Floats(temp));
+                        result_columns.insert(*key, DbColumn::Floats(temp));
                     },
                     DbColumn::Texts(column) => {
                         let mut temp = Vec::with_capacity(indexes.len());
                         for index in indexes {
-                            temp.push(column[*index].clone());
+                            temp.push(column[*index]);
                         }
-                        result_columns.insert(key.clone(), DbColumn::Texts(temp));
+                        result_columns.insert(*key, DbColumn::Texts(temp));
                     },
                 }
             }
@@ -1134,7 +1109,7 @@ impl EZTable {
 
         EZTable {
             metadata: Metadata::new("QUERY"),
-            name: new_name.clone(),
+            name: *new_name,
             header: self.header.clone(),
             columns: result_columns,
         }
@@ -1165,7 +1140,7 @@ impl EZTable {
                 let index: usize = col.partition_point(|n| n < &key);
                 indexes[0] = index;
 
-                if range.1 == "" {
+                if range.1.is_empty() {
                     indexes[1] = col.len();
                 } else {
                     let key2 = match range.1.parse::<i32>() {
@@ -1185,7 +1160,7 @@ impl EZTable {
                 let index: usize = col.partition_point(|n| n < &KeyString::from(range.0));
                 indexes[0] = index;
 
-                if range.1 == "" {
+                if range.1.is_empty() {
                     indexes[1] = col.len();
                 }
 
@@ -1240,9 +1215,9 @@ impl EZTable {
         let mut temp_tree = BTreeMap::new();
         for item in &self.header {
             match item.kind {
-                DbType::Int => temp_tree.insert(item.name.clone(), DbColumn::Ints(Vec::with_capacity(line_keys.len()))),
-                DbType::Float => temp_tree.insert(item.name.clone(), DbColumn::Floats(Vec::with_capacity(line_keys.len()))),
-                DbType::Text => temp_tree.insert(item.name.clone(), DbColumn::Texts(Vec::with_capacity(line_keys.len()))),
+                DbType::Int => temp_tree.insert(item.name, DbColumn::Ints(Vec::with_capacity(line_keys.len()))),
+                DbType::Float => temp_tree.insert(item.name, DbColumn::Floats(Vec::with_capacity(line_keys.len()))),
+                DbType::Text => temp_tree.insert(item.name, DbColumn::Texts(Vec::with_capacity(line_keys.len()))),
             };
         }
 
@@ -1259,7 +1234,7 @@ impl EZTable {
                     _ => return Err(StrictError::Copy("Source and target table do not have matching primary key types".to_owned())),
                 };
                 for key in col {
-                    match source_col.binary_search(&key) {
+                    match source_col.binary_search(key) {
                         Ok(i) => indexes.push(i),
                         Err(_) => continue,
                     }
@@ -1271,7 +1246,7 @@ impl EZTable {
                     _ => return Err(StrictError::Copy("Source and target table do not have matching primary key types".to_owned())),
                 };
                 for key in col {
-                    match source_col.binary_search(&key) {
+                    match source_col.binary_search(key) {
                         Ok(i) => indexes.push(i),
                         Err(_) => continue,
                     }
@@ -1301,7 +1276,7 @@ impl EZTable {
                 DbColumn::Texts(col) => {
                     for index in &indexes {
                         match temp_table.columns.get_mut(key).unwrap() {
-                            DbColumn::Texts(temp) => temp.push(col[*index].clone()),
+                            DbColumn::Texts(temp) => temp.push(col[*index]),
                             _ => unreachable!("Source and target column should always have the same type"),
                         }
                     }
@@ -1335,13 +1310,13 @@ impl EZTable {
         for (key, v) in self.columns.iter() {
             match v {
                 DbColumn::Ints(column) => {
-                    subtable.insert(key.clone(), DbColumn::Ints(column[start..stop].to_vec()));
+                    subtable.insert(*key, DbColumn::Ints(column[start..stop].to_vec()));
                 },
                 DbColumn::Floats(column) => {
-                    subtable.insert(key.clone(), DbColumn::Floats(column[start..stop].to_vec()));
+                    subtable.insert(*key, DbColumn::Floats(column[start..stop].to_vec()));
                 },
                 DbColumn::Texts(column) => {
-                    subtable.insert(key.clone(), DbColumn::Texts(column[start..stop].to_vec()));
+                    subtable.insert(*key, DbColumn::Texts(column[start..stop].to_vec()));
                 },
             }
         }
@@ -1382,7 +1357,7 @@ impl EZTable {
                 let index: usize = col.partition_point(|n| *n < key);
                 indexes[0] = index;
 
-                if range.1 == "" {
+                if range.1.is_empty() {
                     indexes[1] = col.len();
                 } else {
                     let key2 = match range.1.parse::<i32>() {
@@ -1398,7 +1373,7 @@ impl EZTable {
                 let index: usize = col.partition_point(|n| n < &KeyString::from(range.0));
                 indexes[0] = index;
 
-                if range.1 == "" {
+                if range.1.is_empty() {
                     indexes[1] = col.len();
                 }
 
@@ -1443,24 +1418,23 @@ impl EZTable {
             match &self.columns[&primary_index] {
                 DbColumn::Floats(_) => return Err(StrictError::FloatPrimaryKey),
                 DbColumn::Ints(col) => {
-                    let key: i32;
-                    match item.parse::<i32>() {
-                        Ok(num) => key = num,
+                    let key: i32 = match item.parse::<i32>() {
+                        Ok(num) => num,
                         Err(_) => continue,
                     };
-                    let index: usize;
-                    match col.binary_search(&key) {
-                        Ok(num) => index = num,
+
+                    let index: usize = match col.binary_search(&key) {
+                        Ok(num) => num,
                         Err(_) => continue,
-                    }
+                    };
                     indexes.push(index);
                 }
+
                 DbColumn::Texts(col) => {
-                    let index: usize;
-                    match col.binary_search(&KeyString::from(item)) {
-                        Ok(num) => index = num,
+                    let index: usize = match col.binary_search(&KeyString::from(item)) {
+                        Ok(num) => num,
                         Err(_) => continue,
-                    }
+                    };
                     indexes.push(index);
                 }
             }
@@ -1486,6 +1460,7 @@ impl EZTable {
         Ok(())
     }
 
+
     pub fn delete_by_vec(&mut self, key_list: DbColumn) -> Result<(), StrictError> {
         let primary_index = self.get_primary_key_col_index();
 
@@ -1496,11 +1471,11 @@ impl EZTable {
                 for item in column {
                     match &self.columns[&primary_index] {
                         DbColumn::Ints(col) => {
-                            let index: usize;
-                            match col.binary_search(&item) {
-                                Ok(num) => index = num,
+
+                            let index: usize = match col.binary_search(&item) {
+                                Ok(num) => num,
                                 Err(_) => continue,
-                            }
+                            };
                             indexes.push(index);
                         },
                         _ => return Err(StrictError::WrongKey),
@@ -1512,11 +1487,10 @@ impl EZTable {
                 for item in column {
                     match &self.columns[&primary_index] {
                         DbColumn::Texts(col) => {
-                            let index: usize;
-                            match col.binary_search(&item) {
-                                Ok(num) => index = num,
+                            let index: usize = match col.binary_search(&item) {
+                                Ok(num) => num,
                                 Err(_) => continue,
-                            }
+                            };
                             indexes.push(index);
                         },
                         _ => return Err(StrictError::WrongKey),
@@ -1551,17 +1525,18 @@ impl EZTable {
         for col in imut {
             match col {
                 DbColumn::Floats(v) => {
-                    remove_indices(v, &indexes);
+                    remove_indices(v, indexes);
                 }
                 DbColumn::Ints(v) => {
-                    remove_indices(v, &indexes);
+                    remove_indices(v, indexes);
                 }
                 DbColumn::Texts(v) => {
-                    remove_indices(v, &indexes);
+                    remove_indices(v, indexes);
                 }
             };
         }
     }
+
 
     /// Deletes a single row from the table by primary key
     fn delete(&mut self, query: &str) -> Result<(), StrictError> {
@@ -1584,7 +1559,7 @@ impl EZTable {
         }
     }
 
-    pub fn add_column(&mut self, name: KeyString, kind: TableKey, column: DbColumn) -> Result<(), StrictError> {
+    pub fn add_column(&mut self, name: KeyString, column: DbColumn) -> Result<(), StrictError> {
 
         let kind = match column {
             DbColumn::Ints(_) => DbType::Int,
@@ -1600,7 +1575,7 @@ impl EZTable {
 
         self.columns.insert(name, column);
 
-        self.header.sort_by_key(|x| x.name.clone());
+        self.header.sort_by_key(|x| x.name);
 
         Ok(())
     }
@@ -1659,12 +1634,10 @@ impl EZTable {
 
         }
         
-        for (place, (name, column)) in right_table.columns.iter().enumerate() {
+        for (name, column) in right_table.columns.iter() {
             if name == predicate_column {
                 continue
             }
-
-            let table_key = right_table.header[place].key.clone();
 
             match column {
                 DbColumn::Ints(col) => {
@@ -1672,21 +1645,21 @@ impl EZTable {
                     for index in &indexes {
                         new_column.push(col[*index]);
                     }
-                    self.add_column(name.clone(), table_key, DbColumn::Ints(new_column))?;
+                    self.add_column(*name, DbColumn::Ints(new_column))?;
                 },
                 DbColumn::Texts(col) => {
                     let mut new_column = Vec::with_capacity(indexes.len());
                     for index in &indexes {
                         new_column.push(col[*index]);
                     }
-                    self.add_column(name.clone(), table_key, DbColumn::Texts(new_column))?;
+                    self.add_column(*name, DbColumn::Texts(new_column))?;
                 },
                 DbColumn::Floats(col) => {
                     let mut new_column = Vec::with_capacity(indexes.len());
                     for index in &indexes {
                         new_column.push(col[*index]);
                     }
-                    self.add_column(name.clone(), table_key, DbColumn::Floats(new_column))?;
+                    self.add_column(*name, DbColumn::Floats(new_column))?;
                 },
             }
         }
@@ -1752,21 +1725,6 @@ impl EZTable {
 
     /// Writes to EZ binary format
     pub fn write_to_raw_binary(&self) -> Vec<u8> {
-        
-        // let mut total_bytes = 0;
-
-        // let length = self.len();
-        // // println!("length: {}", length);
-        // for item in &self.table {
-        //     match item {
-        //         DbVec::Texts(_) => {
-        //             total_bytes += length * 64;
-        //         }
-        //         _ => {
-        //             total_bytes += length * 4;
-        //         }
-        //     };
-        // }
 
         let mut output: Vec<u8> = Vec::with_capacity(self.metadata.size_of_table());
         
@@ -1882,26 +1840,26 @@ impl EZTable {
                 DbType::Int => {
                     let blob = &bin_body[total..total + (bin_length * 4)];
                     // println!("blob: {:x?}", blob);
-                    let v = blob.chunks(4).map(|n| i32_from_le_slice(n)).collect();
+                    let v = blob.chunks(4).map(i32_from_le_slice).collect();
                     // for x in &v {
                     // println!("x: {}", x);
                     // }
                     total += bin_length * 4;
-                    table.insert(header[index].name.clone(), DbColumn::Ints(v));
+                    table.insert(header[index].name, DbColumn::Ints(v));
                     index += 1;
                 }
                 DbType::Float => {
                     let blob = &bin_body[total..total + (bin_length * 4)];
                     let v: Vec<f32> = blob.chunks(4).map(|n| f32_from_le_slice(n)).collect();
                     total += bin_length * 4;
-                    table.insert(header[index].name.clone(), DbColumn::Floats(v));
+                    table.insert(header[index].name, DbColumn::Floats(v));
                     index += 1;
                 }
                 DbType::Text => {
                     let blob = &bin_body[total..total + (bin_length * 64)];
-                    let v: Vec<KeyString> = blob.chunks(64).map(|n| KeyString::from(n)).collect();
+                    let v: Vec<KeyString> = blob.chunks(64).map(KeyString::from).collect();
                     total += bin_length * 64;
-                    table.insert(header[index].name.clone(), DbColumn::Texts(v));
+                    table.insert(header[index].name, DbColumn::Texts(v));
                     index += 1;
                 }
             }
@@ -1926,7 +1884,7 @@ impl EZTable {
             }
         });
 
-        header.sort_by_key(|x| x.name.clone());
+        header.sort_by_key(|x| x.name);
 
         let new_table = EZTable {
             metadata,
@@ -2011,7 +1969,7 @@ pub fn subtable_from_keys(table: &EZTable, mut keys: Vec<KeyString>) -> Result<E
             for key in keys {
                 match key.to_i32_checked() {
                     Ok(x) => int_keys.push(x),
-                    Err(e) => return Err(StrictError::WrongType),
+                    Err(e) => return Err(StrictError::Query(format!("Invalid int: {e}"))),
                 }
             }
             int_keys.sort();

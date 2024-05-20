@@ -6,7 +6,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::{db_structure::KeyString, networking_utilities::{blake3_hash, decode_hex, decode_hex_to_arr32, encode_hex, ServerError}};
+use crate::{db_structure::KeyString, networking_utilities::{blake3_hash, encode_hex}};
 
 /// Defines a permission a user has to interact with a given table
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,7 +18,7 @@ pub enum Permission {
 
 impl Permission {
     /// Creates a Permission enum from a string, tolerating some common spellings
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn from_string(s: &str) -> Option<Self> {
         match s {
             "Read" => Some(Permission::Read),
             "Write" => Some(Permission::Write),
@@ -56,7 +56,7 @@ impl Display for User {
         let mut can_read = String::new();
         for item in &self.can_read {
             can_read.push('\t');
-            can_read.push_str(&item);
+            can_read.push_str(item);
             can_read.push('\n');
         }
         if can_read.len() > 0 {can_read.pop();}
@@ -64,13 +64,13 @@ impl Display for User {
         let mut can_write = String::new();
         for item in &self.can_write {
             can_write.push('\t');
-            can_write.push_str(&item);
+            can_write.push_str(item);
             can_write.push('\n');
         }
         if can_write.len() > 0 {can_write.pop();}
 
         let printer = format!("username\n\t{}\npassword\n\t{}\nadmin\n\t{}\ncan_upload\n\t{}\ncan_read\n{}\ncan_write\n{}",
-            self.username, encode_hex(&self.password), self.admin.to_string(), self.can_upload.to_string(), can_read, can_write
+            self.username, encode_hex(&self.password), self.admin, self.can_upload, can_read, can_write
         );
         write!(f, "{}", printer)
     }

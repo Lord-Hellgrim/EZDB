@@ -1,6 +1,6 @@
-use std::{collections::BTreeMap, fs::File, io::Write, sync::{Arc, RwLock}, thread::current};
+use std::{collections::BTreeMap, fs::File, io::Write, sync::{Arc, RwLock}};
 
-use crate::{auth::User, db_structure::{DbColumn, EZTable, KeyString, Metadata, Value}, ezql::{execute_EZQL_queries, parse_EZQL, parse_serial_query}, networking_utilities::*, server_networking::{Database, Server, WriteThreadMessage, CONFIG_FOLDER}};
+use crate::{auth::User, db_structure::{EZTable, KeyString, Value}, ezql::{execute_EZQL_queries, parse_serial_query}, networking_utilities::*, server_networking::Database};
 
 use crate::PATH_SEP;
 
@@ -17,7 +17,7 @@ pub fn handle_download_request(
         Err(e) => {return Err(ServerError::Io(e.kind()));},
     };
 
-    let mut requested_csv = String::new();
+    let requested_csv: String;
     {
         let global_read_binding = database.buffer_pool.tables.read().unwrap();
     
@@ -30,7 +30,6 @@ pub fn handle_download_request(
 
     if response == "OK" {
         
-        let current_time = get_current_time();
         let global_read_binding = database.buffer_pool.tables.read().unwrap();
 
         let mut requested_table = global_read_binding[&KeyString::from(name)].write().unwrap();
@@ -38,10 +37,10 @@ pub fn handle_download_request(
         requested_table.metadata.times_accessed += 1;
         requested_table.metadata.last_access = get_current_time();
         
-        return Ok(());
+        Ok(())
         
     } else {
-        return Err(ServerError::Confirmation(response))
+        Err(ServerError::Confirmation(response))
     }
 
 }
@@ -68,7 +67,7 @@ pub fn handle_upload_request(
     let table = match EZTable::from_csv_string(bytes_to_str(&csv)?, name, &connection.user) {
         Ok(table) => {
             println!("About to write: {:x?}", "OK".as_bytes());
-            match connection.stream.write("OK".as_bytes()) {
+            match connection.stream.write_all("OK".as_bytes()) {
                 Ok(_) => {
                     println!("Confirmed correctness with client");
                 },
@@ -77,7 +76,7 @@ pub fn handle_upload_request(
            table
         },
         Err(e) => {
-            connection.stream.write(e.to_string().as_bytes())?;
+            connection.stream.write_all(e.to_string().as_bytes())?;
             return Err(ServerError::Strict(e))
         },
     };
@@ -156,9 +155,9 @@ pub fn handle_query_request(
     let response = data_send_and_confirm(connection, requested_csv.as_bytes())?;
     
     if response == "OK" {
-        return Ok("OK".to_owned())
+        Ok("OK".to_owned())
     } else {
-        return Err(ServerError::Confirmation(response))
+        Err(ServerError::Confirmation(response))
     }
 }
 
@@ -176,11 +175,11 @@ pub fn handle_delete_request(
     
     let mutex_binding = database.buffer_pool.tables.write().unwrap();
     let requested_table = mutex_binding.get(&KeyString::from(name)).expect("Instruction parser should have verified table");
+    
     // PARSE INSTRUCTION
-    let query_type: &str;
-    match query.find("..") {
-        Some(_) => query_type = "range",
-        None => query_type = "list"
+    let query_type: &str = match query.find("..") {
+        Some(_) => "range",
+        None => "list"
     };
     
     let requested_csv: String;
@@ -195,9 +194,9 @@ pub fn handle_delete_request(
     let response = data_send_and_confirm(connection, requested_csv.as_bytes())?;
     
     if response == "OK" {
-        return Ok("OK".to_owned())
+        Ok("OK".to_owned())
     } else {
-        return Err(ServerError::Confirmation(response))
+        Err(ServerError::Confirmation(response))
     }
 }
 
@@ -213,7 +212,7 @@ pub fn handle_new_user_request(
     let mut user_lock = database.users.write().unwrap();
     user_lock.insert(KeyString::from(user.username.as_str()), RwLock::new(user));
     
-    connection.stream.write("OK".as_bytes())?;
+    connection.stream.write_all("OK".as_bytes())?;
 
     Ok(())
 
@@ -242,7 +241,7 @@ pub fn handle_kv_upload(
     kv_table_binding.insert(KeyString::from(key), RwLock::new(value));
     database.buffer_pool.naughty_list.write().unwrap().insert(value_name);
 
-    connection.stream.write("OK".as_bytes())?;
+    connection.stream.write_all("OK".as_bytes())?;
     
     Ok(())
 
@@ -278,7 +277,7 @@ pub fn handle_kv_update(
         database.buffer_pool.naughty_list.write().unwrap().insert(value_name);
     }
 
-    connection.stream.write("OK".as_bytes())?;
+    connection.stream.write_all("OK".as_bytes())?;
 
     Ok(())
 
@@ -318,9 +317,9 @@ pub fn handle_kv_download(
         this_value.metadata.last_access = get_current_time();
 
         this_value.metadata.times_accessed += 1;
-        return Ok(())
+        Ok(())
     } else {
-        return Err(ServerError::Confirmation(response))
+        Err(ServerError::Confirmation(response))
     }
 
 }
@@ -339,7 +338,7 @@ pub fn handle_meta_list_tables(
 
     let mut tables = BTreeMap::new();
     for (table_name, table) in database.buffer_pool.tables.read().unwrap().iter() {
-        tables.insert(table_name.clone(), table.read().unwrap().header.clone());
+        tables.insert(*table_name, table.read().unwrap().header.clone());
     }
 
     let mut printer = String::new();
@@ -357,9 +356,9 @@ pub fn handle_meta_list_tables(
     let response = data_send_and_confirm(connection, printer.as_bytes())?;
 
     if response == "OK" {
-        return Ok(())
+        Ok(())
     } else {
-        return Err(ServerError::Confirmation(response))
+        Err(ServerError::Confirmation(response))
     }
 
 }
@@ -391,9 +390,9 @@ pub fn handle_meta_list_key_values(
     let response = data_send_and_confirm(connection, printer.as_bytes())?;
 
     if response == "OK" {
-        return Ok(())
+        Ok(())
     } else {
-        return Err(ServerError::Confirmation(response))
+        Err(ServerError::Confirmation(response))
     }
 
 }

@@ -1,0 +1,39 @@
+EZQL SPECIFICATION
+
+EZQL (easy query language) is the primary interface to an EZDB server. It is written like a function call in a typed language.
+
+Here are some examples:
+
+ - INSERT(table_name: products, value_columns: (id, stock, location, price), new_values: ((0113035, 500, LAG15, 995), (0113000, 100, LAG30, 495)))
+ - SELECT(primary_keys: *, table_name: products, conditions: ((price greater-than 500) AND (stock less-than 1000)))
+ - UPDATE(table_name: products, primary_keys: (0113035, 0113000), conditions: ((id starts-with 011)), updates: ((price += 100), (stock -= 100)))
+ - DELETE(primary_keys: *, table_name: products, conditions: ((price greater-than 500) AND (stock less-than 1000)))
+ - SUMMARY(table_name: products, columns: ((SUM stock), (MEAN price)))
+ - LEFT_JOIN(left_table: products, right_table: warehouses, match_columns: (location, id), primary_keys: 0113000..18572054)
+
+White space is ignored when parsing EZQL so you can format your queries however you like.
+Example:
+
+ - INSERT(
+    table_name: 
+        products, 
+    value_columns: (
+        id, 
+        stock, 
+        location, 
+        price
+        ), 
+    new_values: (
+        (0113035, 500, LAG15, 995), 
+        (0113000, 100, LAG30, 495)
+        )
+    )
+
+Some queries, primarily join and summary queries, can be chained with other queries to act on their output. In this case the following queries
+should use the table_name "__RESULT__". This is a reserved keyword so you cannot name a table in your database __RESULT__.
+To chain a query, use the -> operator between queries.
+Example:
+
+LEFT_JOIN(left_table: products, right_table: warehouses, match_columns: (location, id), primary_keys: 0113000..18572054)
+->
+SELECT(table_name: __RESULT__, primary_keys: *, conditions: ())

@@ -12,7 +12,7 @@ use crate::aes_temp_crypto::decrypt_aes256;
 use crate::auth::{user_has_permission, AuthenticationError, Permission, User};
 use crate::disk_utilities::{BufferPool, MAX_BUFFERPOOL_SIZE};
 use crate::networking_utilities::*;
-use crate::db_structure::{remove_indices, DbColumn, EZTable, KeyString, Metadata, StrictError, Value};
+use crate::db_structure::{DbColumn, EZTable, KeyString, Metadata, Value};
 use crate::handlers::*;
 use crate::PATH_SEP;
 
@@ -64,14 +64,14 @@ pub fn parse_instruction(
     println!("parsing 4...");
     match action {
         "Querying" => {
-            return Ok(Instruction::Query(query.to_owned()));
+            Ok(Instruction::Query(query.to_owned()))
             
         }
         "Uploading" => {
             if user_has_permission(table_name, Permission::Upload, username, database.users.clone()) {
-                return Ok(Instruction::Upload(table_name.to_owned()));
+                Ok(Instruction::Upload(table_name.to_owned()))
             } else {
-                return Err(ServerError::Authentication(AuthenticationError::Permission))
+                Err(ServerError::Authentication(AuthenticationError::Permission))
             }
         } 
         "Downloading" => {
@@ -81,7 +81,7 @@ pub fn parse_instruction(
             {
                 Ok(Instruction::Download(table_name.to_owned()))
             } else {
-                return Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())));
+                Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())))
             }
         },
         "Updating" => {
@@ -91,7 +91,7 @@ pub fn parse_instruction(
             { 
                 Ok(Instruction::Update(table_name.to_owned()))
             } else {
-                return Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())));
+                Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())))
             }
         },
         "Deleting" => {
@@ -101,7 +101,7 @@ pub fn parse_instruction(
             {
                 Ok(Instruction::Delete(table_name.to_owned(), query.to_owned()))
             } else {
-                return Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())));
+                Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())))
             }
         }
         "KvUpload" => {
@@ -109,7 +109,7 @@ pub fn parse_instruction(
             && 
             user_has_permission(table_name, Permission::Upload, username, database.users.clone())
             {
-                return Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' already exists. Use 'update' instead", table_name))));
+                Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' already exists. Use 'update' instead", table_name))))
             } else {
                 Ok(Instruction::KvUpload(table_name.to_owned()))
             }
@@ -121,7 +121,7 @@ pub fn parse_instruction(
             {
                 Ok(Instruction::KvUpdate(table_name.to_owned()))
             } else {
-                return Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' does not exist. Use 'upload' instead", table_name))));
+                Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' does not exist. Use 'upload' instead", table_name))))
             }
         },
         "KvDownload" => {
@@ -131,31 +131,31 @@ pub fn parse_instruction(
             {
                 Ok(Instruction::KvDownload(table_name.to_owned()))
             } else {
-                return Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' does not exist. Use 'upload' instead", table_name))));
+                Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' does not exist. Use 'upload' instead", table_name))))
             }
         },
         "MetaListTables" => {
             if user_has_permission(table_name, Permission::Read, username, database.users.clone()) {
                 Ok(Instruction::MetaListTables)
             } else {
-                return Err(ServerError::Authentication(AuthenticationError::Permission))
+                Err(ServerError::Authentication(AuthenticationError::Permission))
             }
         },
         "MetaListKeyValues" => {
             if user_has_permission(table_name, Permission::Read, username, database.users.clone()) {
                 Ok(Instruction::MetaListKeyValues)
             } else {
-                return Err(ServerError::Authentication(AuthenticationError::Permission))
+                Err(ServerError::Authentication(AuthenticationError::Permission))
             }
         },
         "MetaNewUser" => {
             if user_has_permission(table_name, Permission::Write, username, database.users.clone()) {
                 Ok(Instruction::NewUser(username.to_owned()))
             } else {
-                return Err(ServerError::Authentication(AuthenticationError::Permission))
+                Err(ServerError::Authentication(AuthenticationError::Permission))
             }
         }
-        _ => {return Err(ServerError::Instruction(InstructionError::Invalid(action.to_owned())));},
+        _ => Err(ServerError::Instruction(InstructionError::Invalid(action.to_owned()))),
     }
 }
 
@@ -208,7 +208,7 @@ pub struct Database {
 impl Database {
     pub fn init() -> Result<Database, ServerError> {
 
-        let buffer_pool = BufferPool::empty(MAX_BUFFERPOOL_SIZE);
+        let buffer_pool = BufferPool::empty(std::sync::atomic::AtomicU64::new(MAX_BUFFERPOOL_SIZE));
         buffer_pool.init_tables(&format!("EZconfig{PATH_SEP}raw_tables"))?;
         buffer_pool.init_values(&format!("EZconfig{PATH_SEP}raw_values"))?;
         let users = BTreeMap::<KeyString, RwLock<User>>::new();
@@ -226,7 +226,7 @@ impl Database {
         } else {
             let mut users_file = std::fs::File::create(path)?;
             let admin = User::admin("admin", "admin");
-            users_file.write(ron::to_string(&admin).unwrap().as_bytes())?;
+            users_file.write_all(ron::to_string(&admin).unwrap().as_bytes())?;
             let users = BTreeMap::<KeyString, RwLock<User>>::new();
             let users = Arc::new(RwLock::new(users));
             users.write().unwrap().insert(KeyString::from("admin"), RwLock::new(admin));
