@@ -1,5 +1,6 @@
 use std::arch::asm;
 use std::fmt::Display;
+use std::hash::Hash;
 use std::io::{Write, Read, ErrorKind};
 use std::net::TcpStream;
 use std::num::ParseIntError;
@@ -7,13 +8,14 @@ use std::str::{self, Utf8Error};
 use std::time::Duration;
 use std::{usize, fmt};
 
+use fnv::FnvHashMap;
 use x25519_dalek::{EphemeralSecret, PublicKey};
 use aes_gcm::aead;
 
 use crate::aes_temp_crypto::{encrypt_aes256, decrypt_aes256};
 use crate::auth::AuthenticationError;
 use crate::compression;
-use crate::db_structure::StrictError;
+use crate::db_structure::{KeyString, StrictError};
 use crate::ezql::QueryError;
 
 
@@ -388,6 +390,7 @@ pub fn usize_from_le_slice(slice: &[u8]) -> usize {
     usize::from_le_bytes(l)
 }
 
+#[inline]
 pub fn print_sep_list<T>(list: &Vec<T>, sep: &str) -> String 
 where T: Display  {
     let mut printer = String::new();
@@ -402,6 +405,7 @@ where T: Display  {
     printer
 }
 
+#[inline]
 pub fn chunk3_vec<T>(list: &[T]) -> Option<[&T;3]> {
     let mut i = list.iter();
     let one = match i.next() {
@@ -420,7 +424,109 @@ pub fn chunk3_vec<T>(list: &[T]) -> Option<[&T;3]> {
     Some([one, two, three])
 }
 
+#[inline]
+pub fn sum_i32_slice(slice: &[i32]) -> Option<i32> {
+    let mut sum: i32 = 0;
+    for item in slice {
+        match sum.checked_add(*item) {
+            Some(x) => sum += x,
+            None => return None,
+        }
+    }
+    Some(sum)
+}
 
+#[inline]
+pub fn sum_f32_slice(slice: &[f32]) -> f32 {
+    slice.iter().sum::<f32>()
+}
+
+#[inline]
+pub fn mean_i32_slice(slice: &[i32]) -> f32 {
+    slice.iter().map(|n| *n as f32).sum::<f32>() / (slice.len() as f32)
+}
+
+#[inline]
+pub fn mean_f32_slice(slice: &[f32]) -> f32 {
+    slice.iter().sum::<f32>() / (slice.len() as f32)
+}
+
+#[inline]
+pub fn mode_i32_slice(slice: &[i32]) -> i32 {
+
+    let mut map = FnvHashMap::default();
+    for item in slice {
+        map.entry(item).and_modify(|n| *n += 1).or_insert(1);
+    }
+
+    let mut max = 0;
+    let mut result = 0;
+    for (key, value) in map {
+        if value > max {
+            max = value;
+            result = key.clone();
+        }
+    }
+    result
+}
+
+#[inline]
+pub fn mode_string_slice(slice: &[KeyString]) -> KeyString {
+
+    let mut map = FnvHashMap::default();
+    for item in slice {
+        map.entry(item).and_modify(|n| *n += 1).or_insert(1);
+    }
+
+    let mut max = 0;
+    let mut result = KeyString::new();
+    for (key, value) in map {
+        if value > max {
+            max = value;
+            result = *key;
+        }
+    }
+    result
+}
+
+#[inline]
+pub fn stdev_i32_slice(slice: &[i32]) -> f32 {
+    let mean = mean_i32_slice(slice);
+
+    let mut variance = 0.0;
+    for item in slice {
+        variance += (*item as f32 - mean) * (*item as f32 - mean);
+    }
+
+
+    (variance/slice.len() as f32).sqrt()
+}
+
+#[inline]
+pub fn stdev_f32_slice(slice: &[f32]) -> f32 {
+    let mean = mean_f32_slice(slice);
+
+    let mut variance = 0.0;
+    for item in slice {
+        variance += (*item - mean) * (*item - mean);
+    }
+
+
+    (variance/slice.len() as f32).sqrt()
+}
+
+#[inline]
+pub fn median_slice<T: PartialEq + Copy>(slice: &[T]) -> T {
+
+    if slice.is_empty() {
+        panic!("Fuck you, don't try to find the median of an empty slice. check first.")
+    }
+
+    if slice.len() % 2 == 0 {
+
+    }
+
+}
 
 /// This is a utility function that sends an instruction from the client to the server and returns the servers answer.
 pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut Connection) -> Result<String, ServerError> {

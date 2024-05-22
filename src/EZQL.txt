@@ -37,3 +37,49 @@ Example:
 LEFT_JOIN(left_table: products, right_table: warehouses, match_columns: (location, id), primary_keys: 0113000..18572054)
 ->
 SELECT(table_name: __RESULT__, primary_keys: *, conditions: ())
+
+The only thing that will be returned to the caller is the result of the last query in the chain.
+
+Here is a full specification of each query type:
+
+INSERT:
+    arguments:
+        table_name:
+        value_columns:
+        new_values:
+    output:
+        "OK" or error code
+
+SELECT:
+    arguments:
+        table_name:
+        primary_keys:
+        conditions:
+    output:
+        a filtered table in csv form containing the primary keys from the queried table that match the given conditions.
+        or
+        error code
+
+UPDATE:
+    arguments:
+        table_name:
+        primary_keys:
+        conditions:
+        updates:
+    output:
+        "OK" or error code
+
+DELETE:
+    arguments:
+        table_name:
+        primary_keys:
+        conditions:
+    output:
+        "OK" or error code
+
+SUMMARY:
+    arguments:
+        table_name:
+        columns:
+    output:
+        

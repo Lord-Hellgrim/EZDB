@@ -144,11 +144,7 @@ pub fn handle_query_request(
 
     let queries = parse_serial_query(query)?;
 
-    let result_table = execute_EZQL_queries(queries, database)?;
-    let requested_csv = match result_table {
-        Some(table) => table.to_string(),
-        None => "Query successfully executed!".to_owned(),
-    };
+    let requested_csv = execute_EZQL_queries(queries, database)?;
 
     println!("result_table: {}", requested_csv);
 

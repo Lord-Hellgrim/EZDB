@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fmt::Display, str::FromStr, sync::Arc};
 
-use crate::{db_structure::{remove_indices, DbColumn, EZTable, KeyString, StrictError}, networking_utilities::{print_sep_list, ServerError}, server_networking::Database};
+use crate::{db_structure::{remove_indices, DbColumn, EZTable, KeyString, StrictError}, networking_utilities::{mean_f32_slice, mean_i32_slice, mode_i32_slice, mode_string_slice, print_sep_list, stdev_f32_slice, stdev_i32_slice, sum_f32_slice, sum_i32_slice, ServerError}, server_networking::Database};
 
 use crate::PATH_SEP;
 
@@ -47,6 +47,7 @@ pub struct Inserts {
 pub enum Statistic{
     SUM(KeyString),
     MEAN(KeyString),
+    MEDIAN(KeyString),
     MODE(KeyString),
     STDEV(KeyString),
 }
@@ -58,6 +59,7 @@ impl Display for Statistic {
             Statistic::MEAN(x) => write!(f, "(MEAN {x})"),
             Statistic::MODE(x) => write!(f, "(MODE {x})"),
             Statistic::STDEV(x) => write!(f, "(STDEV {x})"),
+            Statistic::MEDIAN(x) => write!(f, "(MEDIAN {x})"),
         }
     }
 }
@@ -605,7 +607,14 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
     let mut args: HashMap<String, Vec<String>> = HashMap::new();
     let mut current_arg = String::new();
 
+    let mut escaped = false;
     for c in query_string.as_bytes()[first_paren..].iter() {
+        if *c == b'\'' {
+            escaped ^= true;
+        }
+        if escaped {
+            state.word_buffer.push(*c);
+        }
         match c {
             b'(' | b'[' => {
                 state.stack.push(*c);
@@ -634,7 +643,7 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
                 current_arg = word;
                 state.word_buffer.clear();
                 
-            }
+            },
             b',' => {
                 let word = match String::from_utf8(state.word_buffer.clone()) {
                     Ok(s) => s.trim().to_owned(),
@@ -643,10 +652,10 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
                 state.word_buffer.clear();
                 args.entry(current_arg.clone()).and_modify(|n| n.push(word.clone())).or_insert(vec![word.clone()]);
                 
-            }
+            },
             other => {
                 state.word_buffer.push(*other);
-            }         
+            },         
         }
     }
 
@@ -935,7 +944,7 @@ pub fn parse_contained_token(s: &str, container_open: char, container_close: cha
 }
 
 #[allow(non_snake_case)]
-pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
+pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Result<String, ServerError> {
 
     let mut result_table = None;
     for query in queries.into_iter() {
@@ -1016,10 +1025,33 @@ pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Res
                     },
                 }
             },
-            QueryType::SUMMARY => unimplemented!(),
+            QueryType::SUMMARY => {
+                match result_table {
+                    Some(table) => {
+                        let result = execute_summary_query(query, &table)?;
+                        match result {
+                            Some(s) => return Ok(s),
+                            None => todo!(),
+                        };
+                    },
+                    None => {
+                        let tables = database.buffer_pool.tables.read().unwrap();
+                        let table = tables.get(&query.table).unwrap().read().unwrap();
+                        let result = execute_summary_query(query, &table)?;
+                        match result {
+                            Some(s) => return Ok(s),
+                            None => todo!(),
+                        };
+                    },
+                }
+            },
         }
     }
-    Ok(result_table)
+
+    match result_table {
+        Some(table) => Ok(table.to_string()),
+        None => Ok("Query successfully executed!".to_owned()),
+    }
 }
 
 
@@ -1155,6 +1187,115 @@ fn execute_select_query(query: Query, table: &EZTable) -> Result<Option<EZTable>
     Ok(
         Some(table.subtable_from_indexes(&keepers, &KeyString::from("RESULT")))
     )
+}
+
+fn execute_summary_query(query: Query, table: &EZTable) -> Result<Option<String>, ServerError> {
+
+    let mut printer = String::new();
+
+    for stat in query.summary {
+
+        match stat {
+            Statistic::SUM(column_name) => {
+                match table.columns.get(&column_name) {
+                    Some(column) => {
+                        match column {
+                            DbColumn::Ints(col) => {
+                                let sum = match sum_i32_slice(col) {
+                                    Some(x) => x,
+                                    None => return Err(ServerError::Query("SUM operation would have overflowed i32".to_owned()))
+                                };
+                                printer.push_str(&format!("SUM of {}: {}",column_name, &sum.to_string()));
+                            },
+                            DbColumn::Texts(_) => return Err(ServerError::Query("Cannot SUM a text column".to_owned())),
+                            DbColumn::Floats(col) => {
+                                let sum = sum_f32_slice(col);
+                                printer.push_str(&format!("SUM of {}: {}",column_name, &sum.to_string()));
+                            },
+                        }
+                    },
+                    None => return Err(ServerError::Query(format!("No such column as: {}", column_name))),
+                };
+            },
+            Statistic::MEAN(column_name) => {
+                match table.columns.get(&column_name) {
+                    Some(column) => {
+                        match column {
+                            DbColumn::Ints(col) => {
+                                let mean = mean_i32_slice(col);
+                                printer.push_str(&format!("MEAN of {}: {}",column_name, &mean.to_string()));
+                            },
+                            DbColumn::Texts(_) => return Err(ServerError::Query("Cannot MEAN a text column".to_owned())),
+                            DbColumn::Floats(col) => {
+                                let mean = mean_f32_slice(col);
+                                printer.push_str(&format!("MEAN of {}: {}",column_name, &mean.to_string()));
+                            },
+                        }
+                    },
+                    None => return Err(ServerError::Query(format!("No such column as: {}", column_name))),
+                };
+            },
+            Statistic::MEDIAN(column_name) => {
+                match table.columns.get(&column_name) {
+                    Some(column) => {
+                        match column {
+                            DbColumn::Ints(col) => {
+                                let stdev = stdev_i32_slice(&col);
+                                printer.push_str(&format!("STDEV of {}: {}",column_name, &stdev.to_string()));
+                            },
+                            DbColumn::Floats(col) => {
+                                let stdev = stdev_f32_slice(&col);
+                                printer.push_str(&format!("STDEV of {}: {}",column_name, &stdev.to_string()));
+                            },
+                            DbColumn::Texts(_) => return Err(ServerError::Query("Cannot STDEV a text column.".to_owned())),
+                        }
+                    },
+                    None => return Err(ServerError::Query(format!("No such column as: {}", column_name))),
+                };
+            },
+            Statistic::MODE(column_name) => {
+                match table.columns.get(&column_name) {
+                    Some(column) => {
+                        match column {
+                            DbColumn::Ints(col) => {
+                                let mode = mode_i32_slice(&col);
+                                printer.push_str(&format!("MODE of {}: {}",column_name, &mode.to_string()));
+                            },
+                            DbColumn::Texts(col) => {
+                                let mode = mode_string_slice(&col);
+                                printer.push_str(&format!("MODE of {}: {}",column_name, &mode.to_string()));
+                            },
+                            DbColumn::Floats(_) => return Err(ServerError::Query("Cannot MODE a float column because of precision errors.".to_owned())),
+                        }
+                    },
+                    None => return Err(ServerError::Query(format!("No such column as: {}", column_name))),
+                };
+            },
+            Statistic::STDEV(column_name) => {
+                match table.columns.get(&column_name) {
+                    Some(column) => {
+                        match column {
+                            DbColumn::Ints(col) => {
+                                let stdev = stdev_i32_slice(&col);
+                                printer.push_str(&format!("STDEV of {}: {}",column_name, &stdev.to_string()));
+                            },
+                            DbColumn::Floats(col) => {
+                                let stdev = stdev_f32_slice(&col);
+                                printer.push_str(&format!("STDEV of {}: {}",column_name, &stdev.to_string()));
+                            },
+                            DbColumn::Texts(_) => return Err(ServerError::Query("Cannot STDEV a text column.".to_owned())),
+                        }
+                    },
+                    None => return Err(ServerError::Query(format!("No such column as: {}", column_name))),
+                };
+            },
+        };
+
+        printer.push_str("; ");
+
+    }
+
+    Ok(Some(printer))
 }
 
 fn keys_to_indexes(table: &EZTable, keys: &RangeOrListorAll) -> Result<Vec<usize>, StrictError> {
