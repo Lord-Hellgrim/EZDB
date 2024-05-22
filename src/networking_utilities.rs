@@ -516,14 +516,16 @@ pub fn stdev_f32_slice(slice: &[f32]) -> f32 {
 }
 
 #[inline]
-pub fn median_slice<T: PartialEq + Copy>(slice: &[T]) -> T {
+pub fn median_i32_slice(slice: &[i32]) -> f32 {
 
     if slice.is_empty() {
         panic!("Fuck you, don't try to find the median of an empty slice. check first.")
     }
 
     if slice.len() % 2 == 0 {
-
+        (slice[slice.len()/2] + slice[(slice.len()/2) + 1]) as f32 / 2
+    } else {
+        slice[slice.len()/2 + 1] as f32
     }
 
 }
