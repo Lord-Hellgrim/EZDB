@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fmt::Display, str::FromStr, sync::Arc};
 
-use crate::{db_structure::{remove_indices, DbColumn, EZTable, KeyString, StrictError}, networking_utilities::{mean_f32_slice, mean_i32_slice, mode_i32_slice, mode_string_slice, print_sep_list, stdev_f32_slice, stdev_i32_slice, sum_f32_slice, sum_i32_slice, ServerError}, server_networking::Database};
+use crate::{db_structure::{remove_indices, DbColumn, EZTable, KeyString, StrictError}, networking_utilities::{mean_f32_slice, mean_i32_slice, median_f32_slice, median_i32_slice, mode_i32_slice, mode_string_slice, print_sep_list, stdev_f32_slice, stdev_i32_slice, sum_f32_slice, sum_i32_slice, ServerError}, server_networking::Database};
 
 use crate::PATH_SEP;
 
@@ -1195,104 +1195,70 @@ fn execute_summary_query(query: Query, table: &EZTable) -> Result<Option<String>
 
     for stat in query.summary {
 
-        match stat {
-            Statistic::SUM(column_name) => {
-                match table.columns.get(&column_name) {
-                    Some(column) => {
-                        match column {
-                            DbColumn::Ints(col) => {
-                                let sum = match sum_i32_slice(col) {
-                                    Some(x) => x,
-                                    None => return Err(ServerError::Query("SUM operation would have overflowed i32".to_owned()))
-                                };
-                                printer.push_str(&format!("SUM of {}: {}",column_name, &sum.to_string()));
-                            },
-                            DbColumn::Texts(_) => return Err(ServerError::Query("Cannot SUM a text column".to_owned())),
-                            DbColumn::Floats(col) => {
-                                let sum = sum_f32_slice(col);
-                                printer.push_str(&format!("SUM of {}: {}",column_name, &sum.to_string()));
-                            },
+        let column_summary = match stat {
+            Statistic::SUM(column) => {
+                let requested_column = match table.columns.get(&column) {
+                    Some(c) => c,
+                    None => return Err(ServerError::Query(format!("No column named {} in table {}", column, table.name)))
+                };
+                match requested_column {
+                    DbColumn::Floats(col) => sum_f32_slice(col).to_string(),
+                    DbColumn::Ints(col) => {
+                        match sum_i32_slice(col) {
+                            Some(x) => x.to_string(),
+                            None => "Operation would have overflowed i32".to_owned(),
                         }
                     },
-                    None => return Err(ServerError::Query(format!("No such column as: {}", column_name))),
-                };
+                    DbColumn::Texts(_col) => "Can't sum a text column".to_owned(),
+                }
             },
-            Statistic::MEAN(column_name) => {
-                match table.columns.get(&column_name) {
-                    Some(column) => {
-                        match column {
-                            DbColumn::Ints(col) => {
-                                let mean = mean_i32_slice(col);
-                                printer.push_str(&format!("MEAN of {}: {}",column_name, &mean.to_string()));
-                            },
-                            DbColumn::Texts(_) => return Err(ServerError::Query("Cannot MEAN a text column".to_owned())),
-                            DbColumn::Floats(col) => {
-                                let mean = mean_f32_slice(col);
-                                printer.push_str(&format!("MEAN of {}: {}",column_name, &mean.to_string()));
-                            },
-                        }
-                    },
-                    None => return Err(ServerError::Query(format!("No such column as: {}", column_name))),
+            Statistic::MEAN(column) => {
+                let requested_column = match table.columns.get(&column) {
+                    Some(c) => c,
+                    None => return Err(ServerError::Query(format!("No column named {} in table {}", column, table.name)))
                 };
+                match requested_column {
+                    DbColumn::Floats(col) => mean_f32_slice(col).to_string(),
+                    DbColumn::Ints(col) => mean_i32_slice(col).to_string(),
+                    DbColumn::Texts(_col) => "Can't mean a text column".to_owned(),
+                }
             },
-            Statistic::MEDIAN(column_name) => {
-                match table.columns.get(&column_name) {
-                    Some(column) => {
-                        match column {
-                            DbColumn::Ints(col) => {
-                                let stdev = stdev_i32_slice(&col);
-                                printer.push_str(&format!("STDEV of {}: {}",column_name, &stdev.to_string()));
-                            },
-                            DbColumn::Floats(col) => {
-                                let stdev = stdev_f32_slice(&col);
-                                printer.push_str(&format!("STDEV of {}: {}",column_name, &stdev.to_string()));
-                            },
-                            DbColumn::Texts(_) => return Err(ServerError::Query("Cannot STDEV a text column.".to_owned())),
-                        }
-                    },
-                    None => return Err(ServerError::Query(format!("No such column as: {}", column_name))),
+            Statistic::MEDIAN(column) => {
+                let requested_column = match table.columns.get(&column) {
+                    Some(c) => c,
+                    None => return Err(ServerError::Query(format!("No column named {} in table {}", column, table.name)))
                 };
+                match requested_column {
+                    DbColumn::Floats(col) => median_f32_slice(col).to_string(),
+                    DbColumn::Ints(col) => median_i32_slice(col).to_string(),
+                    DbColumn::Texts(_col) => "Can't median a text column".to_owned(),
+                }
             },
-            Statistic::MODE(column_name) => {
-                match table.columns.get(&column_name) {
-                    Some(column) => {
-                        match column {
-                            DbColumn::Ints(col) => {
-                                let mode = mode_i32_slice(&col);
-                                printer.push_str(&format!("MODE of {}: {}",column_name, &mode.to_string()));
-                            },
-                            DbColumn::Texts(col) => {
-                                let mode = mode_string_slice(&col);
-                                printer.push_str(&format!("MODE of {}: {}",column_name, &mode.to_string()));
-                            },
-                            DbColumn::Floats(_) => return Err(ServerError::Query("Cannot MODE a float column because of precision errors.".to_owned())),
-                        }
-                    },
-                    None => return Err(ServerError::Query(format!("No such column as: {}", column_name))),
+            Statistic::MODE(column) => {
+                let requested_column = match table.columns.get(&column) {
+                    Some(c) => c,
+                    None => return Err(ServerError::Query(format!("No column named {} in table {}", column, table.name)))
                 };
+                match requested_column {
+                    DbColumn::Floats(_col) => "Can't mode a float slice".to_owned(),
+                    DbColumn::Ints(col) => mode_i32_slice(col).to_string(),
+                    DbColumn::Texts(col) => mode_string_slice(col).to_string(),
+                }
             },
-            Statistic::STDEV(column_name) => {
-                match table.columns.get(&column_name) {
-                    Some(column) => {
-                        match column {
-                            DbColumn::Ints(col) => {
-                                let stdev = stdev_i32_slice(&col);
-                                printer.push_str(&format!("STDEV of {}: {}",column_name, &stdev.to_string()));
-                            },
-                            DbColumn::Floats(col) => {
-                                let stdev = stdev_f32_slice(&col);
-                                printer.push_str(&format!("STDEV of {}: {}",column_name, &stdev.to_string()));
-                            },
-                            DbColumn::Texts(_) => return Err(ServerError::Query("Cannot STDEV a text column.".to_owned())),
-                        }
-                    },
-                    None => return Err(ServerError::Query(format!("No such column as: {}", column_name))),
+            Statistic::STDEV(column) => {
+                let requested_column = match table.columns.get(&column) {
+                    Some(c) => c,
+                    None => return Err(ServerError::Query(format!("No column named {} in table {}", column, table.name)))
                 };
+                match requested_column {
+                    DbColumn::Floats(col) => stdev_f32_slice(col).to_string(),
+                    DbColumn::Ints(col) => stdev_i32_slice(col).to_string(),
+                    DbColumn::Texts(_col) => "Can't stdev a text column".to_owned(),
+                }
             },
         };
 
-        printer.push_str("; ");
-
+        printer.push_str(&format!("{} is {}; ", stat, column_summary));
     }
 
     Ok(Some(printer))

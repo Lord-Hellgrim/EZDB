@@ -470,6 +470,8 @@ pub fn mode_i32_slice(slice: &[i32]) -> i32 {
     result
 }
 
+
+
 #[inline]
 pub fn mode_string_slice(slice: &[KeyString]) -> KeyString {
 
@@ -515,19 +517,62 @@ pub fn stdev_f32_slice(slice: &[f32]) -> f32 {
     (variance/slice.len() as f32).sqrt()
 }
 
-#[inline]
-pub fn median_i32_slice(slice: &[i32]) -> f32 {
+fn partition<T: Copy + PartialOrd>(data: &[T]) -> (Vec<T>, T, Vec<T>) {
+    let (pivot_slice, tail) = data.split_at(1);
+    let pivot = pivot_slice[0];
 
-    if slice.is_empty() {
-        panic!("Fuck you, don't try to find the median of an empty slice. check first.")
+    let mut left = Vec::new();
+    let mut right = Vec::new();
+    for item in tail.iter() {
+        if *item < pivot {
+            left.push(*item);
+        } else {
+            right.push(*item);
+        }
     }
 
-    if slice.len() % 2 == 0 {
-        (slice[slice.len()/2] + slice[(slice.len()/2) + 1]) as f32 / 2
-    } else {
-        slice[slice.len()/2 + 1] as f32
-    }
+    (left, pivot, right)
+}
 
+fn select<T: Copy + PartialOrd>(data: &[T], k: usize) -> T {
+
+    let (left, pivot, right) = partition(data);
+
+    let pivot_idx = left.len();
+
+    match pivot_idx.cmp(&k) {
+        std::cmp::Ordering::Equal => pivot,
+        std::cmp::Ordering::Greater => select(&left, k),
+        std::cmp::Ordering::Less => select(&right, k - (pivot_idx + 1)),
+    }
+}
+
+pub fn median_i32_slice(data: &[i32]) -> f32 {
+
+
+    match data.len() {
+        even if even % 2 == 0 => {
+            let fst_med = select(data, (even / 2) - 1);
+            let snd_med = select(data, even / 2);
+
+            (fst_med + snd_med) as f32 / 2.0
+        },
+        odd => select(data, odd / 2) as f32
+    }
+}
+
+pub fn median_f32_slice(data: &[f32]) -> f32 {
+
+
+    match data.len() {
+        even if even % 2 == 0 => {
+            let fst_med = select(data, (even / 2) - 1);
+            let snd_med = select(data, even / 2);
+
+            (fst_med + snd_med) / 2.0
+        },
+        odd => select(data, odd / 2)
+    }
 }
 
 /// This is a utility function that sends an instruction from the client to the server and returns the servers answer.
@@ -690,5 +735,39 @@ mod tests {
         println!("{}", x);
     }
 
+    #[test]
+    fn test_median() {
+        let data = [3, 1, 6, 1, 5, 8, 1, 8, 10, 11];
+    
+        let med = median_i32_slice(&data);
+        assert_eq!(med, 5.5);
+    }
+
+    #[test]
+    fn test_mode() {
+        let data = [3, 1, 6, 1, 5, 8, 1, 8, 10, 11];
+    
+        let mode = mode_i32_slice(&data);
+        assert_eq!(mode, 1);
+
+        let text_data = [KeyString::from("3"), KeyString::from("1"), KeyString::from("6"), KeyString::from("1"), KeyString::from("5"), KeyString::from("8"), KeyString::from("1"), KeyString::from("8"), KeyString::from("10"), KeyString::from("11")];
+        let text_mode = mode_string_slice(&text_data);
+        assert_eq!(text_mode, KeyString::from("1"));
+    }
+
+    #[test]
+    fn test_mean() {
+        let data = [3, 1, 6, 1, 5, 8, 1, 8, 10, 11];
+    
+        let mean = mean_i32_slice(&data);
+        assert_eq!(mean, 5.4);
+    }
+
+    #[test]
+    fn test_stdev() {
+        let data = [3, 1, 6, 1, 5, 8, 1, 8, 10, 11];
+        let stdev = stdev_i32_slice(&data);
+        assert!(stdev > 3.611 && stdev < 3.612);
+    }
 
 }
