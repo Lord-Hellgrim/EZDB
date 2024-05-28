@@ -279,10 +279,11 @@ pub fn read_binary_table_chunk_into_memory(table_file: &str, header: &[HeaderIte
             DbType::Text => {
                 let amount_to_read = (length * 64) as usize;
                 file.read_exact(&mut buf[..amount_to_read])?;
-                let v: Vec<KeyString> = buf[..(length * 64) as usize]
+                let v: Result<Vec<KeyString>, StrictError> = buf[..(length * 64) as usize]
                     .chunks(64)
-                    .map(KeyString::from)
+                    .map(KeyString::try_from)
                     .collect();
+                let v = v?;
                 table.insert(header[index].name, DbColumn::Texts(v));
                 total_bytes += amount_to_read;
             },

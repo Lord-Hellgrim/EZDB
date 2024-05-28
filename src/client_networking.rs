@@ -2,6 +2,7 @@ use std::io::Write;
 use std::str::{self};
 
 use crate::auth::{AuthenticationError, User};
+use crate::db_structure::KeyString;
 use crate::networking_utilities::*;
 use crate::PATH_SEP;
 
@@ -15,7 +16,7 @@ pub fn download_table(
     let mut connection = Connection::connect(address, username, password)?;
 
     let response = instruction_send_and_confirm(
-        Instruction::Download(table_name.to_owned()),
+        Instruction::Download(KeyString::from(table_name)),
         &mut connection,
     )?;
     println!("Instruction successfully sent");
@@ -51,7 +52,7 @@ pub fn upload_table(
     let mut connection = Connection::connect(address, username, password)?;
 
     let response =
-        instruction_send_and_confirm(Instruction::Upload(table_name.to_owned()), &mut connection)?;
+        instruction_send_and_confirm(Instruction::Upload(KeyString::from(table_name)), &mut connection)?;
 
     println!("upload_table - parsing response");
     let confirmation: String = match parse_response(&response, &connection.user, table_name) {
@@ -81,7 +82,7 @@ pub fn update_table(
     let mut connection = Connection::connect(address, username, password)?;
 
     let response =
-        instruction_send_and_confirm(Instruction::Update(table_name.to_owned()), &mut connection)?;
+        instruction_send_and_confirm(Instruction::Update(KeyString::from(table_name)), &mut connection)?;
 
     let confirmation: String = match parse_response(&response, &connection.user, table_name) {
         Ok(_) => data_send_and_confirm(&mut connection, csv.as_bytes())?,
@@ -154,7 +155,7 @@ pub fn kv_upload(
 ) -> Result<(), ServerError> {
     let mut connection = Connection::connect(address, username, password)?;
 
-    let response = instruction_send_and_confirm(Instruction::KvUpload(key.to_owned()), &mut connection)?;
+    let response = instruction_send_and_confirm(Instruction::KvUpload(KeyString::from(key)), &mut connection)?;
 
     println!("Response: {}", response);
 
@@ -181,7 +182,7 @@ pub fn kv_download(
 ) -> Result<Vec<u8>, ServerError> {
     let mut connection = Connection::connect(address, username, password)?;
 
-    let response = instruction_send_and_confirm(Instruction::KvDownload(key.to_owned()), &mut connection)?;
+    let response = instruction_send_and_confirm(Instruction::KvDownload(KeyString::from(key)), &mut connection)?;
 
     let value: Vec<u8>;
     match parse_response(&response, &connection.user, key) {
@@ -210,7 +211,7 @@ pub fn kv_update(
     let mut connection = Connection::connect(address, username, password)?;
 
     let response =
-        instruction_send_and_confirm(Instruction::KvUpdate(key.to_owned()), &mut connection)?;
+        instruction_send_and_confirm(Instruction::KvUpdate(KeyString::from(key)), &mut connection)?;
 
     let confirmation: String;
     println!("upload_value - parsing response");

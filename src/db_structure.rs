@@ -59,18 +59,22 @@ impl From<&str> for KeyString {
     }
 }
 
-impl From<&[u8]> for KeyString {
-    fn from(s: &[u8]) -> Self {
 
+impl TryFrom<&[u8]> for KeyString {
+    type Error = StrictError;
+
+    fn try_from(s: &[u8]) -> Result<Self, Self::Error> {
         let mut inner = [0u8;64];
 
-        let min = std::cmp::min(s.len(), 64);
+        let mut min = std::cmp::min(s.len(), 64);
         inner.copy_from_slice(&s[0..min]);
 
-        KeyString {
-            inner
+        match std::str::from_utf8(&inner) {
+            Ok(_) => {
+                Ok(KeyString {inner})
+            },
+            Err(e) => Err(StrictError::KeyString(format!("Bytes are not valid utf-8: {e}")))
         }
-
     }
 }
 
@@ -180,6 +184,7 @@ pub enum StrictError {
     BinaryRead(String),
     Query(String),
     TooLongKeyString,
+    KeyString(String),
 }
 
 impl fmt::Display for StrictError {
@@ -203,6 +208,7 @@ impl fmt::Display for StrictError {
             StrictError::BinaryRead(s) => write!(f, "{}", s),
             StrictError::Query(s) => write!(f, "Query item {s} is incorrectly formatted"),
             StrictError::TooLongKeyString => write!(f, "KeyStrings can only be 64 bytes long"),
+            StrictError::KeyString(s) => write!(f, "{}", s),
         }
     }
 }
@@ -1827,7 +1833,7 @@ impl EZTable {
 
         let mut table = BTreeMap::new();
 
-        let metadata_created_by = KeyString::from(&bin_body[0..64]);
+        let metadata_created_by = KeyString::try_from(&bin_body[0..64])?;
         let metadata_last_access = u64_from_le_slice(&bin_body[64..72]);
         let metadata_times_accessed = u64_from_le_slice(&bin_body[72..80]);
 
@@ -1857,7 +1863,8 @@ impl EZTable {
                 }
                 DbType::Text => {
                     let blob = &bin_body[total..total + (bin_length * 64)];
-                    let v: Vec<KeyString> = blob.chunks(64).map(KeyString::from).collect();
+                    let v: Result<Vec<KeyString>, StrictError> = blob.chunks(64).map(KeyString::try_from).collect();
+                    let v = v?;
                     total += bin_length * 64;
                     table.insert(header[index].name, DbColumn::Texts(v));
                     index += 1;
@@ -2176,7 +2183,7 @@ impl Value {
 
     pub fn read_raw_binary(name: &str, binary: &[u8]) -> Value {
 
-        let metadata_created_by = KeyString::from(&binary[0..64]);
+        let metadata_created_by = KeyString::try_from(&binary[0..64]).expect("This should only fail if the binary data is corrupt");
         let metadata_last_access = u64_from_le_slice(&binary[64..72]);
         let metadata_times_accessed = u64_from_le_slice(&binary[72..80]);
 

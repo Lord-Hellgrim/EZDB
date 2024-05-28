@@ -123,15 +123,15 @@ impl From<QueryError> for ServerError {
 /// Will be rewritten soon to handle EZQL.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Instruction {
-    Upload(String),
-    Download(String),
-    Update(String),
+    Upload(KeyString),
+    Download(KeyString),
+    Update(KeyString),
     Query(String),
-    Delete(String /* table_name */, String /* query */),
+    Delete(KeyString),
     NewUser(String),
-    KvUpload(String),
-    KvUpdate(String),
-    KvDownload(String),
+    KvUpload(KeyString),
+    KvUpdate(KeyString),
+    KvDownload(KeyString),
     MetaListTables,
     MetaListKeyValues,
 }
@@ -575,6 +575,61 @@ pub fn median_f32_slice(data: &[f32]) -> f32 {
     }
 }
 
+pub fn bytes_from_strings(strings: &[&str]) -> Vec<u8> {
+    let mut v = Vec::with_capacity(strings.len()*64);
+    for string in strings {
+        v.extend_from_slice(KeyString::from(*string).as_bytes());
+    }
+    v
+}
+
+pub fn send_instruction(instruction: Instruction, connection: &mut Connection) -> Result<String, ServerError> {
+    let instruction = match instruction {
+        Instruction::Download(table_name) => bytes_from_strings(&vec![&connection.user, "Downloading", &table_name.as_str(),"blank", ]),
+        Instruction::Upload(table_name) => bytes_from_strings(&vec![&connection.user, "Uploading", &table_name.as_str(),"blank", ]), 
+        Instruction::Update(table_name) => bytes_from_strings(&vec![&connection.user, "Updating", &table_name.as_str(),"blank", ]), 
+        Instruction::Query(query) => {
+            let q = bytes_from_strings(&vec![&connection.user, "Querying", "blank", ]);
+            q.extend_from_slice(query.as_bytes());
+            q
+        }, 
+        Instruction::Delete(table_name) => bytes_from_strings(&vec![&connection.user, "Deleting", &table_name.as_str(),"blank", ]), 
+        Instruction::NewUser(user_string) => bytes_from_strings(&vec![&connection.user, "NewUser", "blank", &user_string.as_str()]), 
+        Instruction::KvUpload(table_name) => bytes_from_strings(&vec![&connection.user, "KvUpload", &table_name.as_str(),"blank", ]), 
+        Instruction::KvUpdate(table_name) => bytes_from_strings(&vec![&connection.user, "KvUpdate", &table_name.as_str(),"blank", ]), 
+        Instruction::KvDownload(table_name) => bytes_from_strings(&vec![&connection.user, "KvDownload", &table_name.as_str(),"blank", ]), 
+        Instruction::MetaListTables => bytes_from_strings(&vec![&connection.user, "MetaListTables", "blank","blank", ]), 
+        Instruction::MetaListKeyValues => bytes_from_strings(&vec![&connection.user, "MetaListKeyValues", "blank","blank", ]), 
+    };
+
+
+
+    let (encrypted_instructions, nonce) = encrypt_aes256(&instruction, &connection.aes_key);
+
+    let mut encrypted_data_block = Vec::with_capacity(encrypted_instructions.len() + 28);
+    encrypted_data_block.extend_from_slice(&encrypted_instructions);
+    encrypted_data_block.extend_from_slice(&nonce);
+
+    // // println!("encrypted instructions.len(): {}", encrypted_instructions.len());
+    match connection.stream.write_all(&encrypted_data_block) {
+        Ok(n) => println!("Wrote request as {} bytes", encrypted_data_block.len()),
+        Err(e) => {return Err(ServerError::Io(e.kind()));},
+    };
+    connection.stream.flush()?;
+    
+    let mut buffer: [u8;2] = [0;2];
+    // println!("Waiting for response from server");
+    connection.stream.read_exact(&mut buffer)?;
+    // println!("INSTRUCTION_BUFFER: {:x?}", buffer);
+    // println!("About to parse response from server");
+    let response = bytes_to_str(&buffer)?;
+    println!("reponse: {}", response);
+    // println!("response: {}", response);
+
+    Ok(response.to_owned())
+
+}
+
 /// This is a utility function that sends an instruction from the client to the server and returns the servers answer.
 pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut Connection) -> Result<String, ServerError> {
 
@@ -583,7 +638,7 @@ pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut C
         Instruction::Upload(table_name) => format!("Uploading|{}|blank|{}", table_name, connection.user),
         Instruction::Update(table_name) => format!("Updating|{}|blank|{}", table_name, connection.user),
         Instruction::Query(query) => format!("Querying|blank|{}|{}", query, connection.user),
-        Instruction::Delete(table_name, query) => format!("Deleting|{}|{}|{}", table_name, query, connection.user),
+        Instruction::Delete(table_name) => format!("Deleting|{}|{}|{}", table_name, "blank", connection.user),
         Instruction::NewUser(user_string) => format!("NewUser|{}|blank|{}", user_string, connection.user),
         Instruction::KvUpload(table_name) => format!("KvUpload|{}|blank|{}", table_name, connection.user),
         Instruction::KvUpdate(table_name) => format!("KvUpdate|{}|blank|{}", table_name, connection.user),

@@ -5,6 +5,7 @@ use std::net::TcpListener;
 use std::sync::{Arc, RwLock};
 use std::str::{self};
 use std::time::Duration;
+use std::convert::TryFrom;
 
 use x25519_dalek::{StaticSecret, PublicKey};
 
@@ -19,6 +20,7 @@ use crate::PATH_SEP;
 pub const CONFIG_FOLDER: &str = "EZconfig/";
 pub const MAX_PENDING_MESSAGES: usize = 10;
 pub const PROCESS_MESSAGES_INTERVAL: u64 = 10;   // The number of seconds that pass before the database processes all pending write messages.
+
 
 /// Parses the inctructions sent by the client. Will be rewritten soon to accomodate EZQL
 pub fn parse_instruction(
@@ -37,39 +39,35 @@ pub fn parse_instruction(
     println!("instruction: {}", instruction);
 
 
-    let instruction_block: Vec<&str> = instruction.split('|').collect();
+    // let instruction_block: Vec<&str> = instruction.split('|').collect();
 
-    println!("parsing 2...");
-    if instruction_block.len() != INSTRUCTION_LENGTH {
-        return Err(ServerError::Instruction(InstructionError::Invalid("Wrong number of query fields. Query should be usernme, password, request, table_name, query(or blank)".to_owned())));
-    }
+    // println!("parsing 2...");
+    // if instruction_block.len() != INSTRUCTION_LENGTH {
+    //     return Err(ServerError::Instruction(InstructionError::Invalid("Wrong number of query fields. Query should be usernme, password, request, table_name, query(or blank)".to_owned())));
+    // }
     
     println!("parsing 3...");
-    let (
-        action, 
-        table_name,
-        query,
-        username,
-    ) = (
-        instruction_block[0], 
-        instruction_block[1],
-        instruction_block[2],
-        instruction_block[3],
-    );
+    let username = KeyString::try_from(&instruction[0..64])?; 
+    let action = KeyString::try_from(&instruction[64..128])?;
+    let table_name = KeyString::try_from(&instruction[128..192])?;
+    let query = match String::from_utf8(Vec::from(&instruction[192..])) {
+        Ok(x) => x,
+        Err(e) => return Err(ServerError::Utf8(e.utf8_error())),
+    };
 
-    if table_name == "All" {
+    if table_name.as_str() == "All" {
         return Err(ServerError::Instruction(InstructionError::InvalidTable("Table cannot be called 'All'".to_owned())));
     }
 
     println!("parsing 4...");
-    match action {
+    match action.as_str() {
         "Querying" => {
             Ok(Instruction::Query(query.to_owned()))
             
         }
         "Uploading" => {
-            if user_has_permission(table_name, Permission::Upload, username, database.users.clone()) {
-                Ok(Instruction::Upload(table_name.to_owned()))
+            if user_has_permission(table_name.as_str(), Permission::Upload, username.as_str(), database.users.clone()) {
+                Ok(Instruction::Upload(table_name))
             } else {
                 Err(ServerError::Authentication(AuthenticationError::Permission))
             }
@@ -77,49 +75,49 @@ pub fn parse_instruction(
         "Downloading" => {
             if database.buffer_pool.tables.read().unwrap().contains_key(&KeyString::from(table_name)) 
             && 
-            user_has_permission(table_name, Permission::Read, username, database.users.clone()) 
+            user_has_permission(table_name.as_str(), Permission::Read, username.as_str(), database.users.clone()) 
             {
-                Ok(Instruction::Download(table_name.to_owned()))
+                Ok(Instruction::Download(table_name))
             } else {
-                Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())))
+                Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_string())))
             }
         },
         "Updating" => {
             if database.buffer_pool.tables.read().unwrap().contains_key(&KeyString::from(table_name)) 
             && 
-            user_has_permission(table_name, Permission::Write, username, database.users.clone())
+            user_has_permission(table_name.as_str(), Permission::Write, username.as_str(), database.users.clone())
             { 
-                Ok(Instruction::Update(table_name.to_owned()))
+                Ok(Instruction::Update(table_name))
             } else {
-                Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())))
+                Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_string())))
             }
         },
         "Deleting" => {
             if database.buffer_pool.tables.read().unwrap().contains_key(&KeyString::from(table_name)) 
             && 
-            user_has_permission(table_name, Permission::Write, username, database.users.clone())
+            user_has_permission(table_name.as_str(), Permission::Write, username.as_str(), database.users.clone())
             {
-                Ok(Instruction::Delete(table_name.to_owned(), query.to_owned()))
+                Ok(Instruction::Delete(table_name))
             } else {
-                Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_owned())))
+                Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_string())))
             }
         }
         "KvUpload" => {
             if database.buffer_pool.tables.read().unwrap().contains_key(&KeyString::from(table_name)) 
             && 
-            user_has_permission(table_name, Permission::Upload, username, database.users.clone())
+            user_has_permission(table_name.as_str(), Permission::Upload, username.as_str(), database.users.clone())
             {
                 Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' already exists. Use 'update' instead", table_name))))
             } else {
-                Ok(Instruction::KvUpload(table_name.to_owned()))
+                Ok(Instruction::KvUpload(table_name))
             }
         },
         "KvUpdate" => {
             if database.buffer_pool.values.read().unwrap().contains_key(&KeyString::from(table_name)) 
             && 
-            user_has_permission(table_name, Permission::Write, username, database.users.clone())
+            user_has_permission(table_name.as_str(), Permission::Write, username.as_str(), database.users.clone())
             {
-                Ok(Instruction::KvUpdate(table_name.to_owned()))
+                Ok(Instruction::KvUpdate(table_name))
             } else {
                 Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' does not exist. Use 'upload' instead", table_name))))
             }
@@ -127,35 +125,35 @@ pub fn parse_instruction(
         "KvDownload" => {
             if database.buffer_pool.values.read().unwrap().contains_key(&KeyString::from(table_name)) 
             && 
-            user_has_permission(table_name, Permission::Read, username, database.users.clone())
+            user_has_permission(table_name.as_str(), Permission::Read, username.as_str(), database.users.clone())
             {
-                Ok(Instruction::KvDownload(table_name.to_owned()))
+                Ok(Instruction::KvDownload(table_name))
             } else {
                 Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' does not exist. Use 'upload' instead", table_name))))
             }
         },
         "MetaListTables" => {
-            if user_has_permission(table_name, Permission::Read, username, database.users.clone()) {
+            if user_has_permission(table_name.as_str(), Permission::Read, username.as_str(), database.users.clone()) {
                 Ok(Instruction::MetaListTables)
             } else {
                 Err(ServerError::Authentication(AuthenticationError::Permission))
             }
         },
         "MetaListKeyValues" => {
-            if user_has_permission(table_name, Permission::Read, username, database.users.clone()) {
+            if user_has_permission(table_name.as_str(), Permission::Read, username.as_str(), database.users.clone()) {
                 Ok(Instruction::MetaListKeyValues)
             } else {
                 Err(ServerError::Authentication(AuthenticationError::Permission))
             }
         },
         "MetaNewUser" => {
-            if user_has_permission(table_name, Permission::Write, username, database.users.clone()) {
-                Ok(Instruction::NewUser(username.to_owned()))
+            if user_has_permission(table_name.as_str(), Permission::Write, username.as_str(), database.users.clone()) {
+                Ok(Instruction::NewUser(query))
             } else {
                 Err(ServerError::Authentication(AuthenticationError::Permission))
             }
         }
-        _ => Err(ServerError::Instruction(InstructionError::Invalid(action.to_owned()))),
+        _ => Err(ServerError::Instruction(InstructionError::Invalid(action.to_string()))),
     }
 }
 
@@ -434,7 +432,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                         Instruction::Download(name) => {
                             match handle_download_request(
                                 &mut connection, 
-                                &name, 
+                                name.as_str(), 
                                 db_ref.clone(),
                             ) {
                                 Ok(_) => {
@@ -449,7 +447,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                             match handle_upload_request(
                                 &mut connection,
                                 db_ref.clone(),
-                                &name
+                                name.as_str()
                             ) {
                                 Ok(_) => {
                                     println!("Operation finished!");
@@ -462,7 +460,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                         Instruction::Update(name) => {
                             match handle_update_request(
                                 &mut connection, 
-                                &name, 
+                                name.as_str(), 
                                 db_ref.clone(),
                             ) {
                                 Ok(_) => {
@@ -487,11 +485,11 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                                 },
                             }
                         },
-                        Instruction::Delete(table_name, query) => {
+                        Instruction::Delete(table_name) => {
                             match handle_delete_request(
                                 &mut connection, 
-                                &table_name, 
-                                &query, 
+                                table_name.as_str(), 
+                                "blank", 
                                 db_ref.clone(),
                             ) {
                                 Ok(_) => {
@@ -520,7 +518,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                         Instruction::KvUpload(table_name) => {
                             match handle_kv_upload(
                                 &mut connection, 
-                                &table_name,
+                                table_name.as_str(),
                                 db_ref.clone(),
                             ) {
                                 Ok(_) => {
@@ -534,7 +532,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                         Instruction::KvUpdate(table_name) => {
                             match handle_kv_update(
                                 &mut connection, 
-                                &table_name, 
+                                table_name.as_str(), 
                                 db_ref.clone(),
                             ) {
                                 Ok(_) => {
@@ -548,7 +546,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                         Instruction::KvDownload(table_name) => {
                             match handle_kv_download(
                                 &mut connection, 
-                                &table_name, 
+                                table_name.as_str(), 
                                 db_ref.clone(),
                             ) {
                                 Ok(_) => {
