@@ -5,7 +5,8 @@ use std::net::TcpListener;
 use std::sync::{Arc, RwLock};
 use std::str::{self};
 use std::time::Duration;
-use std::convert::TryFrom;
+use std::convert::{TryFrom, From};
+use std::error::Error;
 
 use x25519_dalek::{StaticSecret, PublicKey};
 
@@ -13,7 +14,7 @@ use crate::aes_temp_crypto::decrypt_aes256;
 use crate::auth::{user_has_permission, AuthenticationError, Permission, User};
 use crate::disk_utilities::{BufferPool, MAX_BUFFERPOOL_SIZE};
 use crate::networking_utilities::*;
-use crate::db_structure::{DbColumn, EZTable, KeyString, Metadata, Value};
+use crate::db_structure::{DbColumn, EZTable, KeyString, Metadata, StrictError, Value};
 use crate::handlers::*;
 use crate::PATH_SEP;
 
@@ -38,7 +39,6 @@ pub fn parse_instruction(
     let instruction = bytes_to_str(&plaintext)?;
     println!("instruction: {}", instruction);
 
-
     // let instruction_block: Vec<&str> = instruction.split('|').collect();
 
     // println!("parsing 2...");
@@ -47,10 +47,10 @@ pub fn parse_instruction(
     // }
     
     println!("parsing 3...");
-    let username = KeyString::try_from(&instruction[0..64])?; 
-    let action = KeyString::try_from(&instruction[64..128])?;
-    let table_name = KeyString::try_from(&instruction[128..192])?;
-    let query = match String::from_utf8(Vec::from(&instruction[192..])) {
+    let username = KeyString::try_from(&plaintext[0..64])?;
+    let action = KeyString::try_from(&plaintext[64..128])?;
+    let table_name = KeyString::try_from(&plaintext[128..192])?;
+    let query = match String::from_utf8(Vec::from(&plaintext[192..])) {
         Ok(x) => x,
         Err(e) => return Err(ServerError::Utf8(e.utf8_error())),
     };
