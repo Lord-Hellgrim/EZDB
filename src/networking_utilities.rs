@@ -589,7 +589,7 @@ pub fn send_instruction(instruction: Instruction, connection: &mut Connection) -
         Instruction::Upload(table_name) => bytes_from_strings(&vec![&connection.user, "Uploading", &table_name.as_str(),"blank", ]), 
         Instruction::Update(table_name) => bytes_from_strings(&vec![&connection.user, "Updating", &table_name.as_str(),"blank", ]), 
         Instruction::Query(query) => {
-            let q = bytes_from_strings(&vec![&connection.user, "Querying", "blank", ]);
+            let mut q = bytes_from_strings(&vec![&connection.user, "Querying", "blank", ]);
             q.extend_from_slice(query.as_bytes());
             q
         }, 
