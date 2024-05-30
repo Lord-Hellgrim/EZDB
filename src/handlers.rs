@@ -160,40 +160,27 @@ pub fn handle_query_request(
 /// This will be rewritten to use EZQL soon.
 pub fn handle_delete_request(
     connection: &mut Connection, 
-    name: &str, query: &str, 
+    name: &str,
     database: Arc<Database>,
-) -> Result<String, ServerError> {
+) -> Result<(), ServerError> {
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote {n} bytes"),
         Err(e) => {return Err(ServerError::Io(e.kind()));},
     };
     connection.stream.flush()?;
     
-    let mutex_binding = database.buffer_pool.tables.write().unwrap();
-    let requested_table = mutex_binding.get(&KeyString::from(name)).expect("Instruction parser should have verified table");
-    
-    // PARSE INSTRUCTION
-    let query_type: &str = match query.find("..") {
-        Some(_) => "range",
-        None => "list"
-    };
-    
-    let requested_csv: String;
-    if query_type == "range" {
-        let parsed_query: Vec<&str> = query.split("..").collect();
-        requested_csv = requested_table.write().unwrap().query_range((parsed_query[0], parsed_query[1]))?;
-    } else {
-        let parsed_query = query.split(',').collect();
-        requested_csv = requested_table.write().unwrap().query_list(parsed_query)?;
-    }
+    let mut mutex_binding = database.buffer_pool.tables.write().unwrap();
+    mutex_binding.remove(&KeyString::from(name)).expect("Instruction parser should have verified table");
 
-    let response = data_send_and_confirm(connection, requested_csv.as_bytes())?;
-    
-    if response == "OK" {
-        Ok("OK".to_owned())
-    } else {
-        Err(ServerError::Confirmation(response))
+    let mut mutex_binding = database.buffer_pool.files.write().unwrap();
+    if mutex_binding.contains_key(&KeyString::from(name)) {
+        mutex_binding.remove(&KeyString::from(name)).expect("Instruction parser should have verified table");
+        std::fs::remove_file(&format!("EZconfig{PATH_SEP}raw_tables{PATH_SEP}{name}"))?;
     }
+    
+    connection.stream.write_all("OK".as_bytes())?;
+
+    Ok(())
 }
 
 /// Handles a create user request from a client. The user requesting the new user must have permission to create users

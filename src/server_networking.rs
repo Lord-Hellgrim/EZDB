@@ -488,8 +488,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                         Instruction::Delete(table_name) => {
                             match handle_delete_request(
                                 &mut connection, 
-                                table_name.as_str(), 
-                                "blank", 
+                                table_name.as_str(),
                                 db_ref.clone(),
                             ) {
                                 Ok(_) => {

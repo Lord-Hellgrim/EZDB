@@ -145,6 +145,29 @@ pub fn query_table(
     Ok(bytes_to_str(&csv)?.to_owned())
 }
 
+pub fn delete_table(
+    address: &str,
+    username: &str,
+    password: &str,
+    table_name: &str,
+) -> Result<(), ServerError> {
+
+    let mut connection = Connection::connect(address, username, password)?;
+
+    let response = instruction_send_and_confirm(
+        Instruction::Delete(KeyString::from(table_name)),
+        &mut connection,
+    )?;
+
+    println!("Instruction successfully sent");
+    println!("response: {}", response);
+
+    match parse_response(&response, &connection.user, table_name) {
+        Ok(_) => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
 /// Uploads an arbitrary binary blob to the EZDB server at the given address and associates it with the given key
 pub fn kv_upload(
     address: &str,
@@ -443,6 +466,17 @@ mod tests {
         let full_table = download_table(address, username, password, "good_csv").unwrap();
         println!("{}", response);
         assert_eq!(response, full_table);
+    }
+
+    #[test]
+    fn test_delete_table() {
+        let address = "127.0.0.1:3004";
+        let username = "admin";
+        let password = "admin";
+        let tables = meta_list_tables(address, username, password).unwrap();
+        let e = delete_table(address, username, password, "good_csv").unwrap();
+        let tables = meta_list_tables(address, username, password).unwrap();
+        println!("tables:\n{}", tables);
     }
 
     #[test]
