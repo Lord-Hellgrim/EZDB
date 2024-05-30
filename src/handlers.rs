@@ -228,11 +228,14 @@ pub fn handle_kv_upload(
     };
     connection.stream.flush()?;
 
+    println!("about to receive data");
     
     let value = receive_data(connection)?;
     let value = Value::new(key, &connection.user, &value);
     let value_name = value.name;
     
+    println!("data received");
+
     let mut kv_table_binding = database.buffer_pool.values.write().unwrap();
     kv_table_binding.insert(KeyString::from(key), RwLock::new(value));
     database.buffer_pool.naughty_list.write().unwrap().insert(value_name);
@@ -377,11 +380,15 @@ pub fn handle_meta_list_key_values(
     }
 
     let mut printer = String::new();
-    for value_name in values.iter() {
-        printer.push_str(value_name.as_str());
-        printer.push('\n');
+    if values.len() != 0 {
+        for value_name in values.iter() {
+            printer.push_str(value_name.as_str());
+            printer.push('\n');
+        }
+        printer.pop();
+    } else {
+        printer.push_str("No key value pairs in database");
     }
-    printer.pop();
 
     let response = data_send_and_confirm(connection, printer.as_bytes())?;
 

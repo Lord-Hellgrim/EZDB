@@ -384,7 +384,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                 let mut connection: Connection;
                 {
                     if !db_ref.users.read().unwrap().contains_key(&KeyString::from(username)) {
-                        println!("Username:\n\t{}\n...is wrong", username);
+                        println!("Username:\n\t'{}'\n...is wrong", username);
                         return Err(ServerError::Authentication(AuthenticationError::WrongUser(format!("Username: '{}' does not exist", username))));
                     } else if db_ref.users.read().unwrap()[&KeyString::from(username)].read().unwrap().password != password {
                         // println!("thread_users_lock[username].password: {:?}", user_lock.password);
@@ -612,4 +612,14 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
 
 }
 
+#[cfg(test)]
+mod tests {
 
+    use super::*;
+
+    // #[test]
+    // fn test_server_init() {
+    //     run_server("127.0.0.1:3004").unwrap();
+    // }
+
+}

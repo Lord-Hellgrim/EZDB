@@ -66,8 +66,8 @@ impl TryFrom<&[u8]> for KeyString {
     fn try_from(s: &[u8]) -> Result<Self, Self::Error> {
         let mut inner = [0u8;64];
 
-        let mut min = std::cmp::min(s.len(), 64);
-        inner.copy_from_slice(&s[0..min]);
+        let min = std::cmp::min(s.len(), 64);
+        inner[0..min].copy_from_slice(&s[0..min]);
 
         match std::str::from_utf8(&inner) {
             Ok(_) => {
@@ -1788,7 +1788,7 @@ impl EZTable {
     /// Reads an EZ binary formatted file to a ColumnTable, checking for strictness.
     pub fn read_raw_binary(name: &str, binary: &[u8]) -> Result<EZTable, StrictError> {
         let mut binter = binary.iter();
-        let first_newline = binter.position(|n| *n == b'\n').unwrap();
+        let first_newline = binter.position(|n| *n == b'\n').expect(&format!("Reading the first newline should never fail unless the data is corrupted. The file that was being read is {name}"));
         let bin_header = &binary[0..first_newline];
         let bin_length = &binary[first_newline + 1..first_newline + 5];
         let bin_body = &binary[first_newline + 5..];
@@ -2209,6 +2209,13 @@ mod tests {
     use rand::Rng;
 
     use super::*;
+
+    #[test]
+    fn test_keystring() {
+        let data: [u8;7] = [b't', b'e', b's', b't', 0,0,0];
+        let ks = KeyString::try_from(data.as_slice()).unwrap();
+        println!("ks: {}", ks);
+    }
 
     #[test]
     fn test_columntable_from_to_string() {
