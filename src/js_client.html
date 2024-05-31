@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Database Query Interface</title>
+</head>
+<body>
+    <h1>Send Database Query</h1>
+    <form id="queryForm">
+        <label for="query">Query:</label>
+        <input type="text" id="query" name="query" required>
+        <button type="submit">Send</button>
+    </form>
+    <pre id="response"></pre>
+
+    <script>
+        document.getElementById('queryForm').addEventListener('submit', function(event) {
+            event.preventDefault();
+
+            const query = document.getElementById('query').value;
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', 'http://127.0.0.1:3004/query', true);
+            xhr.setRequestHeader('Content-Type', 'EZQL;charset=UTF-8');
+
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === 4) {
+                    if (xhr.status === 200) {
+                        document.getElementById('response').textContent = xhr.responseText;
+                    } else {
+                        document.getElementById('response').textContent = 'Error: ' + xhr.statusText;
+                    }
+                }
+            };
+
+            xhr.send(query);
+        });
+    </script>
+</body>
+</html>

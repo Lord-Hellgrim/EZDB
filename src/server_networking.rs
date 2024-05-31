@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::fmt::Display;
 use std::io::{Write, Read};
-use std::net::TcpListener;
+use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, RwLock};
 use std::str::{self};
 use std::time::Duration;
@@ -194,7 +194,7 @@ impl Display for WriteThreadMessage {
 /// Am trying to think of ways to reduce reliance on Arc<RwLock<T>>
 pub struct Server {
     pub public_key: PublicKey,
-    private_key: StaticSecret,
+    pub private_key: StaticSecret,
     pub listener: TcpListener,
 }
 
@@ -320,86 +320,9 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
             outer_scope.spawn(move || {
                 
                 // ################## ESTABLISHING ENCRYPTED CONNECTION ##########################################################################################################
-                match stream.write(thread_server.public_key.as_bytes()) {
-                    Ok(_) => (),
-                    Err(e) => {
-                        println!("failed to write server public key because: {}", e);
-                        return Err(ServerError::Io(e.kind()));
-                    }
-                }
-                println!("About to get crypto");
-                let mut buffer: [u8; 32] = [0; 32];
                 
-                match stream.read_exact(&mut buffer){
-                    Ok(_) => (),
-                    Err(e) => {
-                        println!("failed to read client public key because: {}", e);
-                        return Err(ServerError::Io(e.kind()));
-                    }
-                }
-                
-                let client_public_key = PublicKey::from(buffer);
-                
-                let shared_secret = thread_server.private_key.diffie_hellman(&client_public_key);
-                let aes_key = blake3_hash(shared_secret.as_bytes());
-    
-                let mut auth_buffer = [0u8; 1052];
-                println!("About to read auth string");
-                match stream.read_exact(&mut auth_buffer) {
-                    Ok(_) => (),
-                    Err(e) => {
-                        println!("failed to read auth_string because: {}", e);
-                        return Err(ServerError::Io(e.kind()));
-                    }
-                }
-                // println!("encrypted auth_buffer: {:x?}", auth_buffer);
-                // println!("Encrypted auth_buffer.len(): {}", auth_buffer.len());
-    
-                let (ciphertext, nonce) = (&auth_buffer[0..auth_buffer.len()-12], &auth_buffer[auth_buffer.len()-12..auth_buffer.len()]);
-                println!("About to decrypt auth string");
-                let auth_string = match decrypt_aes256(ciphertext, &aes_key, nonce) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        println!("failed to decrypt auth string because: {}", e);
-                        return Err(e);
-                    }
-                };
-                println!("About to parse auth_string");
-                let username = match bytes_to_str(&auth_string[0..512]) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        println!("failed to read auth_string from bytes because: {}", e);
-                        return Err(ServerError::Utf8(e));
-                    }
-                };
-                let password = &auth_string[512..];
-                println!("password: {:?}", password);
-    
-                // println!("username: {}\npassword: {:x?}", username, password);
-                let password = blake3_hash(bytes_to_str(password).unwrap().as_bytes());
-                println!("password: {:?}", password);
-                // println!("password_hash: {:x?}", password);
-                println!("About to verify username and password");
-                
-                let mut connection: Connection;
-                {
-                    if !db_ref.users.read().unwrap().contains_key(&KeyString::from(username)) {
-                        println!("Username:\n\t'{}'\n...is wrong", username);
-                        return Err(ServerError::Authentication(AuthenticationError::WrongUser(format!("Username: '{}' does not exist", username))));
-                    } else if db_ref.users.read().unwrap()[&KeyString::from(username)].read().unwrap().password != password {
-                        // println!("thread_users_lock[username].password: {:?}", user_lock.password);
-                        // println!("password: {:?}", password);
-                        // println!("Password hash:\n\t{:?}\n...is wrong", password);
-                        return Err(ServerError::Authentication(AuthenticationError::WrongPassword));
-                    }
-                    
-                    connection = Connection {
-                        stream: stream, 
-                        user: username.to_owned(), 
-                        aes_key: aes_key
-                    };
-                }
-    
+                let mut connection = establish_connection(stream, thread_server, db_ref.clone())?;
+
                 // ############################ END OF ESTABLISHING ENCRYPTED CONNECTION ###################################################################################
     
     
