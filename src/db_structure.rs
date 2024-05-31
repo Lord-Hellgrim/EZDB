@@ -25,7 +25,7 @@ impl fmt::Debug for KeyString {
 
 impl fmt::Display for KeyString {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let text = bytes_to_str(&self.inner).expect("Should always be valid utf8");
+        let text = bytes_to_str(&self.inner).expect(&format!("A KeyString should always be valid utf8.\nThe KeyString that was just attempted to Display was:\n{:x?}", self.inner));
         write!(f, "{}", text)
     }   
 }
@@ -36,6 +36,7 @@ impl Default for KeyString {
     }
 }
 
+/// Turns a &str into a KeyString. If the &str has more than 64 bytes, the last bytes will be cut.
 impl From<&str> for KeyString {
     fn from(s: &str) -> Self {
 
@@ -144,10 +145,12 @@ impl KeyString {
         &self.inner
     }
 
+    /// These functions may panic and should only be called if you are certain that the KeyString contains a valid number
     pub fn to_i32(&self) -> i32 {
         self.as_str().parse::<i32>().unwrap()
     }
 
+    /// These functions may panic and should only be called if you are certain that the KeyString contains a valid number
     pub fn to_f32(&self) -> f32 {
         self.as_str().parse::<f32>().unwrap()
     }
@@ -308,14 +311,6 @@ impl Metadata {
 
 }
 
-
-// #[derive(Clone, Debug, PartialEq, PartialOrd)]
-// pub enum DbEntry {
-//     Int(i64),
-//     Float(f64),
-//     Text(String),
-//     Empty,
-// }
 
 /// Identifies a type of a DbVec
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -593,7 +588,6 @@ impl EZTable {
             header.push(header_item);
         }
 
-        
         if !primary_key_set {
             match header[0].kind {
                 DbType::Int => header[0].key = TableKey::Primary,

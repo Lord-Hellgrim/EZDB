@@ -8,16 +8,16 @@ NEED POLISH
     - Spec is half written (EZQL.txt)
 - Re examine the ColumnTable
     - Try to further optimize queries
-- Make the tests more organized and stable
 - Make documentation comments
 
 
 IN PROGRESS
+- Make the tests more organized and stable
 - Make a management GUI
     - Ideally a TUI to allow ssh GUI management and visualization
         - Note to self: "Look into the ratatui library"
 - Reexamine the networking layer.
-    - Remove the redundant round-trip.
+    - Find the Heisenbug
 
 
 NOT STARTED
@@ -28,7 +28,6 @@ NOT STARTED
     - Oh boy...
 - Further reinforce persistence
 - Implement logging
-- Implement login caching to speed up ongoing queries.
 
 
 - ...suggestions?

@@ -631,51 +631,7 @@ pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut C
 
 }
 
-/// This is a utility function that sends an instruction from the client to the server and returns the servers answer.
-// pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut Connection) -> Result<String, ServerError> {
 
-//     let instruction = match instruction {
-//         Instruction::Download(table_name) => format!("Downloading|{}|blank|{}", table_name, connection.user),
-//         Instruction::Upload(table_name) => format!("Uploading|{}|blank|{}", table_name, connection.user),
-//         Instruction::Update(table_name) => format!("Updating|{}|blank|{}", table_name, connection.user),
-//         Instruction::Query(query) => format!("Querying|blank|{}|{}", query, connection.user),
-//         Instruction::Delete(table_name) => format!("Deleting|{}|{}|{}", table_name, "blank", connection.user),
-//         Instruction::NewUser(user_string) => format!("NewUser|{}|blank|{}", user_string, connection.user),
-//         Instruction::KvUpload(table_name) => format!("KvUpload|{}|blank|{}", table_name, connection.user),
-//         Instruction::KvUpdate(table_name) => format!("KvUpdate|{}|blank|{}", table_name, connection.user),
-//         Instruction::KvDownload(table_name) => format!("KvDownload|{}|blank|{}", table_name, connection.user),
-//         Instruction::MetaListTables => format!("MetaListTables|blank|blank|{}", connection.user),
-//         Instruction::MetaListKeyValues => format!("MetaListKeyValues|blank|blank|{}", connection.user),
-//     };
-
-//     let (encrypted_instructions, nonce) = encrypt_aes256(instruction.as_bytes(), &connection.aes_key);
-
-//     // // println!("encrypted instructions: {:x?}", encrypted_instructions);
-//     // // println!("nonce: {:x?}", nonce);
-
-//     let mut encrypted_data_block = Vec::with_capacity(encrypted_instructions.len() + 28);
-//     encrypted_data_block.extend_from_slice(&encrypted_instructions);
-//     encrypted_data_block.extend_from_slice(&nonce);
-
-//     // // println!("encrypted instructions.len(): {}", encrypted_instructions.len());
-//     match connection.stream.write(&encrypted_data_block) {
-//         Ok(n) => println!("Wrote request as {n} bytes"),
-//         Err(e) => {return Err(ServerError::Io(e.kind()));},
-//     };
-//     connection.stream.flush()?;
-    
-//     let mut buffer: [u8;2] = [0;2];
-//     // println!("Waiting for response from server");
-//     connection.stream.read_exact(&mut buffer)?;
-//     // println!("INSTRUCTION_BUFFER: {:x?}", buffer);
-//     // println!("About to parse response from server");
-//     let response = bytes_to_str(&buffer)?;
-//     println!("reponse: {}", response);
-//     // println!("response: {}", response);
-
-//     Ok(response.to_owned())
-    
-// }
 
 /// Helper function that parses a response from instruction_send_and_confirm().
 #[inline]

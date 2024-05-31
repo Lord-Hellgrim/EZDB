@@ -7,14 +7,17 @@ name = "EZDB"
 version = "0.1.15"
 dependencies = [
  "aes-gcm",
+ "bit-vec",
  "blake3",
  "criterion",
  "fnv",
  "http",
  "miniz_oxide",
  "rand",
+ "rayon",
  "ron",
  "serde",
+ "siphasher",
  "x25519-dalek",
 ]
 
@@ -103,6 +106,12 @@ name = "base64"
 version = "0.21.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9d297deb1925b89f2ccc13d7635fa0714f12c87adce1c75356b39ca9b7178567"
+
+[[package]]
+name = "bit-vec"
+version = "0.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "349f9b6a179ed607305526ca489b34ad0a41aed5f7980fa90eb03160b69598fb"
 
 [[package]]
 name = "bitflags"
@@ -742,6 +751,12 @@ dependencies = [
  "ryu",
  "serde",
 ]
+
+[[package]]
+name = "siphasher"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56199f7ddabf13fe5074ce809e7d3f42b42ae711800501b5b16ea82ad029c39d"
 
 [[package]]
 name = "subtle"
