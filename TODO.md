@@ -21,8 +21,6 @@ IN PROGRESS
 
 
 NOT STARTED
-- Implement HTTP requests and responses
-    - Implement a javascript client interface for the http part
 - Make a standard benchmark suite
 - Implement database integrity guarantee
     - Oh boy...

@@ -144,7 +144,10 @@ pub fn handle_query_request(
 
     let queries = parse_serial_query(query)?;
 
-    let requested_csv = execute_EZQL_queries(queries, database)?;
+    let requested_csv = match execute_EZQL_queries(queries, database) {
+        Ok(table) => table,
+        Err(e) => format!("ERROR -> Could not process query because of error: '{}'", e.to_string()),
+    };
 
     println!("result_table: {}", requested_csv);
 
