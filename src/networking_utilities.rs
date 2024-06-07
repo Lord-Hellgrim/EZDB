@@ -288,7 +288,13 @@ pub fn establish_connection(mut stream: TcpStream, server: Arc<Server>, db_ref: 
     println!("About to verify username and password");
 
     {
-        if !db_ref.users.read().unwrap().contains_key(&KeyString::from(username)) {
+        let users_lock = db_ref.users.read().unwrap();
+        if !users_lock.contains_key(&KeyString::from(username)) {
+            println!("printing keys..");
+
+            for key in users_lock.keys() {
+                println!("key: '{}'", key);
+            }
             println!("Username:\n\t'{}'\n...is wrong", username);
             return Err(ServerError::Authentication(AuthenticationError::WrongUser(format!("Username: '{}' does not exist", username))));
         } else if db_ref.users.read().unwrap()[&KeyString::from(username)].read().unwrap().password != password {
@@ -537,10 +543,7 @@ pub fn chunk3_vec<T>(list: &[T]) -> Option<[&T;3]> {
 pub fn sum_i32_slice(slice: &[i32]) -> Option<i32> {
     let mut sum: i32 = 0;
     for item in slice {
-        match sum.checked_add(*item) {
-            Some(x) => sum += x,
-            None => return None,
-        }
+        sum = sum.checked_add(*item)?;
     }
     Some(sum)
 }
@@ -889,6 +892,13 @@ mod tests {
         let data = [3, 1, 6, 1, 5, 8, 1, 8, 10, 11];
         let stdev = stdev_i32_slice(&data);
         assert!(stdev > 3.611 && stdev < 3.612);
+    }
+
+    #[test]
+    fn test_sum() {
+        let data = [3, 6, 9];
+        let sum = sum_i32_slice(&data);
+        assert!(sum == Some(18));
     }
 
 }

@@ -211,7 +211,7 @@ impl Database {
         buffer_pool.init_values(&format!("EZconfig{PATH_SEP}raw_values"))?;
         let users = BTreeMap::<KeyString, RwLock<User>>::new();
         let users = Arc::new(RwLock::new(users));
-        let path = &format!("{CONFIG_FOLDER}.users");
+        let path = &format!("EZconfig{PATH_SEP}.users");
         if std::path::Path::new(path).exists() {
             let temp = std::fs::read_to_string(path)?;
             for line in temp.lines() {
@@ -219,14 +219,14 @@ impl Database {
                     continue
                 }
                 let temp_user: User = ron::from_str(line).unwrap();
+                println!("user: {}", temp_user.username);
                 users.write().unwrap().insert(KeyString::from(temp_user.username.as_str()), RwLock::new(temp_user));
             }
         } else {
             let mut users_file = std::fs::File::create(path)?;
             let admin = User::admin("admin", "admin");
+            println!("user: '{:x?}'", admin.username.as_bytes());
             users_file.write_all(ron::to_string(&admin).unwrap().as_bytes())?;
-            let users = BTreeMap::<KeyString, RwLock<User>>::new();
-            let users = Arc::new(RwLock::new(users));
             users.write().unwrap().insert(KeyString::from("admin"), RwLock::new(admin));
         }
 
@@ -246,32 +246,32 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
     
     // #################################### STARTUP SEQUENCE #############################################
     println!("Starting server...\n###########################");
-        let server_private_key = StaticSecret::random();
-        let server_public_key = PublicKey::from(&server_private_key);
-        
-        println!("Binding to address: {address}");
-        let l = match TcpListener::bind(address) {
-            Ok(value) => value,
-            Err(e) => {return Err(ServerError::Io(e.kind()));},
-        };
+    let server_private_key = StaticSecret::random();
+    let server_public_key = PublicKey::from(&server_private_key);
+    
+    println!("Binding to address: {address}");
+    let l = match TcpListener::bind(address) {
+        Ok(value) => value,
+        Err(e) => {return Err(ServerError::Io(e.kind()));},
+    };
 
-        let server = Arc::new(Server {
-            public_key: server_public_key,
-            private_key: server_private_key,
-            listener: l,
-        });
+    let server = Arc::new(Server {
+        public_key: server_public_key,
+        private_key: server_private_key,
+        listener: l,
+    });
 
-        if !std::path::Path::new("EZconfig").is_dir() {
-            println!("config does not exist");
-            std::fs::create_dir("EZconfig").expect("Need IO access to initialize database");
-            std::fs::create_dir("EZconfig/raw_tables").expect("Need IO access to initialize database");
-            std::fs::create_dir("EZconfig/raw_values").expect("Need IO access to initialize database");
-        } else {
-            println!("config folder exists");
+    if !std::path::Path::new("EZconfig").is_dir() {
+        println!("config does not exist");
+        std::fs::create_dir("EZconfig").expect("Need IO access to initialize database");
+        std::fs::create_dir("EZconfig/raw_tables").expect("Need IO access to initialize database");
+        std::fs::create_dir("EZconfig/raw_values").expect("Need IO access to initialize database");
+    } else {
+        println!("config folder exists");
 
-        }
-        println!("Initializing database");
-        let database = Arc::new(Database::init()?);
+    }
+    println!("Initializing database");
+    let database = Arc::new(Database::init()?);
 
     // #################################### END STARTUP SEQUENCE ###############################################
 

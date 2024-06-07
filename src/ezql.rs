@@ -964,7 +964,7 @@ pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Res
             },
             QueryType::SELECT => {
                 match result_table {
-                    Some(mut table) => result_table = execute_delete_query(query, &mut table)?,
+                    Some(mut table) => result_table = execute_select_query(query, &mut table)?,
                     None => {
                         println!("table name: {}", &query.table);
                         let tables = database.buffer_pool.tables.read().unwrap();
