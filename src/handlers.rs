@@ -229,9 +229,13 @@ pub fn handle_kv_upload(
     println!("data received");
     {
         let mut kv_table_binding = database.buffer_pool.values.write().unwrap();
+        println!("kv_table_bound");
         kv_table_binding.insert(KeyString::from(key), RwLock::new(value));
+        println!("value inserted");
         database.buffer_pool.naughty_list.write().unwrap().insert(value_name);
+        println!("naughty list updated");
     }
+    println!("locks dropped");
 
     println!("data written");
 

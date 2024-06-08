@@ -66,8 +66,9 @@ impl BufferPool {
             let mut binary = Vec::with_capacity(file_size as usize);
             value_file.read_to_end(&mut binary)?;
 
-            let value = EZTable::read_raw_binary(&name, &binary)?;
-            self.add_table(value, value_file)?;
+            let value = Value::read_raw_binary(&name, &binary);
+
+            self.add_value(value, value_file)?;
         }
         
         Ok(())
@@ -111,6 +112,17 @@ impl BufferPool {
         self.files.write().unwrap().insert(table.name, RwLock::new(table_file));
         self.tables.write().unwrap().insert(table.name, RwLock::new(table));
 
+
+        Ok(())
+    }
+
+    pub fn add_value(&self, value: Value, value_file: File) -> Result<(), ServerError> {
+        if self.occupied_buffer() + value.body.len() as u64 > self.max_size() {
+            return Err(ServerError::NoMoreBufferSpace(value.body.len()))
+        }
+
+        self.files.write().unwrap().insert(value.name, RwLock::new(value_file));
+        self.values.write().unwrap().insert(value.name, RwLock::new(value));
 
         Ok(())
     }

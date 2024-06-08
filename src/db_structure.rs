@@ -2051,7 +2051,6 @@ pub fn subtable_from_keys(table: &EZTable, mut keys: Vec<KeyString>) -> Result<E
 }
 
 
-
 /// Helper function for the table sorting.
 /// This rearranges a column by a list of given indexes.
 /// This is how the other columns as sorted to match the primary key column after it is sorted.

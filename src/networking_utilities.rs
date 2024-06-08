@@ -731,13 +731,13 @@ pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut C
     connection.stream.flush()?;
     
     let mut buffer: [u8;2] = [0;2];
-    // println!("Waiting for response from server");
+    println!("Waiting for response from server");
     connection.stream.read_exact(&mut buffer)?;
-    // println!("INSTRUCTION_BUFFER: {:x?}", buffer);
-    // println!("About to parse response from server");
+    println!("INSTRUCTION_BUFFER: {:x?}", buffer);
+    println!("About to parse response from server");
     let response = bytes_to_str(&buffer)?;
     println!("reponse: {}", response);
-    // println!("response: {}", response);
+    println!("response: {}", response);
 
     Ok(response.to_owned())
 
