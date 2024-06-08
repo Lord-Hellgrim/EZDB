@@ -80,11 +80,13 @@ pub fn handle_upload_request(
             return Err(ServerError::Strict(e))
         },
     };
-    let table_name = table.name;
-    database.buffer_pool.tables.write().unwrap().insert(KeyString::from(name), RwLock::new(table));
-    database.buffer_pool.naughty_list.write().unwrap().insert(table_name);
-    let f = File::create(format!("EZconfig{PATH_SEP}raw_tables{PATH_SEP}{table_name}")).expect("There should never be a duplicate file name");
-    database.buffer_pool.files.write().unwrap().insert(table_name, RwLock::new(f));
+    {
+        let table_name = table.name;
+        database.buffer_pool.tables.write().unwrap().insert(KeyString::from(name), RwLock::new(table));
+        database.buffer_pool.naughty_list.write().unwrap().insert(table_name);
+        let f = File::create(format!("EZconfig{PATH_SEP}raw_tables{PATH_SEP}{table_name}")).expect("There should never be a duplicate file name");
+        database.buffer_pool.files.write().unwrap().insert(table_name, RwLock::new(f));
+    }
     
 
     Ok("OK".to_owned())
@@ -225,10 +227,13 @@ pub fn handle_kv_upload(
     let value_name = value.name;
     
     println!("data received");
+    {
+        let mut kv_table_binding = database.buffer_pool.values.write().unwrap();
+        kv_table_binding.insert(KeyString::from(key), RwLock::new(value));
+        database.buffer_pool.naughty_list.write().unwrap().insert(value_name);
+    }
 
-    let mut kv_table_binding = database.buffer_pool.values.write().unwrap();
-    kv_table_binding.insert(KeyString::from(key), RwLock::new(value));
-    database.buffer_pool.naughty_list.write().unwrap().insert(value_name);
+    println!("data written");
 
     connection.stream.write_all("OK".as_bytes())?;
     

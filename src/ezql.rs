@@ -98,6 +98,7 @@ pub struct Query {
     pub table: KeyString,
     pub query_type: QueryType,
     pub primary_keys: RangeOrListorAll,
+    pub columns: Vec<KeyString>,
     pub conditions: Vec<OpOrCond>,
     pub updates: Vec<Update>,
     pub inserts: Inserts,
@@ -111,9 +112,10 @@ impl Display for Query {
         let mut printer = String::new();
         match self.query_type {
             QueryType::SELECT => {
-                printer.push_str(&format!("SELECT(table_name: {}, primary_keys: {}, conditions: ({}))",
+                printer.push_str(&format!("SELECT(table_name: {}, primary_keys: {}, columns: {}, conditions: ({}))",
                         self.table,
                         self.primary_keys,
+                        print_sep_list(&self.columns, ", "),
                         print_sep_list(&self.conditions, " "),
                 ));
 
@@ -186,6 +188,7 @@ impl Query {
             table: KeyString::from("__RESULT__"),
             query_type: QueryType::SELECT,
             primary_keys: RangeOrListorAll::All,
+            columns: Vec::new(),
             conditions: Vec::new(),
             updates: Vec::new(),
             inserts: Inserts::default(),
@@ -791,6 +794,19 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
                 }
             };
 
+            match args.get("columns") {
+                Some(x) => query.columns = x.iter().map(|n| KeyString::from(n.as_str())).collect(),
+                None => {
+                        if query.query_type == QueryType::SELECT {
+                            return Err(QueryError::InvalidQueryStructure("Missing column list. To select all columns use * as the columns argument.".to_owned()));
+                        } else {
+                            query.columns = Vec::new();
+                        }
+                    },
+            };
+
+            
+
             if query.query_type == QueryType::UPDATE {
                 let updates = match args.get("updates") {
                     Some(x) => x,
@@ -1185,7 +1201,11 @@ fn execute_select_query(query: Query, table: &EZTable) -> Result<Option<EZTable>
     let keepers = filter_keepers(&query, table)?;
 
     Ok(
-        Some(table.subtable_from_indexes(&keepers, &KeyString::from("RESULT")))
+        Some(
+            table
+                .subtable_from_indexes(&keepers, &KeyString::from("RESULT"))
+                .subtable_from_columns(&query.columns, "RESULT")?
+            )
     )
 }
 
@@ -1515,7 +1535,7 @@ mod tests {
     #[test]
     fn test_parse_query() {
         let INSERT_query_string =  "INSERT(table_name: products, value_columns: (id, stock, location, price), new_values: ((0113035, 500, LAG15, 995), (0113000, 100, LAG30, 495)))";
-        let SELECT_query_string = "SELECT(table_name: products, primary_keys: (0113000, 0113034, 0113035, 0113500), conditions: ((price less-than 500) AND (price greater-than 200) AND (location equals lag15)))";
+        let SELECT_query_string = "SELECT(table_name: products, primary_keys: (0113000, 0113034, 0113035, 0113500), columns: *, conditions: ((price less-than 500) AND (price greater-than 200) AND (location equals lag15)))";
         let UPDATE_query_string = "UPDATE(table_name: products, primary_keys: (0113035, 0113000), conditions: ((id starts-with 011)), updates: ((price += 100), (stock -= 100)))";
         let DELETE_query_string = "DELETE(table_name: products, primary_keys: *, conditions: ((price greater-than 500) AND (stock less-than 1000)))";
         let LEFT_JOIN_query_string = "LEFT_JOIN(left_table: products, right_table: warehouses, primary_keys: 0113000..18572054, match_columns: (location, id))";
@@ -1574,7 +1594,7 @@ mod tests {
     fn test_SELECT() {
         let table_string = std::fs::read_to_string(format!("test_files{PATH_SEP}good_csv.txt")).unwrap();
         let table = EZTable::from_csv_string(&table_string, "good_csv", "test").unwrap();
-        let query = "SELECT(primary_keys: *, table_name: good_csv, conditions: ())";
+        let query = "SELECT(primary_keys: *, columns: *, table_name: good_csv, conditions: ())";
         let parsed = parse_serial_query(query).unwrap();
         let result = execute_select_query(parsed[0].clone(), &table).unwrap().unwrap();
         println!("{}", result);

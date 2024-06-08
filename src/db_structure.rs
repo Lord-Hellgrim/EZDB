@@ -911,10 +911,13 @@ impl EZTable {
 
     /// Utility function to get the length of the database columns.
     pub fn len(&self) -> usize {
-        match &self.columns.values().next().unwrap() {
-            DbColumn::Floats(col) => col.len(),
-            DbColumn::Ints(col) => col.len(),
-            DbColumn::Texts(col) => col.len(),
+        match &self.columns.values().next() {
+            Some(column) => match column {
+                DbColumn::Floats(col) => col.len(),
+                DbColumn::Ints(col) => col.len(),
+                DbColumn::Texts(col) => col.len(),
+            },
+            None => 0,
         }
     }
 
@@ -1113,6 +1116,50 @@ impl EZTable {
             header: self.header.clone(),
             columns: result_columns,
         }
+    }
+
+    pub fn subtable_from_columns(&self, columns: &[KeyString], new_name: &str) -> Result<EZTable, StrictError> {
+        let mut new_table_inner = BTreeMap::new();
+        let mut new_table_header = Vec::new();
+
+        if columns.is_empty() {
+            return Err(StrictError::Query("No columns specified. If you want all columns, us '*'".to_owned()))
+        }
+
+        if columns[0].as_str() == "*" || columns[0].as_str() == "*" {
+            return Ok(
+                EZTable {
+                    metadata: Metadata::from_table("query", &self.header, &self.columns),
+                    name: KeyString::from(new_name),
+                    header: self.header.clone(),
+                    columns: self.columns.clone(),
+                }
+            )
+        }
+
+        for column in columns {
+            match self.columns.get(column) {
+                Some(col) => {
+                    new_table_inner.insert(*column, col.clone());
+                    let header_item = self.header
+                        .iter()
+                        .find(|&x| x.name==*column)
+                        .expect("This is safe since the header must always have a corresponding entry to the column name")
+                        .clone();
+                    new_table_header.push(header_item);
+                },
+                None => return Err(StrictError::Query(format!("No such column as {}", column))),
+            };
+        }
+
+        Ok(
+            EZTable {
+                metadata: Metadata::from_table("query", &new_table_header, &new_table_inner),
+                name: KeyString::from(new_name),
+                header: new_table_header,
+                columns: new_table_inner,
+            }
+        )
     }
 
     /// Gets a range of items from the table and returns a csv String containing them

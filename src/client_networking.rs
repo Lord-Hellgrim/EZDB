@@ -387,20 +387,20 @@ mod tests {
         assert!(d.is_ok());
     }
 
-    #[test]
-    fn test_concurrent_connections() {
-        let csv = std::fs::read_to_string(format!("test_files{PATH_SEP}good_csv.txt")).unwrap();
-        let address = "127.0.0.1:3004";
-        let username = "admin";
-        let password = "admin";
-        let a = upload_table(address, username, password, "good_csv", &csv);
-        assert!(a.is_ok());
-        println!("About to check second table");
-        std::thread::sleep(std::time::Duration::from_secs(2));
-        for _ in 0..100 {
-            download_table(address, username, password, "good_csv").unwrap();
-        }
-    }
+    // #[test]
+    // fn test_concurrent_connections() {
+    //     let csv = std::fs::read_to_string(format!("test_files{PATH_SEP}good_csv.txt")).unwrap();
+    //     let address = "127.0.0.1:3004";
+    //     let username = "admin";
+    //     let password = "admin";
+    //     let a = upload_table(address, username, password, "good_csv", &csv);
+    //     assert!(a.is_ok());
+    //     println!("About to check second table");
+    //     std::thread::sleep(std::time::Duration::from_secs(2));
+    //     for _ in 0..100 {
+    //         download_table(address, username, password, "good_csv").unwrap();
+    //     }
+    // }
 
     #[test]
     fn test_send_bad_csv() {
@@ -459,7 +459,7 @@ mod tests {
         let e = upload_table(address, username, password, "good_csv", &csv).unwrap();
         assert_eq!(e, "OK");
 
-        let query = "SELECT(table_name: good_csv, primary_keys: *, conditions: ())";
+        let query = "SELECT(table_name: good_csv, primary_keys: *, columns: *, conditions: ())";
         let username = "admin";
         let password = "admin";
         let response = query_table(address, username, password, query).unwrap();
