@@ -9,18 +9,20 @@ NEED POLISH
 - Re examine the ColumnTable
     - Try to further optimize queries
 - Make documentation comments
+- Reexamine the networking layer.
+    - Find the Heisenbug
+        - FOUND! The write lock that was updating the metadata was never releasing for some odd deadlock reason.
+        I replaced the lock with an AtomicU64 and now the problem is gone.
 
 
 IN PROGRESS
-- Make the tests more organized and stable
 - Make a management GUI
     - Ideally a TUI to allow ssh GUI management and visualization
         - Note to self: "Look into the ratatui library"
-- Reexamine the networking layer.
-    - Find the Heisenbug
 
 
 NOT STARTED
+- Make the tests more organized and stable
 - Make a standard benchmark suite
 - Implement database integrity guarantee
     - Oh boy...
