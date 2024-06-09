@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap, HashSet}, fmt::{self, Debug, Display}, io::Write, num::{ParseFloatError, ParseIntError}
+    collections::{BTreeMap, HashMap, HashSet}, fmt::{self, Debug, Display}, io::Write, num::{ParseFloatError, ParseIntError}, sync::atomic::{AtomicU64, Ordering}
 };
 
 // use smartstring::{LazyCompact, SmartString, };
@@ -224,22 +224,50 @@ impl From<std::io::Error> for StrictError {
 
 
 /// The struct that carries metadata relevant to a given table. More metadata will probably be added later.
-#[derive(PartialEq, PartialOrd, Clone, Debug)]
+#[derive(Debug)]
 pub struct Metadata {
-    pub last_access: u64,
-    pub times_accessed: u64,
+    pub last_access: AtomicU64,
+    pub times_accessed: AtomicU64,
     pub created_by: KeyString,
     size_of_table: usize,
-    size_of_row: usize,
-    
+    size_of_row: usize,   
+}
+
+impl PartialEq for Metadata {
+    fn eq(&self, other: &Self) -> bool {
+        self.size_of_table == other.size_of_table && self.size_of_row == other.size_of_row
+    }
+}
+
+impl PartialOrd for Metadata {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+
+        match self.size_of_table.partial_cmp(&other.size_of_table) {
+            Some(core::cmp::Ordering::Equal) => {}
+            ord => return ord,
+        }
+        self.size_of_row.partial_cmp(&other.size_of_row)
+    }
+}
+
+impl Clone for Metadata {
+    fn clone(&self) -> Self {
+        Self { 
+            last_access: AtomicU64::new(self.last_access.load(Ordering::Relaxed)),
+            times_accessed: AtomicU64::new(self.times_accessed.load(Ordering::Relaxed).clone()),
+            created_by: self.created_by.clone(),
+            size_of_table: self.size_of_table.clone(),
+            size_of_row: self.size_of_row.clone()
+        }
+    }
 }
 
 impl fmt::Display for Metadata {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut printer = String::new();
 
-        printer.push_str(&format!("last_access:{}\n", self.last_access));
-        printer.push_str(&format!("times_accessed:{}\n", self.times_accessed));
+        printer.push_str(&format!("last_access:{}\n", self.last_access.load(Ordering::Relaxed)));
+        printer.push_str(&format!("times_accessed:{}\n", self.times_accessed.load(Ordering::Relaxed)));
         printer.push_str(&format!("created_by:{}", self.created_by));
         writeln!(f, "{}", printer)
     }
@@ -248,8 +276,8 @@ impl fmt::Display for Metadata {
 impl Metadata {
     pub fn new(client: &str) -> Metadata {
         Metadata {
-            last_access: get_current_time(),
-            times_accessed: 0,
+            last_access: AtomicU64::new(get_current_time()),
+            times_accessed: AtomicU64::new(0),
             created_by: KeyString::from(client),
             size_of_table: 0,
             size_of_row: 0,
@@ -274,8 +302,8 @@ impl Metadata {
         });
 
         Metadata {
-            last_access: get_current_time(),
-            times_accessed: 0,
+            last_access: AtomicU64::new(get_current_time()),
+            times_accessed: AtomicU64::new(0),
             created_by: KeyString::from(client),
             size_of_table,
             size_of_row,
@@ -432,6 +460,7 @@ pub struct EZTable {
     pub header: Vec<HeaderItem>,
     pub columns: BTreeMap<KeyString, DbColumn>,
 }
+
 
 /// Prints the ColumnTable as a csv (separated by semicolons ;)
 impl Display for EZTable {
@@ -1798,8 +1827,8 @@ impl EZTable {
 
         // WRITING METADATA
         output.extend_from_slice(self.metadata.created_by.raw());
-        output.extend_from_slice(&self.metadata.last_access.to_le_bytes());
-        output.extend_from_slice(&self.metadata.times_accessed.to_le_bytes());
+        output.extend_from_slice(&self.metadata.last_access.load(Ordering::Relaxed).to_le_bytes());
+        output.extend_from_slice(&self.metadata.times_accessed.load(Ordering::Relaxed).to_le_bytes());
 
         // WRITING COLUMNS
         for column in self.columns.values() {
@@ -1914,8 +1943,8 @@ impl EZTable {
         }
 
         let mut metadata = Metadata::new(metadata_created_by.as_str());
-        metadata.last_access = metadata_last_access;
-        metadata.times_accessed = metadata_times_accessed;
+        metadata.last_access = AtomicU64::new(metadata_last_access);
+        metadata.times_accessed = AtomicU64::new(metadata_times_accessed);
         metadata.size_of_row = header.iter().fold(0, |acc: usize, x| {
             match x.kind {
                 DbType::Float => acc + 4,
@@ -2202,8 +2231,8 @@ impl Value {
     pub fn update(&mut self, value: Value) {
         assert_eq!(self.name, value.name);
         self.body = value.body;
-        self.metadata.last_access = get_current_time();
-        self.metadata.times_accessed += 1;
+        self.metadata.last_access.store(get_current_time(), Ordering::Relaxed);
+        self.metadata.times_accessed.fetch_add(1, Ordering::Relaxed);
 
     } 
 
@@ -2213,8 +2242,8 @@ impl Value {
 
         // WRITING METADATA
         output.extend_from_slice(self.metadata.created_by.raw());
-        output.extend_from_slice(&self.metadata.last_access.to_le_bytes());
-        output.extend_from_slice(&self.metadata.times_accessed.to_le_bytes());
+        output.extend_from_slice(&self.metadata.last_access.load(Ordering::Relaxed).to_le_bytes());
+        output.extend_from_slice(&self.metadata.times_accessed.load(Ordering::Relaxed).to_le_bytes());
 
         output.extend_from_slice(&self.body);
 
@@ -2228,8 +2257,8 @@ impl Value {
         let metadata_times_accessed = u64_from_le_slice(&binary[72..80]);
 
         let mut metadata = Metadata::new(metadata_created_by.as_str());
-        metadata.last_access = metadata_last_access;
-        metadata.times_accessed = metadata_times_accessed;
+        metadata.last_access = AtomicU64::new(metadata_last_access);
+        metadata.times_accessed = AtomicU64::new(metadata_times_accessed);
         metadata.size_of_row = 0;
 
         let body = &binary[80..];

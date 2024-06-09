@@ -973,7 +973,7 @@ pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Res
                         let tables = database.buffer_pool.tables.read().unwrap();
                         let mut table = tables.get(&query.table).unwrap().write().unwrap();
                         result_table = execute_delete_query(query, &mut table)?;
-                        database.buffer_pool.naughty_list.write().unwrap().insert(table.name);
+                        database.buffer_pool.table_naughty_list.write().unwrap().insert(table.name);
                     },
                 }
                 
@@ -1026,7 +1026,7 @@ pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Res
                         let tables = database.buffer_pool.tables.read().unwrap();
                         let mut table = tables.get(&query.table).unwrap().write().unwrap();
                         result_table = execute_update_query(query, &mut table)?;
-                        database.buffer_pool.naughty_list.write().unwrap().insert(table.name);
+                        database.buffer_pool.table_naughty_list.write().unwrap().insert(table.name);
                     },
                 }
             },
@@ -1037,7 +1037,7 @@ pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Res
                         let tables = database.buffer_pool.tables.read().unwrap();
                         let mut table = tables.get(&query.table).unwrap().write().unwrap();
                         result_table = execute_insert_query(query, &mut table)?;
-                        database.buffer_pool.naughty_list.write().unwrap().insert(table.name);
+                        database.buffer_pool.table_naughty_list.write().unwrap().insert(table.name);
                     },
                 }
             },

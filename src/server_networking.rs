@@ -289,8 +289,8 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                 std::thread::sleep(Duration::from_secs(10));
                 println!("Background thread still running");
                 for key in writer_thread_db_ref.buffer_pool.tables.read().unwrap().keys() {
-                    let mut naughty_list = writer_thread_db_ref.buffer_pool.naughty_list.write().unwrap();
-                    if naughty_list.contains(key) {
+                    let mut table_naughty_list = writer_thread_db_ref.buffer_pool.table_naughty_list.write().unwrap();
+                    if table_naughty_list.contains(key) {
                         match writer_thread_db_ref.buffer_pool.write_table_to_file(key) {
                             Ok(_) => (),
                             Err(e) => match e {
@@ -298,9 +298,25 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                                 e => panic!("The write thread should only ever throw IO errors and it just threw this error:\n {}", e),
                             }
                         };
-                        naughty_list.remove(key);
+                        table_naughty_list.remove(key);
                     }
                 }
+                
+
+                for key in writer_thread_db_ref.buffer_pool.values.read().unwrap().keys() {
+                    let mut value_naughty_list = writer_thread_db_ref.buffer_pool.value_naughty_list.write().unwrap();
+                    if value_naughty_list.contains(key) {
+                        match writer_thread_db_ref.buffer_pool.write_value_to_file(key) {
+                            Ok(_) => (),
+                            Err(e) => match e {
+                                ServerError::Io(e) => println!("{}", e),
+                                e => panic!("The write thread should only ever throw IO errors and it just threw this error:\n {}", e),
+                            }
+                        };
+                        value_naughty_list.remove(key);
+                    }
+                }
+
             }
         }); // Thread that writes in memory tables to disk
 

@@ -3,7 +3,7 @@ use std::fs::{create_dir, read_dir, File};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 
 use crate::db_structure::{write_subtable_to_raw_binary, DbType, DbColumn, HeaderItem, KeyString, Metadata, StrictError, Value};
@@ -21,7 +21,8 @@ pub struct BufferPool {
     pub tables: Arc<RwLock<BTreeMap<KeyString, RwLock<EZTable>>>>,
     pub values: Arc<RwLock<BTreeMap<KeyString, RwLock<Value>>>>,
     pub files: Arc<RwLock<BTreeMap<KeyString, RwLock<File>>>>,
-    pub naughty_list: Arc<RwLock<HashSet<KeyString>>>,
+    pub table_naughty_list: Arc<RwLock<HashSet<KeyString>>>,
+    pub value_naughty_list: Arc<RwLock<HashSet<KeyString>>>,
 }
 
 impl BufferPool {
@@ -78,14 +79,16 @@ impl BufferPool {
         let tables = Arc::new(RwLock::new(BTreeMap::new()));
         let values = Arc::new(RwLock::new(BTreeMap::new()));
         let files = Arc::new(RwLock::new(BTreeMap::new()));
-        let naughty_list = Arc::new(RwLock::new(HashSet::new()));
+        let table_naughty_list = Arc::new(RwLock::new(HashSet::new()));
+        let value_naughty_list = Arc::new(RwLock::new(HashSet::new()));
 
         BufferPool {
             max_size,
             tables,
             values,
             files,
-            naughty_list,
+            table_naughty_list,
+            value_naughty_list,
         }
 
     }
@@ -135,6 +138,14 @@ impl BufferPool {
 
     }
 
+    pub fn write_value_to_file(&self, value_name: &KeyString) -> Result<(), ServerError> {
+
+        let disk_data = self.values.read().unwrap()[value_name].read().unwrap().write_to_raw_binary();
+        self.files.write().unwrap().get_mut(value_name).unwrap().write().unwrap().write_all(&disk_data)?;
+        Ok(())
+
+    }
+
     pub fn clear_space(&mut self, space_to_clear: u64) -> Result<(), ServerError> {
         
         let lru_table = self.tables
@@ -143,7 +154,7 @@ impl BufferPool {
             .values()
             .map(|n| {
                 let x = n.read().unwrap();
-                (x.metadata.last_access, x.name)
+                (x.metadata.last_access.load(Ordering::Relaxed), x.name)
             })
             .min_by(|x, y| x.0.cmp(&y.0))
             .unwrap();
@@ -154,7 +165,7 @@ impl BufferPool {
             .values()
             .map(|n| {
                 let x = n.read().unwrap();
-                (x.metadata.last_access, x.name)
+                (x.metadata.last_access.load(Ordering::Relaxed), x.name)
             })
             .min_by(|x, y| x.0.cmp(&y.0))
             .unwrap();

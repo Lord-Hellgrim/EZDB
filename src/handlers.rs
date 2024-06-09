@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, fs::File, io::Write, sync::{Arc, RwLock}};
+use std::{collections::BTreeMap, fs::File, io::Write, sync::{atomic::Ordering, Arc, RwLock}};
 
 use crate::{auth::User, db_structure::{EZTable, KeyString, Value}, ezql::{execute_EZQL_queries, parse_serial_query}, networking_utilities::*, server_networking::Database};
 
@@ -32,10 +32,10 @@ pub fn handle_download_request(
         
         let global_read_binding = database.buffer_pool.tables.read().unwrap();
 
-        let mut requested_table = global_read_binding[&KeyString::from(name)].write().unwrap();
+        let requested_table = global_read_binding[&KeyString::from(name)].read().unwrap();
 
-        requested_table.metadata.times_accessed += 1;
-        requested_table.metadata.last_access = get_current_time();
+        requested_table.metadata.times_accessed.fetch_add(1, Ordering::Relaxed);
+        requested_table.metadata.last_access.store(get_current_time(), Ordering::Relaxed);
         
         Ok(())
         
@@ -83,7 +83,7 @@ pub fn handle_upload_request(
     {
         let table_name = table.name;
         database.buffer_pool.tables.write().unwrap().insert(KeyString::from(name), RwLock::new(table));
-        database.buffer_pool.naughty_list.write().unwrap().insert(table_name);
+        database.buffer_pool.table_naughty_list.write().unwrap().insert(table_name);
         let f = File::create(format!("EZconfig{PATH_SEP}raw_tables{PATH_SEP}{table_name}")).expect("There should never be a duplicate file name");
         database.buffer_pool.files.write().unwrap().insert(table_name, RwLock::new(f));
     }
@@ -120,7 +120,7 @@ pub fn handle_update_request(
             .unwrap()
             .update(&table)
             ?;
-            database.buffer_pool.naughty_list.write().unwrap().insert(table.name);
+            database.buffer_pool.table_naughty_list.write().unwrap().insert(table.name);
         },
         Err(e) => {
             connection.stream.write_all(e.to_string().as_bytes())?;
@@ -227,12 +227,16 @@ pub fn handle_kv_upload(
     let value_name = value.name;
     
     println!("data received");
+    println!("data: {:x?}", value.body);
     {
-        let mut kv_table_binding = database.buffer_pool.values.write().unwrap();
+        let mut kv_table_binding = match database.buffer_pool.values.try_write() {
+            Ok(binding) => binding,
+            Err(e) => panic!("error: {e}"),
+        };
         println!("kv_table_bound");
         kv_table_binding.insert(KeyString::from(key), RwLock::new(value));
         println!("value inserted");
-        database.buffer_pool.naughty_list.write().unwrap().insert(value_name);
+        database.buffer_pool.table_naughty_list.write().unwrap().insert(value_name);
         println!("naughty list updated");
     }
     println!("locks dropped");
@@ -272,7 +276,7 @@ pub fn handle_kv_update(
             .write()
             .unwrap()
             .update(value);
-        database.buffer_pool.naughty_list.write().unwrap().insert(value_name);
+        database.buffer_pool.table_naughty_list.write().unwrap().insert(value_name);
     }
 
     connection.stream.write_all("OK".as_bytes())?;
@@ -299,22 +303,34 @@ pub fn handle_kv_download(
     let read_binding = database.buffer_pool.values.read().unwrap();
     let requested_value = read_binding.get(&KeyString::from(name)).expect("Instruction parser should have verified table").read().unwrap();
 
+    println!("handle_kv_download: sending data");
     let response = data_send_and_confirm(connection, &requested_value.body)?;
+    println!("handle_kv_download: data sent");
 
     if response == "OK" {
+        {
 
-        let values = database.buffer_pool.values
+            println!("handle_kv_download: about to lock values for metadata update");
+            
+            let values = database.buffer_pool.values
             .read()
             .unwrap();
         
-        let mut this_value = values.get(&KeyString::from(name))
-            .unwrap()
-            .write()
-            .unwrap();
-        
-        this_value.metadata.last_access = get_current_time();
+            println!("handle_kv_download: values table lock acquired");
 
-        this_value.metadata.times_accessed += 1;
+            let mut this_value = values.get(&KeyString::from(name))
+                .unwrap()
+                .read()
+                .unwrap();
+
+            println!("handle_kv_download: value entry lock acquired");
+
+            this_value.metadata.last_access.store(get_current_time(), Ordering::Relaxed);
+            this_value.metadata.times_accessed.fetch_add(1, Ordering::Relaxed);
+
+            println!("handle_kv_download: metadata updated");
+        }
+        
         Ok(())
     } else {
         Err(ServerError::Confirmation(response))
