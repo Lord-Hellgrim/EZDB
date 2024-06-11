@@ -336,7 +336,8 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
             outer_scope.spawn(move || {
                 
                 // ################## ESTABLISHING ENCRYPTED CONNECTION ##########################################################################################################
-                
+                // check_if_http();
+
                 let mut connection = establish_connection(stream, thread_server, db_ref.clone())?;
 
                 // ############################ END OF ESTABLISHING ENCRYPTED CONNECTION ###################################################################################

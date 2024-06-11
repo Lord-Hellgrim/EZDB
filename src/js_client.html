@@ -15,10 +15,12 @@
     <pre id="response"></pre>
 
     <script>
-        document.getElementById('queryForm').addEventListener('submit', function(event) {
+        document.getElementById('queryForm').addEventListener('submit',  async function(event) {
             event.preventDefault();
 
             const query = document.getElementById('query').value;
+
+            // V0
             const xhr = new XMLHttpRequest();
             xhr.open('POST', 'http://127.0.0.1:3004/query', true);
             xhr.setRequestHeader('Content-Type', 'EZQL;charset=UTF-8');
@@ -34,6 +36,48 @@
             };
 
             xhr.send(query);
+
+            // V1
+            fetch({
+                method: "POST", 
+                url: "http://127.0.0.1:3004/query", 
+                headers: {'Content-Type': 'EZQL;charset=UTF-8'}
+            }).then((response)=>{
+                if (response.status === 200) {
+                    document.getElementById('response').textContent = response.text;
+                } else {
+                    document.getElementById('response').textContent = 'Error: ' + response.status;
+                }
+            })
+
+            // V2
+            function encrypt(stuff){
+                return stuff
+            }
+            
+            function decrypt(stuff){
+                return stuff
+            }
+
+            async function post(body){
+                let response = await fetch({
+                    method: "POST", 
+                    url: "http://127.0.0.1:3004/query", 
+                    headers: {'Content-Type': 'EZQL;charset=UTF-8'},
+                    body: encrypt(body)
+                })
+
+                if (response.status === 200) {
+                    return decrypt(response.text)
+                } else {
+                    document.getElementById('response').textContent = 'Error: ' + response.status;
+                }   
+            }
+                        
+            const response = await post({})
+            document.getElementById('response').textContent = response;
+
+            
         });
     </script>
 </body>
