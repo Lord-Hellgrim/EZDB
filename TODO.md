@@ -16,6 +16,8 @@ NEED POLISH
 
 
 IN PROGRESS
+- Fix auth
+    - Possibly finished?
 - Make a management GUI
     - Ideally a TUI to allow ssh GUI management and visualization
         - Note to self: "Look into the ratatui library"
@@ -29,7 +31,6 @@ NOT STARTED
 - Further reinforce persistence
 - Implement logging
 - JAVASCRIPT!!!!
-- Fix auth
 
 
 - ...suggestions?

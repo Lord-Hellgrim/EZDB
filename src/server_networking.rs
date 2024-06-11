@@ -161,7 +161,7 @@ pub fn parse_instruction(
 // then there's no point to multithreading.
 
 
-#[derive(Clone, PartialEq, PartialOrd)]
+#[derive(Clone, PartialEq)]
 pub enum WriteThreadMessage {
     UpdateMetadata(Metadata, KeyString), 
     DropTable(KeyString),

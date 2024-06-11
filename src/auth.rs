@@ -1,12 +1,12 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashSet},
     fmt::{self, Display},
     sync::{Arc, RwLock},
 };
 
 use serde::{Deserialize, Serialize};
 
-use crate::{db_structure::KeyString, networking_utilities::{blake3_hash, encode_hex}};
+use crate::{db_structure::KeyString, ezql::Query, networking_utilities::{blake3_hash, encode_hex}};
 
 /// Defines a permission a user has to interact with a given table
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,14 +41,14 @@ impl Permission {
 /// The password field is a blake3 hash of the users password
 /// the can_upload field tracks whether the user should be allowed to upload tables or binary blobs
 /// the can_X fields are lists of tables / values on which X operation is allowed.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct User {
     pub username: String,
     pub password: [u8; 32],
     pub admin: bool,
     pub can_upload: bool,
-    pub can_read: Vec<String>,
-    pub can_write: Vec<String>,
+    pub can_read: HashSet<String>,
+    pub can_write: HashSet<String>,
 }
 
 impl Display for User {
@@ -84,8 +84,8 @@ impl User {
             password: blake3_hash(password.as_bytes()),
             admin: false,
             can_upload: false,
-            can_read: Vec::new(),
-            can_write: Vec::new(),
+            can_read: HashSet::new(),
+            can_write: HashSet::new(),
         }
     }
 
@@ -96,8 +96,8 @@ impl User {
             password: blake3_hash(password.as_bytes()),
             admin: true,
             can_upload: true,
-            can_read: Vec::new(),
-            can_write: Vec::new(),
+            can_read: HashSet::new(),
+            can_write: HashSet::new(),
         }
     }
 
@@ -140,6 +140,40 @@ impl User {
     
 }
 
+pub fn check_permission(
+    queries: &[Query],
+    username: &str,
+    users: Arc<RwLock<BTreeMap<KeyString, RwLock<User>>>>,
+) -> Result<(), AuthenticationError> {
+
+    let user = users.read().unwrap();
+    let user = match user.get(&KeyString::from(username)) {
+        Some(u) => u.read().unwrap(),
+        None => return Err(AuthenticationError::Permission),
+    };
+
+    if user.admin {
+        return Ok(())
+    }
+
+    for query in queries {
+        match query.query_type {
+            crate::ezql::QueryType::SELECT => if user.can_read.contains(&query.table.to_string()) {continue},
+            crate::ezql::QueryType::LEFT_JOIN => if user.can_read.contains(&query.table.to_string()) {continue},
+            crate::ezql::QueryType::INNER_JOIN => if user.can_read.contains(&query.table.to_string()) {continue},
+            crate::ezql::QueryType::RIGHT_JOIN => if user.can_read.contains(&query.table.to_string()) {continue},
+            crate::ezql::QueryType::FULL_JOIN => if user.can_read.contains(&query.table.to_string()) {continue},
+            crate::ezql::QueryType::UPDATE => if user.can_write.contains(&query.table.to_string()) {continue},
+            crate::ezql::QueryType::INSERT => if user.can_write.contains(&query.table.to_string()) {continue},
+            crate::ezql::QueryType::DELETE => if user.can_write.contains(&query.table.to_string()) {continue},
+            crate::ezql::QueryType::SUMMARY => if user.can_read.contains(&query.table.to_string()) {continue},
+        }
+        return Err(AuthenticationError::Permission)
+    }
+
+    Ok(())
+}
+
 /// Check if the user has permission to access a given table.
 /// This probably needs to be rewritten as I reduce reliance on Arc<<Mutex<T>>>
 #[inline]
@@ -149,6 +183,7 @@ pub fn user_has_permission(
     username: &str,
     users: Arc<RwLock<BTreeMap<KeyString, RwLock<User>>>>,
 ) -> bool {
+
     let user = users.read().unwrap();
     let user = match user.get(&KeyString::from(username)) {
         Some(u) => u.read().unwrap(),

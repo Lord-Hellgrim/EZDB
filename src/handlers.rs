@@ -144,9 +144,10 @@ pub fn handle_query_request(
 
     // PARSE INSTRUCTION
 
+    let username = connection.user.clone();
     let queries = parse_serial_query(query)?;
 
-    let requested_csv = match execute_EZQL_queries(queries, database) {
+    let requested_csv = match execute_EZQL_queries(queries, database, &username) {
         Ok(table) => table,
         Err(e) => format!("ERROR -> Could not process query because of error: '{}'", e.to_string()),
     };

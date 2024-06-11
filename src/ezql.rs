@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fmt::Display, str::FromStr, sync::Arc};
 
-use crate::{db_structure::{remove_indices, DbColumn, EZTable, KeyString, StrictError}, networking_utilities::{mean_f32_slice, mean_i32_slice, median_f32_slice, median_i32_slice, mode_i32_slice, mode_string_slice, print_sep_list, stdev_f32_slice, stdev_i32_slice, sum_f32_slice, sum_i32_slice, ServerError}, server_networking::Database};
+use crate::{auth::check_permission, db_structure::{remove_indices, DbColumn, EZTable, KeyString, StrictError}, networking_utilities::{mean_f32_slice, mean_i32_slice, median_f32_slice, median_i32_slice, mode_i32_slice, mode_string_slice, print_sep_list, stdev_f32_slice, stdev_i32_slice, sum_f32_slice, sum_i32_slice, ServerError}, server_networking::Database};
 
 use crate::PATH_SEP;
 
@@ -960,7 +960,9 @@ pub fn parse_contained_token(s: &str, container_open: char, container_close: cha
 }
 
 #[allow(non_snake_case)]
-pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Result<String, ServerError> {
+pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>, username: &str) -> Result<String, ServerError> {
+
+    check_permission(&queries, username, database.users.clone())?;
 
     let mut result_table = None;
     for query in queries.into_iter() {
