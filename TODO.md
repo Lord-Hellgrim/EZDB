@@ -28,6 +28,8 @@ NOT STARTED
     - Oh boy...
 - Further reinforce persistence
 - Implement logging
+- JAVASCRIPT!!!!
+- Fix auth
 
 
 - ...suggestions?

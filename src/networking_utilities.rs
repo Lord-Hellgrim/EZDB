@@ -339,9 +339,7 @@ pub fn check_if_http_request(stream: &TcpStream) -> Result<String, ServerError> 
 /// Just a blake3 hash.
 #[inline]
 pub fn blake3_hash(s: &[u8]) -> [u8;32]{
-
     blake3::hash(s).into()
-
 }
 
 /// Gets the current time as seconds since UNIX_EPOCH. Used for logging, mostly.
@@ -568,7 +566,10 @@ pub fn mode_i32_slice(slice: &[i32]) -> i32 {
 
     let mut map = FnvHashMap::default();
     for item in slice {
-        map.entry(item).and_modify(|n| *n += 1).or_insert(1);
+        map
+        .entry(item)
+        .and_modify(|n| *n += 1)
+        .or_insert(1);
     }
 
     let mut max = 0;

@@ -60,7 +60,6 @@ impl From<&str> for KeyString {
     }
 }
 
-
 impl TryFrom<&[u8]> for KeyString {
     type Error = StrictError;
 

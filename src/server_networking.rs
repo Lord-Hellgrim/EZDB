@@ -328,7 +328,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                 Ok((n,m)) => (n, m),
                 Err(e) => {return Err(ServerError::Io(e.kind()));},
             };
-            println!("Accepted connection from: {}", client_address);        
+            println!("Accepted connection from: {}", client_address);
             
             let thread_server = server.clone();
             let db_ref = database.clone();
