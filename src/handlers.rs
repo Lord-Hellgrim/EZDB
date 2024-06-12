@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, fs::File, io::Write, sync::{atomic::Ordering, Arc, RwLock}};
 
-use crate::{auth::User, db_structure::{EZTable, KeyString, Value}, ezql::{execute_EZQL_queries, parse_serial_query}, networking_utilities::*, server_networking::Database};
+use crate::{auth::{check_permission, User}, db_structure::{EZTable, KeyString, Value}, ezql::{execute_EZQL_queries, parse_serial_query}, networking_utilities::*, server_networking::Database};
 
 use crate::PATH_SEP;
 
@@ -144,10 +144,10 @@ pub fn handle_query_request(
 
     // PARSE INSTRUCTION
 
-    let username = connection.user.clone();
     let queries = parse_serial_query(query)?;
 
-    let requested_csv = match execute_EZQL_queries(queries, database, &username) {
+    check_permission(&queries, &connection.user, database.users.clone())?;
+    let requested_csv = match execute_EZQL_queries(queries, database) {
         Ok(table) => table,
         Err(e) => format!("ERROR -> Could not process query because of error: '{}'", e.to_string()),
     };

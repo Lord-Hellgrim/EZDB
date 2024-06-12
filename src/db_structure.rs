@@ -860,7 +860,9 @@ impl EZTable {
     /// Updates a ColumnTable. Overwrites existing keys and adds new ones in proper order
     pub fn update(&mut self, other_table: &EZTable) -> Result<(), StrictError> {
 
-        
+        if other_table.len() == 0 {
+            return Err(StrictError::Update("Can't update anything with an empty table".to_owned()))
+        }
 
         if self.header != other_table.header {
             return Err(StrictError::Update("Headers don't match".to_owned()));

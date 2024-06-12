@@ -1,16 +1,8 @@
-use std::io::Write;
-use std::string;
 
-use EZDB::client_networking;
 use criterion::{criterion_group, criterion_main, Criterion};
-// use EZDB::compression::brotli_compress;
-// use EZDB::compression::brotli_decompress;
-use EZDB::compression::miniz_compress;
-use EZDB::compression::miniz_decompress;
 use EZDB::db_structure::*;
-use EZDB::networking_utilities::*;
-use EZDB::client_networking::*;
-use rand::Rng;
+use EZDB::ezql::*;
+use EZDB::ezql::parse_EZQL;
 
 use EZDB::PATH_SEP;
 
@@ -47,8 +39,7 @@ fn my_benchmark(c: &mut Criterion) {
     // group.bench_function("upload_table", |b| b.iter(|| upload_table(address, username, password, "large_csv", &bench_csv)));
     
     let google_docs_csv = std::fs::read_to_string(format!("test_files{PATH_SEP}test_csv_from_google_sheets_combined_sorted.csv")).unwrap();
-    group.bench_function("EZTable::from_csv_string, 1.000.000 random lines", |b| b.iter(|| EZTable::from_csv_string(&google_docs_csv, "bench_test", "criterion")));
-
+    
     let t = EZTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
     
     group.bench_function("Write to raw binary", |b| b.iter(|| t.write_to_raw_binary()));
@@ -60,6 +51,63 @@ fn my_benchmark(c: &mut Criterion) {
     group.bench_function("read from raw binary", |b| b.iter(|| EZTable::read_raw_binary("bench", &bint_t)));
     group.bench_function("read from csv string", |b| b.iter(|| EZTable::from_csv_string(&string_t, "bench2", "criterion")));
 
+    // header:
+    // vnr,i-P;heiti,t-N;magn,i-N;lager,t-N
+
+    // - INSERT(table_name: products, value_columns: (id, stock, location, price), new_values: ((0113035, 500, LAG15, 995), (0113000, 100, LAG30, 495)))
+    // - SELECT(table_name: products, primary_keys: *, columns: (price, stock), conditions: ((price greater-than 500) AND (stock less-than 1000)))
+    // - UPDATE(table_name: products, primary_keys: (0113035, 0113000), conditions: ((id starts-with 011)), updates: ((price += 100), (stock -= 100)))
+    // - DELETE(primary_keys: *, table_name: products, conditions: ((price greater-than 500) AND (stock less-than 1000)))
+    // - SUMMARY(table_name: products, columns: ((SUM stock), (MEAN price)))
+    // - LEFT_JOIN(left_table: products, right_table: warehouses, match_columns: (location, id), primary_keys: 0113000..18572054)
+    let SELECT_query = "SELECT(table_name: test, primary_keys: *, columns: (heiti, magn, lager), conditions: ((magn greater_than 30) AND (lager equals lag15)))";
+    let INSERT_query = "INSERT(table_name: test, value_columns: (vnr, heiti, magn, lager), new_values: ( (175, HAMMAR, 52, lag15), (173, HAMMAR, 51, lag20) ))";
+    let UPDATE_query = "UPDATE(table_name: test, primary_keys: *, conditions: ((magn greater_than 30) AND (lager equals lag15)), updates: ( (magn -= 30) ))";
+    let DELETE_query = "DELETE(table_name: test, primary_keys: *, conditions: ((lager equals lag30)))";
+    let SUM_query = "SUMMARY(table_name: test, columns: ( (SUM magn) ))";
+    let MEAN_query = "SUMMARY(table_name: test, columns: ( (MEAN magn) ))";
+    let MODE_query = "SUMMARY(table_name: test, columns: ( (MODE magn) ))";
+    let STDEV_query = "SUMMARY(table_name: test, columns: ( (STDEV magn) ))";
+    let MEDIAN_query = "SUMMARY(table_name: test, columns: ( (MEDIAN magn) ))";
+
+    group.bench_function("parse SELECT query", |b| b.iter(|| parse_EZQL(&SELECT_query)));
+    group.bench_function("parse INSERT query", |b| b.iter(|| parse_EZQL(&INSERT_query)));
+    group.bench_function("parse UPDATE query", |b| b.iter(|| parse_EZQL(&UPDATE_query)));
+    group.bench_function("parse DELETE query", |b| b.iter(|| parse_EZQL(&DELETE_query)));
+    group.bench_function("parse SUM query"   , |b| b.iter(|| parse_EZQL(&SUM_query)));
+    group.bench_function("parse MEAN query"  , |b| b.iter(|| parse_EZQL(&MEAN_query)));
+    group.bench_function("parse MODE query"  , |b| b.iter(|| parse_EZQL(&MODE_query)));
+    group.bench_function("parse STDEV query" , |b| b.iter(|| parse_EZQL(&STDEV_query)));
+    group.bench_function("parse MEDIAN query", |b| b.iter(|| parse_EZQL(&MEDIAN_query)));
+
+    let parsed_SELECT_query = parse_EZQL(&SELECT_query).unwrap();
+    let parsed_INSERT_query =     parse_EZQL(&INSERT_query).unwrap();
+    let parsed_UPDATE_query =     parse_EZQL(&UPDATE_query).unwrap();
+    let parsed_DELETE_query =     parse_EZQL(&DELETE_query).unwrap();
+    let parsed_SUM_query =     parse_EZQL(&SUM_query).unwrap();
+    let parsed_MEAN_query =    parse_EZQL(&MEAN_query).unwrap();
+    let parsed_MODE_query =    parse_EZQL(&MODE_query).unwrap();
+    let parsed_STDEV_query =      parse_EZQL(&STDEV_query).unwrap();
+    let parsed_MEDIAN_query =     parse_EZQL(&MEDIAN_query).unwrap();
+
+    let mut t = EZTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
+    group.bench_function("execute SELECT query", |b| b.iter(|| execute_select_query(parsed_SELECT_query.clone(), &mut t).unwrap()));
+    let mut t = EZTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
+    group.bench_function("execute INSERT query", |b| b.iter(|| execute_insert_query(parsed_INSERT_query.clone(), &mut t).unwrap()));
+    let mut t = EZTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
+    group.bench_function("execute UPDATE query", |b| b.iter(|| execute_update_query(parsed_UPDATE_query.clone(), &mut t).unwrap()));
+    let mut t = EZTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
+    group.bench_function("execute DELETE query", |b| b.iter(|| execute_delete_query(parsed_DELETE_query.clone(), &mut t).unwrap()));
+    let mut t = EZTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
+    group.bench_function("execute SUM query"   , |b| b.iter(|| execute_summary_query(parsed_SUM_query.clone(), &mut t).unwrap()));
+    let mut t = EZTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
+    group.bench_function("execute MEAN query"  , |b| b.iter(|| execute_summary_query(parsed_MEAN_query.clone(), &mut t).unwrap()));
+    let mut t = EZTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
+    group.bench_function("execute MODE query"  , |b| b.iter(|| execute_summary_query(parsed_MODE_query.clone(), &mut t).unwrap()));
+    let mut t = EZTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
+    group.bench_function("execute STDEV query" , |b| b.iter(|| execute_summary_query(parsed_STDEV_query.clone(), &mut t).unwrap()));
+    let mut t = EZTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
+    group.bench_function("execute MEDIAN query", |b| b.iter(|| execute_summary_query(parsed_MEDIAN_query.clone(), &mut t).unwrap()));
 
 
     }

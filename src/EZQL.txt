@@ -5,7 +5,7 @@ EZQL (easy query language) is the primary interface to an EZDB server. It is wri
 Here are some examples:
 
  - INSERT(table_name: products, value_columns: (id, stock, location, price), new_values: ((0113035, 500, LAG15, 995), (0113000, 100, LAG30, 495)))
- - SELECT(table_name: products, primary_keys: *, columns: (price, stock) conditions: ((price greater-than 500) AND (stock less-than 1000)))
+ - SELECT(table_name: products, primary_keys: *, columns: (price, stock), conditions: ((price greater-than 500) AND (stock less-than 1000)))
  - UPDATE(table_name: products, primary_keys: (0113035, 0113000), conditions: ((id starts-with 011)), updates: ((price += 100), (stock -= 100)))
  - DELETE(primary_keys: *, table_name: products, conditions: ((price greater-than 500) AND (stock less-than 1000)))
  - SUMMARY(table_name: products, columns: ((SUM stock), (MEAN price)))

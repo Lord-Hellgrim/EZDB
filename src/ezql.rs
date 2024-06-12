@@ -85,6 +85,7 @@ impl FromStr for Statistic {
                 "SUM" => Ok(Statistic::SUM(KeyString::from(second))),
                 "MEAN" => Ok(Statistic::MEAN(KeyString::from(second))),
                 "MODE" => Ok(Statistic::MODE(KeyString::from(second))),
+                "MEDIAN" => Ok(Statistic::MEDIAN(KeyString::from(second))),
                 "STDEV" => Ok(Statistic::STDEV(KeyString::from(second))),
                 _ => Err(QueryError::InvalidQueryStructure("First Statistic item must be SUM, MEAN, MODE, or STDEV".to_owned())),
             }
@@ -385,10 +386,10 @@ impl Condition {
     pub fn new(attribute: &str, test: &str, bar: &str) -> Result<Self, QueryError> {
         let test = match test {
             "equals" => Test::Equals(KeyString::from(bar)),
-            "less" => Test::Less(KeyString::from(bar)),
-            "greater" => Test::Greater(KeyString::from(bar)),
-            "starts" => Test::Starts(KeyString::from(bar)),
-            "ends" => Test::Ends(KeyString::from(bar)),
+            "less_than" => Test::Less(KeyString::from(bar)),
+            "greater_than" => Test::Greater(KeyString::from(bar)),
+            "starts_with" => Test::Starts(KeyString::from(bar)),
+            "ends_with" => Test::Ends(KeyString::from(bar)),
             "contains" => Test::Contains(KeyString::from(bar)),
             _ => return Err(QueryError::InvalidTest)
         };
@@ -498,10 +499,10 @@ impl Display for Test {
         match self {
             Test::Equals(value) => write!(f, "equals {}", value),
             Test::NotEquals(value) => write!(f, "not_equals {}", value),
-            Test::Less(value) => write!(f, "less-than {}", value),
-            Test::Greater(value) => write!(f, "greater-than {}", value),
-            Test::Starts(value) => write!(f, "starts-with {}", value),
-            Test::Ends(value) => write!(f, "ends-with {}", value),
+            Test::Less(value) => write!(f, "less_than {}", value),
+            Test::Greater(value) => write!(f, "greater_than {}", value),
+            Test::Starts(value) => write!(f, "starts_with {}", value),
+            Test::Ends(value) => write!(f, "ends_with {}", value),
             Test::Contains(value) => write!(f, "contains {}", value),
         }
     }
@@ -512,10 +513,10 @@ impl Test {
         match input.to_lowercase().as_str() {
             "equals" => Test::Equals(KeyString::from(bar)),
             "not_equals" => Test::NotEquals(KeyString::from(bar)),
-            "less-than" => Test::Less(KeyString::from(bar)),
-            "greater-than" => Test::Greater(KeyString::from(bar)),
-            "starts-with" => Test::Starts(KeyString::from(bar)),
-            "ends-with" => Test::Ends(KeyString::from(bar)),
+            "less_than" => Test::Less(KeyString::from(bar)),
+            "greater_than" => Test::Greater(KeyString::from(bar)),
+            "starts_with" => Test::Starts(KeyString::from(bar)),
+            "ends_with" => Test::Ends(KeyString::from(bar)),
             "contains" => Test::Contains(KeyString::from(bar)),
             _ => todo!(),
         }
@@ -535,9 +536,9 @@ EZQL queries are written as functions calls with named parameters. The order of 
 
 examples:   
 INSERT(table_name: products, value_columns: (id, stock, location, price), new_values: ((0113035, 500, LAG15, 995), (0113000, 100, LAG30, 495)))
-SELECT(primary_keys: *, table_name: products, conditions: ((price greater-than 500) AND (stock less-than 1000)))
-UPDATE(table_name: products, primary_keys: (0113035, 0113000), conditions: ((id starts-with 011)), updates: ((price += 100), (stock -= 100)))
-DELETE(primary_keys: *, table_name: products, conditions: ((price greater-than 500) AND (stock less-than 1000)))
+SELECT(primary_keys: *, table_name: products, conditions: ((price greater_than 500) AND (stock less_than 1000)))
+UPDATE(table_name: products, primary_keys: (0113035, 0113000), conditions: ((id starts_with 011)), updates: ((price += 100), (stock -= 100)))
+DELETE(primary_keys: *, table_name: products, conditions: ((price greater_than 500) AND (stock less_than 1000)))
 
 LEFT_JOIN(left_table: products, right_table: warehouses, match_columns: (location, id), primary_keys: 0113000..18572054)
 
@@ -960,9 +961,7 @@ pub fn parse_contained_token(s: &str, container_open: char, container_close: cha
 }
 
 #[allow(non_snake_case)]
-pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>, username: &str) -> Result<String, ServerError> {
-
-    check_permission(&queries, username, database.users.clone())?;
+pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Result<String, ServerError> {
 
     let mut result_table = None;
     for query in queries.into_iter() {
@@ -1073,7 +1072,7 @@ pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>, userna
 }
 
 
-fn execute_delete_query(query: Query, table: &mut EZTable) -> Result<Option<EZTable>, ServerError> {
+pub fn execute_delete_query(query: Query, table: &mut EZTable) -> Result<Option<EZTable>, ServerError> {
     
     let keepers = filter_keepers(&query, table)?;
     table.delete_by_indexes(&keepers);
@@ -1083,7 +1082,7 @@ fn execute_delete_query(query: Query, table: &mut EZTable) -> Result<Option<EZTa
     )
 }
 
-fn execute_left_join_query(query: Query, left_table: &EZTable, right_table: &EZTable) -> Result<Option<EZTable>, ServerError> {
+pub fn execute_left_join_query(query: Query, left_table: &EZTable, right_table: &EZTable) -> Result<Option<EZTable>, ServerError> {
     
     let filtered_indexes = keys_to_indexes(left_table, &query.primary_keys)?;
     let mut filtered_table = left_table.subtable_from_indexes(&filtered_indexes, &KeyString::from("__RESULT__"));
@@ -1094,7 +1093,7 @@ fn execute_left_join_query(query: Query, left_table: &EZTable, right_table: &EZT
     
 }
 
-fn execute_inner_join_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
+pub fn execute_inner_join_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
     let tables = database.buffer_pool.tables.read().unwrap();
     let table = tables.get(&query.table).unwrap().read().unwrap();
     let keepers = filter_keepers(&query, &table)?;
@@ -1102,7 +1101,7 @@ fn execute_inner_join_query(query: Query, database: Arc<Database>) -> Result<Opt
     Err(ServerError::Unimplemented("inner joins are not yet implemented".to_owned()))
 }
 
-fn execute_right_join_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
+pub fn execute_right_join_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
     let tables = database.buffer_pool.tables.read().unwrap();
     let table = tables.get(&query.table).unwrap().read().unwrap();
     let keepers = filter_keepers(&query, &table)?;
@@ -1110,7 +1109,7 @@ fn execute_right_join_query(query: Query, database: Arc<Database>) -> Result<Opt
     Err(ServerError::Unimplemented("right joins are not yet implemented".to_owned()))
 }
 
-fn execute_full_join_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
+pub fn execute_full_join_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
     let tables = database.buffer_pool.tables.read().unwrap();
     let table = tables.get(&query.table).unwrap().read().unwrap();
     let keepers = filter_keepers(&query, &table)?;
@@ -1124,7 +1123,7 @@ fn execute_full_join_query(query: Query, database: Arc<Database>) -> Result<Opti
 //     Value: KeyString,
 // }
 
-fn execute_update_query(query: Query, table: &mut EZTable) -> Result<Option<EZTable>, ServerError> {
+pub fn execute_update_query(query: Query, table: &mut EZTable) -> Result<Option<EZTable>, ServerError> {
     
     let keepers = filter_keepers(&query, table)?;
 
@@ -1189,7 +1188,7 @@ fn execute_update_query(query: Query, table: &mut EZTable) -> Result<Option<EZTa
     )
 }
 
-fn execute_insert_query(query: Query, table: &mut EZTable) -> Result<Option<EZTable>, ServerError> {
+pub fn execute_insert_query(query: Query, table: &mut EZTable) -> Result<Option<EZTable>, ServerError> {
 
     table.insert(query.inserts)?;
 
@@ -1198,7 +1197,7 @@ fn execute_insert_query(query: Query, table: &mut EZTable) -> Result<Option<EZTa
     )
 }
 
-fn execute_select_query(query: Query, table: &EZTable) -> Result<Option<EZTable>, ServerError> {
+pub fn execute_select_query(query: Query, table: &EZTable) -> Result<Option<EZTable>, ServerError> {
 
     let keepers = filter_keepers(&query, table)?;
 
@@ -1211,7 +1210,7 @@ fn execute_select_query(query: Query, table: &EZTable) -> Result<Option<EZTable>
     )
 }
 
-fn execute_summary_query(query: Query, table: &EZTable) -> Result<Option<String>, ServerError> {
+pub fn execute_summary_query(query: Query, table: &EZTable) -> Result<Option<String>, ServerError> {
 
     let mut printer = String::new();
 
@@ -1286,7 +1285,7 @@ fn execute_summary_query(query: Query, table: &EZTable) -> Result<Option<String>
     Ok(Some(printer))
 }
 
-fn keys_to_indexes(table: &EZTable, keys: &RangeOrListorAll) -> Result<Vec<usize>, StrictError> {
+pub fn keys_to_indexes(table: &EZTable, keys: &RangeOrListorAll) -> Result<Vec<usize>, StrictError> {
     let mut indexes = Vec::new();
 
     match keys {
@@ -1411,13 +1410,13 @@ pub fn filter_keepers(query: &Query, table: &EZTable) -> Result<Vec<usize>, Serv
                             Test::Starts(bar) => {
                                 match column {
                                     DbColumn::Texts(col) => if col[*index].as_str().starts_with(bar.as_str()) {keepers.push(*index)},
-                                    _ => return Err(ServerError::Query("Can only filter by 'starts-with' on text values".to_owned())),
+                                    _ => return Err(ServerError::Query("Can only filter by 'starts_with' on text values".to_owned())),
                                 }
                             },
                             Test::Ends(bar) => {
                                 match column {
                                     DbColumn::Texts(col) => if col[*index].as_str().ends_with(bar.as_str()) {keepers.push(*index)},
-                                    _ => return Err(ServerError::Query("Can only filter by 'ends-with' on text values".to_owned())),
+                                    _ => return Err(ServerError::Query("Can only filter by 'ends_with' on text values".to_owned())),
                                 }
                             },
                             Test::Contains(bar) => {
@@ -1463,13 +1462,13 @@ pub fn filter_keepers(query: &Query, table: &EZTable) -> Result<Vec<usize>, Serv
                             Test::Starts(bar) => {
                                 match column {
                                     DbColumn::Texts(col) => if col[*keeper].as_str().starts_with(bar.as_str()) {losers.push(*keeper)},
-                                    _ => return Err(ServerError::Query("Can only filter by 'starts-with' on text values".to_owned())),
+                                    _ => return Err(ServerError::Query("Can only filter by 'starts_with' on text values".to_owned())),
                                 }
                             },
                             Test::Ends(bar) => {
                                 match column {
                                     DbColumn::Texts(col) => if col[*keeper].as_str().ends_with(bar.as_str()) {losers.push(*keeper)},
-                                    _ => return Err(ServerError::Query("Can only filter by 'ends-with' on text values".to_owned())),
+                                    _ => return Err(ServerError::Query("Can only filter by 'ends_with' on text values".to_owned())),
                                 }
                             },
                             Test::Contains(bar) => {
@@ -1496,9 +1495,9 @@ pub fn filter_keepers(query: &Query, table: &EZTable) -> Result<Vec<usize>, Serv
 mod tests {
 
     // INSERT(table_name: products, value_columns: (id, stock, location, price), new_values: ((0113035, 500, LAG15, 995), (0113000, 100, LAG30, 495)))
-    // SELECT(primary_keys: *, table_name: products, conditions: ((price greater-than 500) AND (stock less-than 1000)))
-    // UPDATE(table_name: products, primary_keys: (0113035, 0113000), conditions: ((id starts-with 011)), updates: ((price += 100), (stock -= 100)))
-    // DELETE(primary_keys: *, table_name: products, conditions: ((price greater-than 500) AND (stock less-than 1000)))
+    // SELECT(primary_keys: *, table_name: products, conditions: ((price greater_than 500) AND (stock less_than 1000)))
+    // UPDATE(table_name: products, primary_keys: (0113035, 0113000), conditions: ((id starts_with 011)), updates: ((price += 100), (stock -= 100)))
+    // DELETE(primary_keys: *, table_name: products, conditions: ((price greater_than 500) AND (stock less_than 1000)))
     // LEFT_JOIN(left_table: products, right_table: warehouses, match_columns: (location, id), primary_keys: 0113000..18572054)
     // SUMMARY(table_name: products, columns: ((SUM stock), (MEAN price)))
 
@@ -1537,9 +1536,9 @@ mod tests {
     #[test]
     fn test_parse_query() {
         let INSERT_query_string =  "INSERT(table_name: products, value_columns: (id, stock, location, price), new_values: ((0113035, 500, LAG15, 995), (0113000, 100, LAG30, 495)))";
-        let SELECT_query_string = "SELECT(table_name: products, primary_keys: (0113000, 0113034, 0113035, 0113500), columns: *, conditions: ((price less-than 500) AND (price greater-than 200) AND (location equals lag15)))";
-        let UPDATE_query_string = "UPDATE(table_name: products, primary_keys: (0113035, 0113000), conditions: ((id starts-with 011)), updates: ((price += 100), (stock -= 100)))";
-        let DELETE_query_string = "DELETE(table_name: products, primary_keys: *, conditions: ((price greater-than 500) AND (stock less-than 1000)))";
+        let SELECT_query_string = "SELECT(table_name: products, primary_keys: (0113000, 0113034, 0113035, 0113500), columns: *, conditions: ((price less_than 500) AND (price greater_than 200) AND (location equals lag15)))";
+        let UPDATE_query_string = "UPDATE(table_name: products, primary_keys: (0113035, 0113000), conditions: ((id starts_with 011)), updates: ((price += 100), (stock -= 100)))";
+        let DELETE_query_string = "DELETE(table_name: products, primary_keys: *, conditions: ((price greater_than 500) AND (stock less_than 1000)))";
         let LEFT_JOIN_query_string = "LEFT_JOIN(left_table: products, right_table: warehouses, primary_keys: 0113000..18572054, match_columns: (location, id))";
         let SUMMARY_query_string = "SUMMARY(table_name: products, columns: ((SUM stock), (MEAN price)))";
         
@@ -1585,7 +1584,7 @@ mod tests {
 
     #[test]
     fn test_updates() {
-        let query = "UPDATE(table_name: products, primary_keys: (0113035, 0113000), conditions: ((id starts-with 011)), updates: ((price += 100), (stock -= 100)))";
+        let query = "UPDATE(table_name: products, primary_keys: (0113035, 0113000), conditions: ((id starts_with 011)), updates: ((price += 100), (stock -= 100)))";
         
         let parsed = parse_serial_query(query).unwrap();
 
@@ -1644,7 +1643,7 @@ mod tests {
 
     #[test]
     fn test_UPDATE() {
-        let query = "UPDATE(table_name: products, primary_keys: *, conditions: ((id starts-with 011)), updates: ((price += 100), (stock -= 100)))";
+        let query = "UPDATE(table_name: products, primary_keys: *, conditions: ((id starts_with 011)), updates: ((price += 100), (stock -= 100)))";
         let parsed = parse_EZQL(query).unwrap();
         let products = std::fs::read_to_string(format!("test_files{PATH_SEP}products.csv")).unwrap();
         let mut table = EZTable::from_csv_string(&products, "products", "test").unwrap();
@@ -1673,7 +1672,7 @@ mod tests {
 
     #[test]
     fn test_DELETE() {
-        let query = "DELETE(table_name: products, primary_keys: *, conditions: ((price greater-than 3000) AND (stock less-than 1000)))";
+        let query = "DELETE(table_name: products, primary_keys: *, conditions: ((price greater_than 3000) AND (stock less_than 1000)))";
         let parsed = parse_EZQL(query).unwrap();
         let products = std::fs::read_to_string(format!("test_files{PATH_SEP}products.csv")).unwrap();
         let mut table = EZTable::from_csv_string(&products, "products", "test").unwrap();
