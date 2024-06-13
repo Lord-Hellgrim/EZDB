@@ -3,6 +3,8 @@ COMPLETE
     - Look into brotli maybe?
 
 NEED POLISH
+- Fix auth
+    - Possibly finished?
 - Finish the full implementation of EZQL
     - Parser done. Testing and optimization to come.
     - Spec is half written (EZQL.txt)
@@ -13,11 +15,10 @@ NEED POLISH
     - Find the Heisenbug
         - FOUND! The write lock that was updating the metadata was never releasing for some odd deadlock reason.
         I replaced the lock with an AtomicU64 and now the problem is gone.
-
+    - Add http listening
 
 IN PROGRESS
-- Fix auth
-    - Possibly finished?
+- Make a standard benchmark suite
 - Make a management GUI
     - Ideally a TUI to allow ssh GUI management and visualization
         - Note to self: "Look into the ratatui library"
@@ -25,7 +26,6 @@ IN PROGRESS
 
 NOT STARTED
 - Make the tests more organized and stable
-- Make a standard benchmark suite
 - Implement database integrity guarantee
     - Oh boy...
 - Further reinforce persistence

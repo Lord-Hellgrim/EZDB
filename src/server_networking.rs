@@ -161,35 +161,6 @@ pub fn parse_instruction(
 // then there's no point to multithreading.
 
 
-#[derive(Clone, PartialEq)]
-pub enum WriteThreadMessage {
-    UpdateMetadata(Metadata, KeyString), 
-    DropTable(KeyString),
-    MetaNewUser(User),
-    NewKeyValue(KeyString, Value),
-    UpdateKeyValue(KeyString, Value),
-    NewTable(EZTable),
-    DeleteRows(KeyString, DbColumn),
-    UpdateTable(KeyString, EZTable),
-}
-
-impl Display for WriteThreadMessage {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            WriteThreadMessage::UpdateMetadata(x, y) => writeln!(f, "{}:\n{}", y, x),
-            WriteThreadMessage::UpdateTable(name, table) => writeln!(f, "{}:\n{}", name, table),
-            WriteThreadMessage::DropTable(x) => writeln!(f, "{}", x),
-            WriteThreadMessage::DeleteRows(x, y) => writeln!(f, "{}:\n{}", x, y),
-            WriteThreadMessage::NewTable(x) => writeln!(f, "{}", x),
-            WriteThreadMessage::MetaNewUser(x) => writeln!(f, "{}", ron::to_string(x).unwrap()),
-            WriteThreadMessage::NewKeyValue(key, value) => write!(f, "key: {}\nValue:\n{:x?}", key, value),
-            WriteThreadMessage::UpdateKeyValue(key, value) => write!(f, "key: {}\nValue:\n{:x?}", key, value),
-        }
-
-    }
-}
-
-
 /// The struct that carries data relevant to the running server. 
 /// Am trying to think of ways to reduce reliance on Arc<RwLock<T>>
 pub struct Server {
