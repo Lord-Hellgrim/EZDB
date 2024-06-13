@@ -91,15 +91,23 @@ fn my_benchmark(c: &mut Criterion) {
     let parsed_MEDIAN_query =     parse_EZQL(&MEDIAN_query).unwrap();
 
     let mut t = EZTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
+    group.bench_function("execute INSERT query", |b| b.iter(|| {
+        execute_insert_query(parsed_INSERT_query.clone(), &mut t).unwrap();
+        t = EZTable::read_raw_binary("test", &bint_t).unwrap();
+    }));
+    group.bench_function("execute UPDATE query", |b| b.iter(|| {
+        execute_update_query(parsed_UPDATE_query.clone(), &mut t).unwrap();
+        t = EZTable::read_raw_binary("test", &bint_t).unwrap();
+    }));
+    group.bench_function("execute DELETE query", |b| b.iter(|| {
+        execute_delete_query(parsed_DELETE_query.clone(), &mut t).unwrap();
+        t = EZTable::read_raw_binary("test", &bint_t).unwrap();
+    }));
+    group.bench_function("execute SUM query"   , |b| b.iter(|| {
+        execute_summary_query(parsed_SUM_query.clone(), &mut t).unwrap();
+        t = EZTable::read_raw_binary("test", &bint_t).unwrap();
+    }));
     group.bench_function("execute SELECT query", |b| b.iter(|| execute_select_query(parsed_SELECT_query.clone(), &mut t).unwrap()));
-    let mut t = EZTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
-    group.bench_function("execute INSERT query", |b| b.iter(|| execute_insert_query(parsed_INSERT_query.clone(), &mut t).unwrap()));
-    let mut t = EZTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
-    group.bench_function("execute UPDATE query", |b| b.iter(|| execute_update_query(parsed_UPDATE_query.clone(), &mut t).unwrap()));
-    let mut t = EZTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
-    group.bench_function("execute DELETE query", |b| b.iter(|| execute_delete_query(parsed_DELETE_query.clone(), &mut t).unwrap()));
-    let mut t = EZTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
-    group.bench_function("execute SUM query"   , |b| b.iter(|| execute_summary_query(parsed_SUM_query.clone(), &mut t).unwrap()));
     let mut t = EZTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
     group.bench_function("execute MEAN query"  , |b| b.iter(|| execute_summary_query(parsed_MEAN_query.clone(), &mut t).unwrap()));
     let mut t = EZTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
@@ -110,7 +118,9 @@ fn my_benchmark(c: &mut Criterion) {
     group.bench_function("execute MEDIAN query", |b| b.iter(|| execute_summary_query(parsed_MEDIAN_query.clone(), &mut t).unwrap()));
 
 
-    }
+    
+
+}
 
 criterion_group!(benches, my_benchmark);
 criterion_main!(benches);
