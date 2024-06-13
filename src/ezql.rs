@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Display, str::FromStr, sync::Arc};
+use std::{collections::{BTreeMap, HashMap}, fmt::Display, str::FromStr, sync::Arc};
 
 use crate::{auth::check_permission, db_structure::{remove_indices, DbColumn, EZTable, KeyString, StrictError}, networking_utilities::{mean_f32_slice, mean_i32_slice, median_f32_slice, median_i32_slice, mode_i32_slice, mode_string_slice, print_sep_list, stdev_f32_slice, stdev_i32_slice, sum_f32_slice, sum_i32_slice, ServerError}, server_networking::Database};
 
@@ -961,7 +961,7 @@ pub fn parse_contained_token(s: &str, container_open: char, container_close: cha
 }
 
 #[allow(non_snake_case)]
-pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Result<String, ServerError> {
+pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
 
     let mut result_table = None;
     for query in queries.into_iter() {
@@ -1047,7 +1047,7 @@ pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Res
                     Some(table) => {
                         let result = execute_summary_query(query, &table)?;
                         match result {
-                            Some(s) => return Ok(s),
+                            Some(s) => return Ok(Some(s)),
                             None => todo!(),
                         };
                     },
@@ -1056,7 +1056,7 @@ pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Res
                         let table = tables.get(&query.table).unwrap().read().unwrap();
                         let result = execute_summary_query(query, &table)?;
                         match result {
-                            Some(s) => return Ok(s),
+                            Some(s) => return Ok(Some(s)),
                             None => todo!(),
                         };
                     },
@@ -1066,8 +1066,8 @@ pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Res
     }
 
     match result_table {
-        Some(table) => Ok(table.to_string()),
-        None => Ok("Query successfully executed!".to_owned()),
+        Some(table) => Ok(Some(table)),
+        None => Ok(None),
     }
 }
 
@@ -1210,27 +1210,26 @@ pub fn execute_select_query(query: Query, table: &EZTable) -> Result<Option<EZTa
     )
 }
 
-pub fn execute_summary_query(query: Query, table: &EZTable) -> Result<Option<String>, ServerError> {
+pub fn execute_summary_query(query: Query, table: &EZTable) -> Result<Option<EZTable>, ServerError> {
 
-    let mut printer = String::new();
+    let mut result = EZTable::blank(&Vec::new(), KeyString::from("RESULT"), "QUERY");
 
     for stat in query.summary {
-
-        let column_summary = match stat {
+        match stat {
             Statistic::SUM(column) => {
                 let requested_column = match table.columns.get(&column) {
                     Some(c) => c,
                     None => return Err(ServerError::Query(format!("No column named {} in table {}", column, table.name)))
                 };
                 match requested_column {
-                    DbColumn::Floats(col) => sum_f32_slice(col).to_string(),
+                    DbColumn::Floats(col) => result.add_column(KeyString::from(format!("SUM_{}", column).as_str()), DbColumn::Floats(vec![sum_f32_slice(col)])),
                     DbColumn::Ints(col) => {
                         match sum_i32_slice(col) {
-                            Some(x) => x.to_string(),
-                            None => "Operation would have overflowed i32".to_owned(),
+                            Some(x) => result.add_column(KeyString::from(format!("SUM_{}", column).as_str()), DbColumn::Ints(vec![x])),
+                            None => result.add_column(KeyString::from(format!("SUM_{}", column).as_str()), DbColumn::Texts(vec![KeyString::from("Operation would have overflowed i32")])),
                         }
                     },
-                    DbColumn::Texts(_col) => "Can't sum a text column".to_owned(),
+                    DbColumn::Texts(_col) => result.add_column(KeyString::from(format!("SUM_{}", column).as_str()), DbColumn::Texts(vec![KeyString::from("Can't SUM a text column")])),
                 }
             },
             Statistic::MEAN(column) => {
@@ -1239,9 +1238,9 @@ pub fn execute_summary_query(query: Query, table: &EZTable) -> Result<Option<Str
                     None => return Err(ServerError::Query(format!("No column named {} in table {}", column, table.name)))
                 };
                 match requested_column {
-                    DbColumn::Floats(col) => mean_f32_slice(col).to_string(),
-                    DbColumn::Ints(col) => mean_i32_slice(col).to_string(),
-                    DbColumn::Texts(_col) => "Can't mean a text column".to_owned(),
+                    DbColumn::Floats(col) => result.add_column(KeyString::from(format!("MEAN_{}", column).as_str()), DbColumn::Floats(vec![mean_f32_slice(col)])),
+                    DbColumn::Ints(col) => result.add_column(KeyString::from(format!("MEAN_{}", column).as_str()), DbColumn::Floats(vec![mean_i32_slice(col)])),
+                    DbColumn::Texts(_col) => result.add_column(KeyString::from(format!("MEAN_{}", column).as_str()), DbColumn::Texts(vec![KeyString::from("Can't mean a text column")])),
                 }
             },
             Statistic::MEDIAN(column) => {
@@ -1250,9 +1249,9 @@ pub fn execute_summary_query(query: Query, table: &EZTable) -> Result<Option<Str
                     None => return Err(ServerError::Query(format!("No column named {} in table {}", column, table.name)))
                 };
                 match requested_column {
-                    DbColumn::Floats(col) => median_f32_slice(col).to_string(),
-                    DbColumn::Ints(col) => median_i32_slice(col).to_string(),
-                    DbColumn::Texts(_col) => "Can't median a text column".to_owned(),
+                    DbColumn::Floats(col) => result.add_column(KeyString::from(format!("MEDIAN_{}", column).as_str()), DbColumn::Floats(vec![median_f32_slice(col)])),
+                    DbColumn::Ints(col) => result.add_column(KeyString::from(format!("MEDIAN_{}", column).as_str()), DbColumn::Floats(vec![median_i32_slice(col)])),
+                    DbColumn::Texts(_col) => result.add_column(KeyString::from(format!("MEDIAN_{}", column).as_str()), DbColumn::Texts(vec![KeyString::from("Can't median a text column")])),
                 }
             },
             Statistic::MODE(column) => {
@@ -1261,9 +1260,9 @@ pub fn execute_summary_query(query: Query, table: &EZTable) -> Result<Option<Str
                     None => return Err(ServerError::Query(format!("No column named {} in table {}", column, table.name)))
                 };
                 match requested_column {
-                    DbColumn::Floats(_col) => "Can't mode a float slice".to_owned(),
-                    DbColumn::Ints(col) => mode_i32_slice(col).to_string(),
-                    DbColumn::Texts(col) => mode_string_slice(col).to_string(),
+                    DbColumn::Floats(_col) => result.add_column(KeyString::from(format!("MODE_{}", column).as_str()), DbColumn::Texts(vec![KeyString::from("Can't mode a float slice")])),
+                    DbColumn::Ints(col) => result.add_column(KeyString::from(format!("MODE_{}", column).as_str()), DbColumn::Ints(vec![mode_i32_slice(col)])),
+                    DbColumn::Texts(col) => result.add_column(KeyString::from(format!("MODE_{}", column).as_str()), DbColumn::Texts(vec![mode_string_slice(col)])),
                 }
             },
             Statistic::STDEV(column) => {
@@ -1272,17 +1271,17 @@ pub fn execute_summary_query(query: Query, table: &EZTable) -> Result<Option<Str
                     None => return Err(ServerError::Query(format!("No column named {} in table {}", column, table.name)))
                 };
                 match requested_column {
-                    DbColumn::Floats(col) => stdev_f32_slice(col).to_string(),
-                    DbColumn::Ints(col) => stdev_i32_slice(col).to_string(),
-                    DbColumn::Texts(_col) => "Can't stdev a text column".to_owned(),
+                    DbColumn::Floats(col) => result.add_column(KeyString::from(format!("STDEV_{}", column).as_str()), DbColumn::Floats(vec![stdev_f32_slice(col)])),
+                    DbColumn::Ints(col) => result.add_column(KeyString::from(format!("STDEV_{}", column).as_str()), DbColumn::Floats(vec![stdev_i32_slice(col)])),
+                    DbColumn::Texts(_col) => result.add_column(KeyString::from(format!("STDEV_{}", column).as_str()), DbColumn::Texts(vec![KeyString::from("Can't stdev a text column")])),
                 }
             },
         };
 
-        printer.push_str(&format!("{} is {}; ", stat, column_summary));
     }
 
-    Ok(Some(printer))
+
+    Ok(Some(result))
 }
 
 pub fn keys_to_indexes(table: &EZTable, keys: &RangeOrListorAll) -> Result<Vec<usize>, StrictError> {

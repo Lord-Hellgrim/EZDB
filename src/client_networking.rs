@@ -2,7 +2,7 @@ use std::io::Write;
 use std::str::{self};
 
 use crate::auth::{AuthenticationError, User};
-use crate::db_structure::KeyString;
+use crate::db_structure::{EZTable, KeyString};
 use crate::networking_utilities::*;
 use crate::PATH_SEP;
 
@@ -12,7 +12,7 @@ pub fn download_table(
     username: &str,
     password: &str,
     table_name: &str,
-) -> Result<String, ServerError> {
+) -> Result<EZTable, ServerError> {
     let mut connection = Connection::connect(address, username, password)?;
 
     let response = instruction_send_and_confirm(
@@ -22,12 +22,11 @@ pub fn download_table(
     println!("Instruction successfully sent");
     println!("response: {}", response);
 
-    let csv: Vec<u8>;
+    let data: Vec<u8>;
     match parse_response(&response, &connection.user, table_name) {
-        Ok(_) => csv = receive_data(&mut connection)?,
+        Ok(_) => data = receive_data(&mut connection)?,
         Err(e) => return Err(e),
     };
-    println!("received: {}", bytes_to_str(&csv)?);
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote 'OK' as {n} bytes"),
@@ -37,7 +36,9 @@ pub fn download_table(
     };
     connection.stream.flush()?;
 
-    Ok(bytes_to_str(&csv)?.to_owned())
+    let table = EZTable::read_raw_binary(table_name, &data)?;
+
+    Ok(table)
 }
 
 /// Uploads a given csv string to the EZDB server at the given address.
@@ -48,7 +49,7 @@ pub fn upload_table(
     password: &str,
     table_name: &str,
     csv: &String,
-) -> Result<String, ServerError> {
+) -> Result<(), ServerError> {
     let mut connection = Connection::connect(address, username, password)?;
 
     let response =
@@ -62,7 +63,7 @@ pub fn upload_table(
     println!("confirmation: {}", confirmation);
 
     if confirmation == "OK" {
-        Ok("OK".to_owned())
+        Ok(())
     } else {
         Err(ServerError::Confirmation(confirmation))
     }
@@ -78,7 +79,7 @@ pub fn update_table(
     password: &str,
     table_name: &str,
     csv: &str,
-) -> Result<String, ServerError> {
+) -> Result<(), ServerError> {
     let mut connection = Connection::connect(address, username, password)?;
 
     let response =
@@ -91,7 +92,7 @@ pub fn update_table(
 
     if confirmation == "OK" {
         println!("Confirmation from server: {}", confirmation);
-        Ok("OK".to_owned())
+        Ok(())
     } else {
         println!("Confirmation from server: {}", confirmation);
         Err(ServerError::Confirmation(confirmation))
@@ -104,7 +105,7 @@ pub fn query_table(
     username: &str,
     password: &str,
     query: &str,
-) -> Result<String, ServerError> {
+) -> Result<Option<EZTable>, ServerError> {
     let mut connection = Connection::connect(address, username, password)?;
 
     let response = instruction_send_and_confirm(
@@ -112,12 +113,12 @@ pub fn query_table(
         &mut connection,
     )?;
     println!("HERE 1!!!");
-    let csv: Vec<u8>;
+    let data: Vec<u8>;
     match response.as_str() {
         
         // THIS IS WHERE YOU SEND THE BULK OF THE DATA
         //########## SUCCESS BRANCH #################################
-        "OK" => csv = receive_data(&mut connection)?,
+        "OK" => data = receive_data(&mut connection)?,
         //###########################################################
         "Username is incorrect" => {
             return Err(ServerError::Authentication(AuthenticationError::WrongUser(
@@ -132,7 +133,7 @@ pub fn query_table(
         e => panic!("Need to handle error: {}", e),
     };
     println!("HERE 2!!!");
-    println!("received csv:\n{}", bytes_to_str(&csv)?);
+    println!("received data:\n{}", bytes_to_str(&data)?);
 
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote 'OK' as {n} bytes"),
@@ -141,8 +142,9 @@ pub fn query_table(
         }
     };
 
+    let table = EZTable::read_raw_binary("RESULT", &data)?;
 
-    Ok(bytes_to_str(&csv)?.to_owned())
+    Ok(Some(table))
 }
 
 pub fn delete_table(
@@ -429,7 +431,7 @@ mod tests {
             "test",
         )
         .unwrap();
-        assert_eq!(table, good_table.to_string());
+        assert_eq!(table, good_table);
     }
 
     #[test]
@@ -457,12 +459,12 @@ mod tests {
         let username = "admin";
         let password = "admin";
         let e = upload_table(address, username, password, "good_csv", &csv).unwrap();
-        assert_eq!(e, "OK");
+        assert_eq!(e, ());
 
         let query = "SELECT(table_name: good_csv, primary_keys: *, columns: *, conditions: ())";
         let username = "admin";
         let password = "admin";
-        let response = query_table(address, username, password, query).unwrap();
+        let response = query_table(address, username, password, query).unwrap().unwrap();
         let full_table = download_table(address, username, password, "good_csv").unwrap();
         println!("{}", response);
         assert_eq!(response, full_table);

@@ -17,16 +17,16 @@ pub fn handle_download_request(
         Err(e) => {return Err(ServerError::Io(e.kind()));},
     };
 
-    let requested_csv: String;
+    let requested_csv: Vec<u8>;
     {
         let global_read_binding = database.buffer_pool.tables.read().unwrap();
     
         let requested_table = global_read_binding.get(&KeyString::from(name)).expect("Instruction parser should have verified table").read().unwrap();
-        requested_csv = requested_table.to_string();
+        requested_csv = requested_table.write_to_raw_binary();
         println!("Requested_csv.len(): {}", requested_csv.len());
     }
 
-    let response = data_send_and_confirm(connection, requested_csv.as_bytes())?;
+    let response = data_send_and_confirm(connection, &requested_csv)?;
 
     if response == "OK" {
         
@@ -147,14 +147,15 @@ pub fn handle_query_request(
     let queries = parse_serial_query(query)?;
 
     check_permission(&queries, &connection.user, database.users.clone())?;
-    let requested_csv = match execute_EZQL_queries(queries, database) {
-        Ok(table) => table,
-        Err(e) => format!("ERROR -> Could not process query because of error: '{}'", e.to_string()),
+    let requested_table = match execute_EZQL_queries(queries, database) {
+        Ok(res) => match res {
+            Some(table) => table.write_to_raw_binary(),
+            None => "None.".as_bytes().to_vec(),
+        },
+        Err(e) => format!("ERROR -> Could not process query because of error: '{}'", e.to_string()).as_bytes().to_vec(),
     };
 
-    println!("result_table: {}", requested_csv);
-
-    let response = data_send_and_confirm(connection, requested_csv.as_bytes())?;
+    let response = data_send_and_confirm(connection, &requested_table)?;
     
     if response == "OK" {
         Ok("OK".to_owned())

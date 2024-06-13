@@ -452,12 +452,18 @@ pub enum TableKey {
 
 
 /// This is the main data structure of EZDB. It represents a table as a list of columns.
-#[derive(Clone, Debug, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, PartialOrd)]
 pub struct EZTable {
     pub metadata: Metadata,
     pub name: KeyString,
     pub header: Vec<HeaderItem>,
     pub columns: BTreeMap<KeyString, DbColumn>,
+}
+
+impl PartialEq for EZTable {
+    fn eq(&self, other: &Self) -> bool {
+        self.header == other.header && self.columns == other.columns
+    }
 }
 
 
