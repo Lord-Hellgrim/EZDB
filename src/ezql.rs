@@ -1087,7 +1087,7 @@ pub fn execute_left_join_query(query: Query, left_table: &EZTable, right_table: 
     let filtered_indexes = keys_to_indexes(left_table, &query.primary_keys)?;
     let mut filtered_table = left_table.subtable_from_indexes(&filtered_indexes, &KeyString::from("__RESULT__"));
 
-    filtered_table.left_join(right_table, &query.join.join_column.0)?;
+    filtered_table.alt_left_join(right_table, &query.join.join_column.0)?;
 
     Ok(Some(filtered_table))
     

@@ -69,6 +69,7 @@ fn my_benchmark(c: &mut Criterion) {
     let MODE_query = "SUMMARY(table_name: test, columns: ( (MODE magn) ))";
     let STDEV_query = "SUMMARY(table_name: test, columns: ( (STDEV magn) ))";
     let MEDIAN_query = "SUMMARY(table_name: test, columns: ( (MEDIAN magn) ))";
+    let LEFT_JOIN_query = "LEFT_JOIN(left_table: test, right_table: insert_me, match_columns: (vnr, vnr), primary_keys: *)";
 
     group.bench_function("parse SELECT query", |b| b.iter(|| parse_EZQL(&SELECT_query)));
     group.bench_function("parse INSERT query", |b| b.iter(|| parse_EZQL(&INSERT_query)));
@@ -79,6 +80,7 @@ fn my_benchmark(c: &mut Criterion) {
     group.bench_function("parse MODE query"  , |b| b.iter(|| parse_EZQL(&MODE_query)));
     group.bench_function("parse STDEV query" , |b| b.iter(|| parse_EZQL(&STDEV_query)));
     group.bench_function("parse MEDIAN query", |b| b.iter(|| parse_EZQL(&MEDIAN_query)));
+    group.bench_function("parse LEFT_JOIN query", |b| b.iter(|| parse_EZQL(&LEFT_JOIN_query)));
 
     let parsed_SELECT_query = parse_EZQL(&SELECT_query).unwrap();
     let parsed_INSERT_query =     parse_EZQL(&INSERT_query).unwrap();
@@ -89,6 +91,7 @@ fn my_benchmark(c: &mut Criterion) {
     let parsed_MODE_query =    parse_EZQL(&MODE_query).unwrap();
     let parsed_STDEV_query =      parse_EZQL(&STDEV_query).unwrap();
     let parsed_MEDIAN_query =     parse_EZQL(&MEDIAN_query).unwrap();
+    let parsed_LEFT_JOIN_query =     parse_EZQL(&LEFT_JOIN_query).unwrap();
 
     let mut t = EZTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
     group.bench_function("execute INSERT query", |b| b.iter(|| {
@@ -116,9 +119,10 @@ fn my_benchmark(c: &mut Criterion) {
     group.bench_function("execute STDEV query" , |b| b.iter(|| execute_summary_query(parsed_STDEV_query.clone(), &mut t).unwrap()));
     let mut t = EZTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
     group.bench_function("execute MEDIAN query", |b| b.iter(|| execute_summary_query(parsed_MEDIAN_query.clone(), &mut t).unwrap()));
-
-
-    
+    let t = EZTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
+    let insert_me_string = std::fs::read_to_string(format!("test_files{PATH_SEP}insert_me.csv")).unwrap();
+    let insert_me = EZTable::from_csv_string(&insert_me_string, "insert_me", "QUERY").unwrap();
+    group.bench_function("execute LEFT_JOIN query", |b| b.iter(|| execute_left_join_query(parsed_LEFT_JOIN_query.clone(), &t, &insert_me).unwrap()));
 
 }
 

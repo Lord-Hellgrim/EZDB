@@ -213,7 +213,7 @@ pub fn write_table_to_binary_directory(table: &EZTable) -> Result<(), std::io::E
     let rows_per_chunk = CHUNK_SIZE / table.metadata.size_of_row();
     while start + rows_per_chunk < table.len() {
 
-        let subtable = table.create_subtable(start, start + rows_per_chunk);
+        let subtable = table.create_subtable_from_index_range(start, start + rows_per_chunk);
         // println!("subtable:\n{}\n\n", subtable);
         let stop = start + rows_per_chunk;
         
@@ -243,7 +243,7 @@ pub fn write_table_to_binary_directory(table: &EZTable) -> Result<(), std::io::E
         
     }
     
-    let subtable = table.create_subtable(start, table.len());
+    let subtable = table.create_subtable_from_index_range(start, table.len());
     
     let mut chunk_path = path_str.clone();
     match &table.columns[&table.get_primary_key_col_index()] {

@@ -1,9 +1,12 @@
 use std::{
-    collections::{BTreeMap, HashMap, HashSet}, fmt::{self, Debug, Display}, io::Write, num::{ParseFloatError, ParseIntError}, sync::atomic::{AtomicU64, Ordering}
+    collections::{BTreeMap, HashMap, HashSet}, fmt::{self, Debug, Display}, hash::BuildHasherDefault, io::Write, num::{ParseFloatError, ParseIntError}, sync::atomic::{AtomicU64, Ordering}
 };
 
 // use smartstring::{LazyCompact, SmartString, };
 
+
+use fnv::{FnvHashMap, FnvHasher};
+use rayon::iter::IntoParallelRefIterator;
 
 use crate::{ezql::Inserts, networking_utilities::*};
 
@@ -1383,9 +1386,11 @@ impl EZTable {
         Ok(())
     }
 
-    pub fn create_subtable(&self, start: usize, stop: usize) -> EZTable {
+    pub fn create_subtable_from_index_range(&self, start: usize, mut stop: usize) -> EZTable {
 
-        assert!(stop <= self.len());
+        if stop >= self.len() {
+            stop = self.len();
+        }
         assert!(stop >= start);
 
         let mut subtable = BTreeMap::new();
@@ -1664,6 +1669,80 @@ impl EZTable {
     }
 
 
+    pub fn alt_left_join(&mut self, right_table: &EZTable, predicate_column: &KeyString) -> Result<(), StrictError> {
+
+        match self.columns.keys().find(|x| **x == *predicate_column) {
+            Some(_) => (),
+            None => return Err(StrictError::Query("Predicate column is not common".to_owned())),
+        };
+
+        match right_table.columns.keys().find(|x| **x == *predicate_column) {
+            Some(_) => (),
+            None => return Err(StrictError::Query("Predicate column is not common".to_owned())),
+        };
+
+        
+        let mut indexes: Vec<usize> = Vec::with_capacity(self.len());
+        match &self.columns[predicate_column] {
+            DbColumn::Ints(column) => {
+                let right_col = right_table.get_column_int(predicate_column)?;
+                let mut lookup = HashMap::with_capacity(right_col.len());
+                for (index, item) in right_col.iter().enumerate() {
+                    lookup.insert(item, index);
+                }
+
+                for item in column {
+                    indexes.push(lookup[item]);
+                }
+            },
+            DbColumn::Texts(column) => {
+                let right_col = right_table.get_column_text(predicate_column)?;
+                let mut lookup = HashMap::with_capacity(right_col.len());
+                for (index, item) in right_col.iter().enumerate() {
+                    lookup.insert(item, index);
+                }
+
+                for item in column {
+                    indexes.push(lookup[item]);
+                }
+            },
+            DbColumn::Floats(_column) => unreachable!("Can never have a float key column"),
+        }
+        
+        for (name, column) in right_table.columns.iter() {
+            if name == predicate_column {
+                continue
+            }
+
+            match column {
+                DbColumn::Ints(col) => {
+                    let mut new_column = Vec::with_capacity(indexes.len());
+                    for index in &indexes {
+                        new_column.push(col[*index]);
+                    }
+                    self.add_column(*name, DbColumn::Ints(new_column))?;
+                },
+                DbColumn::Texts(col) => {
+                    let mut new_column = Vec::with_capacity(indexes.len());
+                    for index in &indexes {
+                        new_column.push(col[*index]);
+                    }
+                    self.add_column(*name, DbColumn::Texts(new_column))?;
+                },
+                DbColumn::Floats(col) => {
+                    let mut new_column = Vec::with_capacity(indexes.len());
+                    for index in &indexes {
+                        new_column.push(col[*index]);
+                    }
+                    self.add_column(*name, DbColumn::Floats(new_column))?;
+                },
+            }
+        }
+
+        Ok(())
+    }
+
+
     pub fn left_join(&mut self, right_table: &EZTable, predicate_column: &KeyString) -> Result<(), StrictError> {
 
         match self.columns.keys().find(|x| **x == *predicate_column) {
@@ -1691,7 +1770,7 @@ impl EZTable {
                                 indexes.push(x);
                                 lookup.insert(item, x);
                             },
-                            Err(_) => todo!("This should only happen if the database is out of sync"),
+                            Err(_) => todo!("This should only happen if the database is out of sync. Off key was {}", item),
                         };
                     }
                 }
@@ -1746,29 +1825,6 @@ impl EZTable {
                 },
             }
         }
-        
-
-        /*
-        
-        EMPLOYEES
-        employee_id;    name;   department; role;
-        1               jim     IT          engineer
-        2               jeff    Sales       Manager
-        3               bob     IT          engineer
-
-        DEPARTMENTS
-        department;     #employees; budget; location;
-        IT              2           100000  'third floor'
-        Sales           1           100     'first floor'
-
-        left join EMPLOYEES DEPARTMENTS
-
-        employee_id;    name;   department; role;       #employees; location;       budget;
-        1               jim     IT          engineer    2           'third floor'   100000
-        2               jeff    Sales       Manager     1           'first floor'   100
-        3               bob     IT          engineer    2           'third floor'   100000
-
-         */
 
         Ok(())
     }
@@ -2494,10 +2550,10 @@ mod tests {
     }
 
     #[test]
-    fn test_subtable() {
-        let table_string = std::fs::read_to_string(&format!("testlarge.csv")).unwrap();
+    fn test_subtable_from_index_range() {
+        let table_string = std::fs::read_to_string(&format!("test_files{PATH_SEP}test_csv_from_google_sheets_combined_sorted.csv")).unwrap();
         let table = EZTable::from_csv_string(&table_string, "basic_test", "test").unwrap();
-        let subtable = table.create_subtable(0, 7515);
+        let subtable = table.create_subtable_from_index_range(0, 7515);
         println!("{}", subtable);
     }
 

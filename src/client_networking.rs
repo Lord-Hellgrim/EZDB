@@ -475,6 +475,7 @@ mod tests {
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";
+        test_send_good_csv();
         let tables = meta_list_tables(address, username, password).unwrap();
         let e = delete_table(address, username, password, "good_csv").unwrap();
         let tables = meta_list_tables(address, username, password).unwrap();
