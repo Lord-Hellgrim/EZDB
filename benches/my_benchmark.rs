@@ -1,5 +1,9 @@
 
 use criterion::{criterion_group, criterion_main, Criterion};
+use EZDB::compression::brotli_compress;
+use EZDB::compression::brotli_decompress;
+use EZDB::compression::miniz_compress;
+use EZDB::compression::miniz_decompress;
 use EZDB::db_structure::*;
 use EZDB::ezql::*;
 use EZDB::ezql::parse_EZQL;
@@ -123,6 +127,21 @@ fn my_benchmark(c: &mut Criterion) {
     let insert_me_string = std::fs::read_to_string(format!("test_files{PATH_SEP}insert_me.csv")).unwrap();
     let insert_me = EZTable::from_csv_string(&insert_me_string, "insert_me", "QUERY").unwrap();
     group.bench_function("execute LEFT_JOIN query", |b| b.iter(|| execute_left_join_query(parsed_LEFT_JOIN_query.clone(), &t, &insert_me).unwrap()));
+
+    let table_string = std::fs::read_to_string(&format!("test_files{PATH_SEP}test_csv_from_google_sheets_combined_sorted.csv")).unwrap();
+    let table = EZTable::from_csv_string(&table_string, "basic_test", "test").unwrap();
+    let binary = table.write_to_raw_binary();
+
+    group.bench_function("brotli compress", |b| b.iter(|| brotli_compress(&binary).unwrap()));
+    group.bench_function("miniz compress", |b| b.iter(|| miniz_compress(&binary).unwrap()));
+
+    let brotli_compressed = brotli_compress(&binary).unwrap();
+    let miniz_compressed = miniz_compress(&binary).unwrap();
+
+    group.bench_function("brotli decompress", |b| b.iter(|| brotli_decompress(&binary).unwrap()));
+    group.bench_function("miniz decompress", |b| b.iter(|| miniz_decompress(&binary).unwrap()));
+    
+
 
 }
 

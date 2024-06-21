@@ -697,6 +697,8 @@ pub fn bytes_from_strings(strings: &[&str]) -> Vec<u8> {
     v
 }
 
+
+
 pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut Connection) -> Result<String, ServerError> {
     let instruction = match instruction {
         Instruction::Download(table_name) => bytes_from_strings(&vec![&connection.user, "Downloading", &table_name.as_str(),"blank", ]),

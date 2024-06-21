@@ -1,20 +1,19 @@
 use std::collections::BTreeMap;
-use std::fmt::Display;
 use std::io::{Write, Read};
-use std::net::{TcpListener, TcpStream};
+use std::net::{TcpListener};
 use std::sync::{Arc, RwLock};
 use std::str::{self};
 use std::time::Duration;
 use std::convert::{TryFrom, From};
-use std::error::Error;
 
 use x25519_dalek::{StaticSecret, PublicKey};
 
 use crate::aes_temp_crypto::decrypt_aes256;
 use crate::auth::{user_has_permission, AuthenticationError, Permission, User};
 use crate::disk_utilities::{BufferPool, MAX_BUFFERPOOL_SIZE};
+use crate::logging::Logger;
 use crate::networking_utilities::*;
-use crate::db_structure::{DbColumn, EZTable, KeyString, Metadata, StrictError, Value};
+use crate::db_structure::KeyString;
 use crate::handlers::*;
 use crate::PATH_SEP;
 
@@ -23,139 +22,6 @@ pub const MAX_PENDING_MESSAGES: usize = 10;
 pub const PROCESS_MESSAGES_INTERVAL: u64 = 10;   // The number of seconds that pass before the database processes all pending write messages.
 
 
-/// Parses the inctructions sent by the client. Will be rewritten soon to accomodate EZQL
-pub fn parse_instruction(
-    instructions: &[u8], 
-    database: Arc<Database>,
-    aes_key: &[u8]
-) -> Result<Instruction, ServerError> {
-
-    println!("Decrypting instructions");
-    let ciphertext = &instructions[0..instructions.len()-12];
-    let nonce = &instructions[instructions.len()-12..];
-
-    let plaintext = decrypt_aes256(ciphertext, aes_key, nonce)?;
-
-    let instruction = bytes_to_str(&plaintext)?;
-    println!("instruction: {}", instruction);
-
-    // let instruction_block: Vec<&str> = instruction.split('|').collect();
-
-    // println!("parsing 2...");
-    // if instruction_block.len() != INSTRUCTION_LENGTH {
-    //     return Err(ServerError::Instruction(InstructionError::Invalid("Wrong number of query fields. Query should be usernme, password, request, table_name, query(or blank)".to_owned())));
-    // }
-    
-    println!("parsing 3...");
-    let username = KeyString::try_from(&plaintext[0..64])?;
-    let action = KeyString::try_from(&plaintext[64..128])?;
-    let table_name = KeyString::try_from(&plaintext[128..192])?;
-    let query = match String::from_utf8(Vec::from(&plaintext[192..])) {
-        Ok(x) => x,
-        Err(e) => return Err(ServerError::Utf8(e.utf8_error())),
-    };
-
-    if table_name.as_str() == "All" {
-        return Err(ServerError::Instruction(InstructionError::InvalidTable("Table cannot be called 'All'".to_owned())));
-    }
-
-    println!("parsing 4...");
-    match action.as_str() {
-        "Querying" => {
-            Ok(Instruction::Query(query.to_owned()))
-            
-        }
-        "Uploading" => {
-            if user_has_permission(table_name.as_str(), Permission::Upload, username.as_str(), database.users.clone()) {
-                Ok(Instruction::Upload(table_name))
-            } else {
-                Err(ServerError::Authentication(AuthenticationError::Permission))
-            }
-        } 
-        "Downloading" => {
-            if database.buffer_pool.tables.read().unwrap().contains_key(&KeyString::from(table_name)) 
-            && 
-            user_has_permission(table_name.as_str(), Permission::Read, username.as_str(), database.users.clone()) 
-            {
-                Ok(Instruction::Download(table_name))
-            } else {
-                Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_string())))
-            }
-        },
-        "Updating" => {
-            if database.buffer_pool.tables.read().unwrap().contains_key(&KeyString::from(table_name)) 
-            && 
-            user_has_permission(table_name.as_str(), Permission::Write, username.as_str(), database.users.clone())
-            { 
-                Ok(Instruction::Update(table_name))
-            } else {
-                Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_string())))
-            }
-        },
-        "Deleting" => {
-            if database.buffer_pool.tables.read().unwrap().contains_key(&KeyString::from(table_name)) 
-            && 
-            user_has_permission(table_name.as_str(), Permission::Write, username.as_str(), database.users.clone())
-            {
-                Ok(Instruction::Delete(table_name))
-            } else {
-                Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_string())))
-            }
-        }
-        "KvUpload" => {
-            if database.buffer_pool.tables.read().unwrap().contains_key(&KeyString::from(table_name)) 
-            && 
-            user_has_permission(table_name.as_str(), Permission::Upload, username.as_str(), database.users.clone())
-            {
-                Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' already exists. Use 'update' instead", table_name))))
-            } else {
-                Ok(Instruction::KvUpload(table_name))
-            }
-        },
-        "KvUpdate" => {
-            if database.buffer_pool.values.read().unwrap().contains_key(&KeyString::from(table_name)) 
-            && 
-            user_has_permission(table_name.as_str(), Permission::Write, username.as_str(), database.users.clone())
-            {
-                Ok(Instruction::KvUpdate(table_name))
-            } else {
-                Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' does not exist. Use 'upload' instead", table_name))))
-            }
-        },
-        "KvDownload" => {
-            if database.buffer_pool.values.read().unwrap().contains_key(&KeyString::from(table_name)) 
-            && 
-            user_has_permission(table_name.as_str(), Permission::Read, username.as_str(), database.users.clone())
-            {
-                Ok(Instruction::KvDownload(table_name))
-            } else {
-                Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' does not exist. Use 'upload' instead", table_name))))
-            }
-        },
-        "MetaListTables" => {
-            if user_has_permission(table_name.as_str(), Permission::Read, username.as_str(), database.users.clone()) {
-                Ok(Instruction::MetaListTables)
-            } else {
-                Err(ServerError::Authentication(AuthenticationError::Permission))
-            }
-        },
-        "MetaListKeyValues" => {
-            if user_has_permission(table_name.as_str(), Permission::Read, username.as_str(), database.users.clone()) {
-                Ok(Instruction::MetaListKeyValues)
-            } else {
-                Err(ServerError::Authentication(AuthenticationError::Permission))
-            }
-        },
-        "MetaNewUser" => {
-            if user_has_permission(table_name.as_str(), Permission::Write, username.as_str(), database.users.clone()) {
-                Ok(Instruction::NewUser(query))
-            } else {
-                Err(ServerError::Authentication(AuthenticationError::Permission))
-            }
-        }
-        _ => Err(ServerError::Instruction(InstructionError::Invalid(action.to_string()))),
-    }
-}
 
 // Need to redesign the server multithreading before I continue. If I have to lock the "table of tables" for each query,
 // then there's no point to multithreading.
@@ -172,6 +38,7 @@ pub struct Server {
 pub struct Database {
     pub buffer_pool: BufferPool,
     pub users: Arc<RwLock<BTreeMap<KeyString, RwLock<User>>>>,
+    pub logger: Logger,
 }
 
 impl Database {
@@ -204,6 +71,7 @@ impl Database {
         let database = Database {
             buffer_pool: buffer_pool,
             users: users,
+            logger: Logger::default(),
         };
 
         Ok(database)
@@ -521,6 +389,142 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
     Ok(())
 
 }
+
+/// Parses the inctructions sent by the client. Will be rewritten soon to accomodate EZQL
+pub fn parse_instruction(
+    instructions: &[u8], 
+    database: Arc<Database>,
+    aes_key: &[u8]
+) -> Result<Instruction, ServerError> {
+
+    println!("Decrypting instructions");
+    let ciphertext = &instructions[0..instructions.len()-12];
+    let nonce = &instructions[instructions.len()-12..];
+
+    let plaintext = decrypt_aes256(ciphertext, aes_key, nonce)?;
+
+    let instruction = bytes_to_str(&plaintext)?;
+    println!("instruction: {}", instruction);
+
+    // let instruction_block: Vec<&str> = instruction.split('|').collect();
+
+    // println!("parsing 2...");
+    // if instruction_block.len() != INSTRUCTION_LENGTH {
+    //     return Err(ServerError::Instruction(InstructionError::Invalid("Wrong number of query fields. Query should be usernme, password, request, table_name, query(or blank)".to_owned())));
+    // }
+    
+    println!("parsing 3...");
+    let username = KeyString::try_from(&plaintext[0..64])?;
+    let action = KeyString::try_from(&plaintext[64..128])?;
+    let table_name = KeyString::try_from(&plaintext[128..192])?;
+    let query = match String::from_utf8(Vec::from(&plaintext[192..])) {
+        Ok(x) => x,
+        Err(e) => return Err(ServerError::Utf8(e.utf8_error())),
+    };
+
+    if table_name.as_str() == "All" {
+        return Err(ServerError::Instruction(InstructionError::InvalidTable("Table cannot be called 'All'".to_owned())));
+    }
+
+    println!("parsing 4...");
+    match action.as_str() {
+        "Querying" => {
+            Ok(Instruction::Query(query.to_owned()))
+            
+        }
+        "Uploading" => {
+            if user_has_permission(table_name.as_str(), Permission::Upload, username.as_str(), database.users.clone()) {
+                Ok(Instruction::Upload(table_name))
+            } else {
+                Err(ServerError::Authentication(AuthenticationError::Permission))
+            }
+        } 
+        "Downloading" => {
+            if database.buffer_pool.tables.read().unwrap().contains_key(&KeyString::from(table_name)) 
+            && 
+            user_has_permission(table_name.as_str(), Permission::Read, username.as_str(), database.users.clone()) 
+            {
+                Ok(Instruction::Download(table_name))
+            } else {
+                Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_string())))
+            }
+        },
+        "Updating" => {
+            if database.buffer_pool.tables.read().unwrap().contains_key(&KeyString::from(table_name)) 
+            && 
+            user_has_permission(table_name.as_str(), Permission::Write, username.as_str(), database.users.clone())
+            { 
+                Ok(Instruction::Update(table_name))
+            } else {
+                Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_string())))
+            }
+        },
+        "Deleting" => {
+            if database.buffer_pool.tables.read().unwrap().contains_key(&KeyString::from(table_name)) 
+            && 
+            user_has_permission(table_name.as_str(), Permission::Write, username.as_str(), database.users.clone())
+            {
+                Ok(Instruction::Delete(table_name))
+            } else {
+                Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_string())))
+            }
+        }
+        "KvUpload" => {
+            if database.buffer_pool.tables.read().unwrap().contains_key(&KeyString::from(table_name)) 
+            && 
+            user_has_permission(table_name.as_str(), Permission::Upload, username.as_str(), database.users.clone())
+            {
+                Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' already exists. Use 'update' instead", table_name))))
+            } else {
+                Ok(Instruction::KvUpload(table_name))
+            }
+        },
+        "KvUpdate" => {
+            if database.buffer_pool.values.read().unwrap().contains_key(&KeyString::from(table_name)) 
+            && 
+            user_has_permission(table_name.as_str(), Permission::Write, username.as_str(), database.users.clone())
+            {
+                Ok(Instruction::KvUpdate(table_name))
+            } else {
+                Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' does not exist. Use 'upload' instead", table_name))))
+            }
+        },
+        "KvDownload" => {
+            if database.buffer_pool.values.read().unwrap().contains_key(&KeyString::from(table_name)) 
+            && 
+            user_has_permission(table_name.as_str(), Permission::Read, username.as_str(), database.users.clone())
+            {
+                Ok(Instruction::KvDownload(table_name))
+            } else {
+                Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' does not exist. Use 'upload' instead", table_name))))
+            }
+        },
+        "MetaListTables" => {
+            if user_has_permission(table_name.as_str(), Permission::Read, username.as_str(), database.users.clone()) {
+                Ok(Instruction::MetaListTables)
+            } else {
+                Err(ServerError::Authentication(AuthenticationError::Permission))
+            }
+        },
+        "MetaListKeyValues" => {
+            if user_has_permission(table_name.as_str(), Permission::Read, username.as_str(), database.users.clone()) {
+                Ok(Instruction::MetaListKeyValues)
+            } else {
+                Err(ServerError::Authentication(AuthenticationError::Permission))
+            }
+        },
+        "MetaNewUser" => {
+            if user_has_permission(table_name.as_str(), Permission::Write, username.as_str(), database.users.clone()) {
+                Ok(Instruction::NewUser(query))
+            } else {
+                Err(ServerError::Authentication(AuthenticationError::Permission))
+            }
+        }
+        _ => Err(ServerError::Instruction(InstructionError::Invalid(action.to_string()))),
+    }
+}
+
+
 
 #[cfg(test)]
 mod tests {
