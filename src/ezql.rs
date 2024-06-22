@@ -1215,7 +1215,7 @@ pub fn execute_summary_query(query: Query, table: &EZTable) -> Result<Option<EZT
     let mut result = EZTable::blank(&Vec::new(), KeyString::from("RESULT"), "QUERY");
 
     for stat in query.summary {
-        match stat {
+        let _ = match stat {
             Statistic::SUM(column) => {
                 let requested_column = match table.columns.get(&column) {
                     Some(c) => c,

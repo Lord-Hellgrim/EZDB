@@ -131,6 +131,7 @@ pub fn handle_update_request(
     Ok("OK".to_owned())
 }
 
+
 pub fn handle_query_request(
     connection: &mut Connection, 
     query: &str, 
