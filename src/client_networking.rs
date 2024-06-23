@@ -6,6 +6,12 @@ use crate::db_structure::{EZTable, KeyString};
 use crate::networking_utilities::*;
 use crate::PATH_SEP;
 
+
+pub enum Response {
+    Message(String),
+    Table(EZTable),
+}
+
 /// downloads a table as a csv String from the EZDB server at the given address.
 pub fn download_table(
     address: &str,
@@ -105,7 +111,7 @@ pub fn query_table(
     username: &str,
     password: &str,
     query: &str,
-) -> Result<Option<EZTable>, ServerError> {
+) -> Result<Response, ServerError> {
     let mut connection = Connection::connect(address, username, password)?;
 
     let response = instruction_send_and_confirm(
@@ -142,9 +148,13 @@ pub fn query_table(
         }
     };
 
-    let table = EZTable::read_raw_binary("RESULT", &data)?;
-
-    Ok(Some(table))
+    match String::from_utf8(data.clone()) {
+        Ok(x) => Ok(Response::Message(x)),
+        Err(_) => match EZTable::read_raw_binary("RESULT", &data) {
+            Ok(table) => Ok(Response::Table(table)),
+            Err(e) => Err(e.into()),
+        },
+    }
 }
 
 pub fn delete_table(
@@ -464,7 +474,10 @@ mod tests {
         let query = "SELECT(table_name: good_csv, primary_keys: *, columns: *, conditions: ())";
         let username = "admin";
         let password = "admin";
-        let response = query_table(address, username, password, query).unwrap().unwrap();
+        let response = match query_table(address, username, password, query).unwrap() {
+            Response::Message(message) => panic!("This should be a table"),
+            Response::Table(table) => table,
+        };
         let full_table = download_table(address, username, password, "good_csv").unwrap();
         println!("{}", response);
         assert_eq!(response, full_table);

@@ -1678,7 +1678,7 @@ mod tests {
         let products = std::fs::read_to_string(format!("test_files{PATH_SEP}Products.csv")).unwrap();
         let mut products_table = EZTable::from_csv_string(&products, "Products", "test").unwrap();
         println!("{}", products_table);
-        let query = "INSERT(table_name: Products, value_columns: (id, name, desciption, price, picture), new_values: (1,coke,refreshing beverage,200,coke))";
+        let query = "INSERT(table_name: Products, value_columns: (id, name, description, price, picture), new_values: (1,coke,refreshing beverage,200,coke))";
         let parsed_query = parse_EZQL(query).unwrap();
         println!("{}", parsed_query);
         execute_insert_query(parsed_query, &mut products_table).unwrap();
