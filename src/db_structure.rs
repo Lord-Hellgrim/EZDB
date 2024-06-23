@@ -754,12 +754,12 @@ impl EZTable {
 
         let mut new_header = Vec::new();
 
-        for item in inserts.value_columns {
-            match self.header.iter().find(|x| x.name == item) {
+        for item in &inserts.value_columns {
+            match self.header.iter().find(|x| &x.name == item) {
                 Some(x) => {
                     new_header.push(x.clone());
                 },
-                None => return Err(StrictError::Query("Input table header does not match target table header".to_owned()))
+                None => return Err(StrictError::Query(format!("Headers do not match:\nOld:{:?}\nnew{:?}", print_sep_list(&self.header.iter().map(|x| x.name).collect::<Vec<KeyString>>(), ","), print_sep_list(&inserts.value_columns, ",")))),
             }
         }
 

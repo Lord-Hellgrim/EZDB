@@ -618,6 +618,7 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
         }
         if escaped {
             state.word_buffer.push(*c);
+            continue
         }
         match c {
             b'(' | b'[' => {
@@ -1670,13 +1671,20 @@ mod tests {
 
         println!("t: \n{}", t);
 
-        // let mut table = EZTable::from_csv_string(&products, "products", "test").unwrap();
-        // println!("before:\n{}", table);
-        // println!();
-        // execute_insert_query(parsed, &mut table).unwrap();
-        // println!("after:\n{}", table);
-        // let expected_table = "id,t-P;location,t-F;price,f-N;stock,i-N\n0113000;LAG30;495;100\n0113035;LAG15;995;500\n0113446;LAG12;2500;100\n18572054;LAG12;4500;42";
-        // assert_eq!(table.to_string(), expected_table);
+    }
+
+    #[test]
+    fn test_INSERT_Products_bug() {
+        let products = std::fs::read_to_string(format!("test_files{PATH_SEP}Products.csv")).unwrap();
+        let mut products_table = EZTable::from_csv_string(&products, "Products", "test").unwrap();
+        println!("{}", products_table);
+        let query = "INSERT(table_name: Products, value_columns: (id, name, desciption, price, picture), new_values: (1,coke,refreshing beverage,200,coke))";
+        let parsed_query = parse_EZQL(query).unwrap();
+        println!("{}", parsed_query);
+        execute_insert_query(parsed_query, &mut products_table).unwrap();
+        println!("and then:\n{}", products_table);
+        println!("-------------");
+
     }
 
     #[test]
