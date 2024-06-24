@@ -123,7 +123,7 @@ impl From<QueryError> for ServerError {
 
 /// An enum that lists the possible instructions that the database can receive.
 /// Will be rewritten soon to handle EZQL.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Instruction {
     Upload(KeyString),
     Download(KeyString),
@@ -136,6 +136,24 @@ pub enum Instruction {
     KvDownload(KeyString),
     MetaListTables,
     MetaListKeyValues,
+}
+
+impl Display for Instruction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Instruction::Upload(s) => write!(f, "Upload({})", s),
+            Instruction::Download(s) => write!(f, "Download({})", s),
+            Instruction::Update(s) => write!(f, "Update({})", s),
+            Instruction::Query(s) => write!(f, "Query({})", s),
+            Instruction::Delete(s) => write!(f, "Delete({})", s),
+            Instruction::NewUser(s) => write!(f, "NewUser({})", s),
+            Instruction::KvUpload(s) => write!(f, "KvUpload({})", s),
+            Instruction::KvUpdate(s) => write!(f, "KvUpdate({})", s),
+            Instruction::KvDownload(s) => write!(f, "KvDownload({})", s),
+            Instruction::MetaListTables => write!(f, "MetaListTables"),
+            Instruction::MetaListKeyValues => write!(f, "MetaListKeyValues"),
+        }
+    }
 }
 
 /// An error that happens during instruction parsing.
