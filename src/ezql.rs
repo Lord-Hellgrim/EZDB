@@ -6,7 +6,7 @@ use crate::PATH_SEP;
 
 #[derive(Debug, PartialEq)]
 pub enum QueryError {
-    InvalidQueryType,
+    InvalidQuery,
     InvalidConditionFormat,
     InvalidTest,
     InvalidTO,
@@ -19,7 +19,7 @@ pub enum QueryError {
 impl Display for QueryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            QueryError::InvalidQueryType => write!(f, "InvalidQueryType,"),
+            QueryError::InvalidQuery => write!(f, "InvalidQuery,"),
             QueryError::InvalidConditionFormat => write!(f, "    InvalidConditionFormat,"),
             QueryError::InvalidTest => write!(f, "InvalidTest,"),
             QueryError::InvalidTO => write!(f, "InvalidTO,"),
@@ -37,13 +37,13 @@ pub struct Join {
     pub join_column: (KeyString, KeyString),
 }
 
-#[derive(Clone, Debug, PartialEq, PartialOrd, Default)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Default, Eq, Ord)]
 pub struct Inserts {
     pub value_columns: Vec<KeyString>,
     pub new_values: String,
 }
 
-#[derive(Clone, Debug, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord)]
 pub enum Statistic{
     SUM(KeyString),
     MEAN(KeyString),
@@ -93,55 +93,63 @@ impl FromStr for Statistic {
     }
 }
 
-/// A database query that has already been parsed from EZQL (see handlers.rs)
-#[derive(Clone, Debug, PartialEq, PartialOrd)]
-pub struct Query {
-    pub table: KeyString,
-    pub query_type: QueryType,
-    pub primary_keys: RangeOrListorAll,
-    pub columns: Vec<KeyString>,
-    pub conditions: Vec<OpOrCond>,
-    pub updates: Vec<Update>,
-    pub inserts: Inserts,
-    pub join: Join,
-    pub summary: Vec<Statistic>,
+//  - INSERT(table_name: products, value_columns: (id, stock, location, price), new_values: ((0113035, 500, LAG15, 995), (0113000, 100, LAG30, 495)))
+//  - SELECT(table_name: products, primary_keys: *, columns: (price, stock), conditions: ((price greater-than 500) AND (stock less-than 1000)))
+//  - UPDATE(table_name: products, primary_keys: (0113035, 0113000), conditions: ((id starts-with 011)), updates: ((price += 100), (stock -= 100)))
+//  - DELETE(primary_keys: *, table_name: products, conditions: ((price greater-than 500) AND (stock less-than 1000)))
+//  - SUMMARY(table_name: products, columns: ((SUM stock), (MEAN price)))
+//  - LEFT_JOIN(left_table: products, right_table: warehouses, match_columns: (location, id), primary_keys: 0113000..18572054)
+
+
+/// A database query that has already been parsed from EZQL (see EZQL.txt)
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[allow(non_camel_case_types)]
+pub enum Query {
+    SELECT{table_name: KeyString, primary_keys: RangeOrListorAll, columns: Vec<KeyString>, conditions: Vec<OpOrCond>},
+    LEFT_JOIN{left_table: KeyString, right_table: KeyString, match_columns: (KeyString, KeyString), primary_keys: RangeOrListorAll},
+    INNER_JOIN,
+    RIGHT_JOIN,
+    FULL_JOIN,
+    UPDATE{table_name: KeyString, primary_keys: RangeOrListorAll, conditions: Vec<OpOrCond>, updates: Vec<Update>},
+    INSERT{table_name: KeyString, inserts: Inserts},
+    DELETE{primary_keys: RangeOrListorAll, table_name: KeyString, conditions: Vec<OpOrCond>},
+    SUMMARY{table_name: KeyString, columns: Vec<Statistic>},
 }
 
 impl Display for Query {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 
         let mut printer = String::new();
-        match self.query_type {
-            QueryType::SELECT => {
+        match self {
+            Query::SELECT { table_name, primary_keys, columns, conditions } => {
                 printer.push_str(&format!("SELECT(table_name: {}, primary_keys: {}, columns: {}, conditions: ({}))",
-                        self.table,
-                        self.primary_keys,
-                        print_sep_list(&self.columns, ", "),
-                        print_sep_list(&self.conditions, " "),
+                        table_name,
+                        primary_keys,
+                        print_sep_list(columns, ", "),
+                        print_sep_list(conditions, " "),
                 ));
 
             },
-            QueryType::LEFT_JOIN | QueryType::INNER_JOIN | QueryType::FULL_JOIN | QueryType::RIGHT_JOIN => {
-                printer.push_str(&format!("{}(left_table: {}, right_table: {}, primary_keys: {}, match_columns: ({}, {}))",
-                        self.query_type,
-                        self.table,
-                        self.join.table,
-                        self.primary_keys,
-                        self.join.join_column.0,
-                        self.join.join_column.1,
+            Query::LEFT_JOIN { left_table, right_table, match_columns, primary_keys } => {
+                printer.push_str(&format!("LEFT_JOIN(left_table: {}, right_table: {}, primary_keys: {}, match_columns: ({}, {}))",
+                        left_table,
+                        right_table,
+                        primary_keys,
+                        match_columns.0,
+                        match_columns.1,
                 ));
             },
-            QueryType::UPDATE => {
+            Query::UPDATE{ table_name, primary_keys, conditions, updates } => {
                 printer.push_str(&format!("UPDATE(table_name: {}, primary_keys: {}, conditions: ({}), updates: ({}))",
-                        self.table,
-                        self.primary_keys,
-                        print_sep_list(&self.conditions, " "),
-                        print_sep_list(&self.updates, ", "),
+                        table_name,
+                        primary_keys,
+                        print_sep_list(conditions, " "),
+                        print_sep_list(updates, ", "),
                 ));
             },
-            QueryType::INSERT => {
+            Query::INSERT{ table_name, inserts } => {
 
-                let new_values = self.inserts.new_values.clone().replace(';', ", ");
+                let new_values = inserts.new_values.clone().replace(';', ", ");
                 let mut temp = String::from("");
                 for line in new_values.lines() {
                     temp.push_str(&format!("({line}), "));
@@ -151,24 +159,25 @@ impl Display for Query {
                 
 
                 printer.push_str(&format!("INSERT(table_name: {}, value_columns: ({}), new_values: ({}))",
-                        self.table,
-                        print_sep_list(&self.inserts.value_columns, ", "),
+                        table_name,
+                        print_sep_list(&inserts.value_columns, ", "),
                         temp,
                 ));
             },
-            QueryType::DELETE => {
+            Query::DELETE { primary_keys, table_name, conditions } => {
                 printer.push_str(&format!("DELETE(table_name: {}, primary_keys: {}, conditions: ({}))",
-                        self.table,
-                        self.primary_keys,
-                        print_sep_list(&self.conditions, " "),
+                        table_name,
+                        primary_keys,
+                        print_sep_list(conditions, " "),
                 ));
             },
-            QueryType::SUMMARY => {
+            Query::SUMMARY { table_name, columns } => {
                 printer.push_str(&format!("SUMMARY(table_name: {}, columns: ({}))",
-                        self.table,
-                        print_sep_list(&self.summary, ", "),
+                        table_name,
+                        print_sep_list(columns, ", "),
                 ));
             },
+            _ => unimplemented!("Have no implemented all joins yet")
         }
 
 
@@ -185,16 +194,25 @@ impl Default for Query {
 
 impl Query {
     pub fn new() -> Self {
-        Query {
-            table: KeyString::from("__RESULT__"),
-            query_type: QueryType::SELECT,
+        Query::SELECT {
+            table_name: KeyString::from("__RESULT__"),
             primary_keys: RangeOrListorAll::All,
             columns: Vec::new(),
             conditions: Vec::new(),
-            updates: Vec::new(),
-            inserts: Inserts::default(),
-            join: Join::default(),
-            summary: Vec::new(),
+        }
+    }
+
+    pub fn blank(keyword: &str) -> Result<Query, QueryError> {
+        match keyword {
+            "INSERT" => Ok(Query::INSERT{ table_name: KeyString::new(), inserts: Inserts{value_columns: Vec::new(), new_values: String::new()} }),
+            "SELECT" => Ok(Query::SELECT{ table_name: KeyString::new(), primary_keys: RangeOrListorAll::All, columns: Vec::new(), conditions: Vec::new()  }),
+            "UPDATE" => Ok(Query::UPDATE{ table_name: KeyString::new(), primary_keys: RangeOrListorAll::All, conditions: Vec::new(), updates: Vec::new() }),
+            "DELETE" => Ok(Query::DELETE{ table_name: KeyString::new(), primary_keys: RangeOrListorAll::All, conditions: Vec::new() }),
+            "LEFT_JOIN" => Ok(Query::LEFT_JOIN{ left_table: KeyString::new(), right_table: KeyString::new(), match_columns: (KeyString::new(), KeyString::new()), primary_keys: RangeOrListorAll::All }),
+            "FULL_JOIN" => Ok(Query::FULL_JOIN),
+            "INNER_JOIN" => Ok(Query::INNER_JOIN),
+            "SUMMARY" => Ok(Query::SUMMARY{ table_name: KeyString::new(), columns: Vec::new() }),
+            _ => return Err(QueryError::InvalidQuery),
         }
     }
 }
@@ -313,35 +331,7 @@ impl UpdateOp {
 }
 
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-#[allow(non_camel_case_types)]
-pub enum QueryType {
-    SELECT,
-    LEFT_JOIN,
-    INNER_JOIN,
-    RIGHT_JOIN,
-    FULL_JOIN,
-    UPDATE,
-    INSERT,
-    DELETE,
-    SUMMARY,
-}
 
-impl Display for QueryType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            QueryType::SELECT => write!(f, "SELECT"),
-            QueryType::LEFT_JOIN => write!(f, "LEFT_JOIN"),
-            QueryType::INNER_JOIN => write!(f, "INNER_JOIN"),
-            QueryType::RIGHT_JOIN => write!(f, "RIGHT_JOIN"),
-            QueryType::FULL_JOIN => write!(f, "FULL_JOIN"),
-            QueryType::UPDATE => write!(f, "UPDATE"),
-            QueryType::INSERT => write!(f, "INSERT"),
-            QueryType::DELETE => write!(f, "DELETE"),
-            QueryType::SUMMARY => write!(f, "SUMMARY"),
-        }
-    }
-}
 
 /// This enum represents the possible ways to list primary keys to test. 
 /// See EZQL spec for details (handlers.rs).
@@ -596,17 +586,7 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
         None => return Err(QueryError::InvalidQueryStructure("The arguments to the query must be surrounded by parentheses".to_owned()))
     };
 
-    query.query_type = match &query_string[0..first_paren] {
-        "INSERT" => QueryType::INSERT,
-        "SELECT" => QueryType::SELECT,
-        "UPDATE" => QueryType::UPDATE,
-        "DELETE" => QueryType::DELETE,
-        "LEFT_JOIN" => QueryType::LEFT_JOIN,
-        "FULL_JOIN" => QueryType::FULL_JOIN,
-        "INNER_JOIN" => QueryType::INNER_JOIN,
-        "SUMMARY" => QueryType::SUMMARY,
-        _ => return Err(QueryError::InvalidQueryType),
-    };
+    query = Query::blank(&query_string[0..first_paren])?;
 
     let mut args: HashMap<String, Vec<String>> = HashMap::new();
     let mut current_arg = String::new();
@@ -675,7 +655,7 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
     state.word_buffer.clear();
     args.entry(current_arg.clone()).and_modify(|n| n.push(word.clone())).or_insert(vec![word.clone()]);
 
-    query.table = match args.get("table_name") {
+    let table_name = match args.get("table_name") {
         Some(x) => {
             let x = match x.first() {
                 Some(n) => n,
@@ -693,8 +673,18 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
             }
         },
     };
-    match query.query_type {
-        QueryType::INSERT => {
+    match query {
+        Query::INSERT { table_name, inserts } => {
+            let table_name = match args.get("table_name") {
+                Some(x) => {
+                    let x = match x.first() {
+                        Some(n) => n,
+                        None => return Err(QueryError::InvalidQueryStructure("Missing table_name".to_owned())),
+                    };
+                    KeyString::from(x.as_str())
+                },
+                None => return Err(QueryError::InvalidQueryStructure("Missing table_name".to_owned())),
+            };
 
             let value_columns: Vec<KeyString> = match args.get("value_columns") {
                 Some(x) => x.iter().map(|n| KeyString::from(n.as_str())).collect(),
@@ -718,12 +708,24 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
                     acc.push('\n');
                 }
                 acc.pop();
-                query.inserts = Inserts{value_columns: value_columns, new_values: acc};
+                inserts = Inserts{value_columns: value_columns, new_values: acc};
             }
 
         },
-        QueryType::SELECT | QueryType::UPDATE | QueryType::DELETE => {
-            let conditions = match args.get("conditions") {
+        Query::SELECT { table_name, primary_keys, columns, conditions } 
+        | Query::UPDATE { table_name, primary_keys, conditions, updates } 
+        | Query::DELETE { primary_keys, table_name, conditions } => {
+            let table_name = match args.get("table_name") {
+                Some(x) => {
+                    let x = match x.first() {
+                        Some(n) => n,
+                        None => return Err(QueryError::InvalidQueryStructure("Missing table_name".to_owned())),
+                    };
+                    KeyString::from(x.as_str())
+                },
+                None => return Err(QueryError::InvalidQueryStructure("Missing table_name".to_owned())),
+            };
+            let temp_conditions = match args.get("conditions") {
                 Some(x) => {
                     if x.len() != 1 {
                         return Err(QueryError::InvalidQueryStructure("Conditions should be enclosed in parentheses and separated by whitespace".to_owned()))
@@ -735,17 +737,17 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
             };
 
             let mut condition_buffer = String::new();
-            for condition in conditions {
+            for condition in temp_conditions {
                 match condition {
                     "AND" => {
-                        query.conditions.push(OpOrCond::Cond(Condition::from_str(condition_buffer.trim())?));
+                        conditions.push(OpOrCond::Cond(Condition::from_str(condition_buffer.trim())?));
                         condition_buffer.clear();
-                        query.conditions.push(OpOrCond::Op(Operator::AND));
+                        conditions.push(OpOrCond::Op(Operator::AND));
                     },
                     "OR" => {
-                        query.conditions.push(OpOrCond::Cond(Condition::from_str(condition_buffer.trim())?));
+                        conditions.push(OpOrCond::Cond(Condition::from_str(condition_buffer.trim())?));
                         condition_buffer.clear();
-                        query.conditions.push(OpOrCond::Op(Operator::AND));
+                        conditions.push(OpOrCond::Op(Operator::AND));
                     },
                     x => {
                         condition_buffer.push_str(x);
@@ -754,20 +756,20 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
                 }
             }
             if !condition_buffer.is_empty() {
-                query.conditions.push(OpOrCond::Cond(Condition::from_str(condition_buffer.trim())?));
+                conditions.push(OpOrCond::Cond(Condition::from_str(condition_buffer.trim())?));
             }
 
 
-            let primary_keys = match args.get("primary_keys") {
+            let temp_primary_keys = match args.get("primary_keys") {
                 Some(x) => x,
                 None => return Err(QueryError::InvalidQueryStructure("Missing primary_keys. To select all write: 'primary_keys: *'".to_owned())),
             };
 
-            match primary_keys.len() {
+            match temp_primary_keys.len() {
                 0 => return Err(QueryError::InvalidQueryStructure("Missing argument for primary_keys".to_owned())),
                 1 => {
-                    match primary_keys[0].as_str() {
-                        "*" => query.primary_keys = RangeOrListorAll::All,
+                    match temp_primary_keys[0].as_str() {
+                        "*" => primary_keys = RangeOrListorAll::All,
                         x => {
                             match x.find("..") {
                                 Some(_) => {
@@ -780,10 +782,10 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
                                         Some(x) => KeyString::from(x),
                                         None => return Err(QueryError::InvalidQueryStructure("Ranges must have both start and stop values".to_owned()))
                                     };
-                                    query.primary_keys = RangeOrListorAll::Range(start, stop);
+                                    primary_keys = RangeOrListorAll::Range(start, stop);
                                 },
                                 None => {
-                                    query.primary_keys = RangeOrListorAll::List(vec![KeyString::from(x)]);
+                                    primary_keys = RangeOrListorAll::List(vec![KeyString::from(x)]);
                                 }
                             }
                             
@@ -791,15 +793,15 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
                     }
                 },
                 _ => {
-                    let primary_keys: Vec<KeyString> = primary_keys.iter().map(|n| KeyString::from(n.as_str())).collect();
-                    query.primary_keys = RangeOrListorAll::List(primary_keys);
+                    let temp_primary_keys: Vec<KeyString> = temp_primary_keys.iter().map(|n| KeyString::from(n.as_str())).collect();
+                    primary_keys = RangeOrListorAll::List(temp_primary_keys);
                 }
             };
 
             match args.get("columns") {
-                Some(x) => query.columns = x.iter().map(|n| KeyString::from(n.as_str())).collect(),
+                Some(x) => columns = x.iter().map(|n| KeyString::from(n.as_str())).collect(),
                 None => {
-                        if query.query_type == QueryType::SELECT {
+                        if query.query_type == Query::SELECT {
                             return Err(QueryError::InvalidQueryStructure("Missing column list. To select all columns use * as the columns argument.".to_owned()));
                         } else {
                             query.columns = Vec::new();
@@ -809,7 +811,7 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
 
             
 
-            if query.query_type == QueryType::UPDATE {
+            if query.query_type == Query::UPDATE {
                 let updates = match args.get("updates") {
                     Some(x) => x,
                     None => return Err(QueryError::InvalidQueryStructure("Missing updates".to_owned())),
@@ -822,7 +824,7 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
             }
 
         },
-        QueryType::LEFT_JOIN | QueryType::INNER_JOIN | QueryType::RIGHT_JOIN | QueryType::FULL_JOIN => {
+        Query::LEFT_JOIN | Query::INNER_JOIN | Query::RIGHT_JOIN | Query::FULL_JOIN => {
             query.join.table = match args.get("right_table") {
                 Some(x) => match x.first() {
                     Some(n) => KeyString::from(n.as_str()),
@@ -875,7 +877,7 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
 
 
         },
-        QueryType::SUMMARY => {
+        Query::SUMMARY => {
             // SUMMARY(table_name: products, columns: ((SUM stock), (MEAN price)))
             let summary = match args.get("columns") {
                 Some(x) => x,
@@ -968,7 +970,7 @@ pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Res
     for query in queries.into_iter() {
 
         match query.query_type {
-            QueryType::DELETE => {
+            Query::DELETE => {
                 match result_table {
                     Some(mut table) => result_table = execute_delete_query(query, &mut table)?,
                     None => {
@@ -980,7 +982,7 @@ pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Res
                 }
                 
             },
-            QueryType::SELECT => {
+            Query::SELECT => {
                 match result_table {
                     Some(mut table) => result_table = execute_select_query(query, &mut table)?,
                     None => {
@@ -991,7 +993,7 @@ pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Res
                     },
                 }
             },
-            QueryType::LEFT_JOIN => {
+            Query::LEFT_JOIN => {
                 match result_table {
                     Some(table) => {
                         let tables = database.buffer_pool.tables.read().unwrap();
@@ -1007,21 +1009,21 @@ pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Res
                 }
                 
             },
-            QueryType::INNER_JOIN => {
+            Query::INNER_JOIN => {
                 unimplemented!("Inner joins are not yet implemented");
                 // execute_inner_join_query(query, database);
             },
-            QueryType::RIGHT_JOIN => {
+            Query::RIGHT_JOIN => {
                 unimplemented!("Right joins are not yet implemented");
 
                 // execute_right_join_query(query, database);
             },
-            QueryType::FULL_JOIN => {
+            Query::FULL_JOIN => {
                 unimplemented!("Full joins are not yet implemented");
 
                 // execute_full_join_query(query, database);
             },
-            QueryType::UPDATE => {
+            Query::UPDATE => {
                 match result_table {
                     Some(mut table) => result_table = execute_update_query(query, &mut table)?,
                     None => {
@@ -1032,7 +1034,7 @@ pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Res
                     },
                 }
             },
-            QueryType::INSERT => {
+            Query::INSERT => {
                 match result_table {
                     Some(mut table) => result_table = execute_insert_query(query, &mut table)?,
                     None => {
@@ -1043,7 +1045,7 @@ pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Res
                     },
                 }
             },
-            QueryType::SUMMARY => {
+            Query::SUMMARY => {
                 match result_table {
                     Some(table) => {
                         let result = execute_summary_query(query, &table)?;
