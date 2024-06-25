@@ -1,6 +1,6 @@
-use std::{collections::{BTreeMap, HashMap}, fmt::Display, str::FromStr, sync::Arc};
+use std::{collections::HashMap, fmt::Display, str::FromStr, sync::Arc};
 
-use crate::{auth::check_permission, db_structure::{remove_indices, DbColumn, EZTable, KeyString, StrictError}, networking_utilities::{mean_f32_slice, mean_i32_slice, median_f32_slice, median_i32_slice, mode_i32_slice, mode_string_slice, print_sep_list, stdev_f32_slice, stdev_i32_slice, sum_f32_slice, sum_i32_slice, ServerError}, server_networking::Database};
+use crate::{db_structure::{remove_indices, DbColumn, EZTable, KeyString, StrictError}, networking_utilities::{mean_f32_slice, mean_i32_slice, median_f32_slice, median_i32_slice, mode_i32_slice, mode_string_slice, print_sep_list, stdev_f32_slice, stdev_i32_slice, sum_f32_slice, sum_i32_slice, ServerError}, server_networking::Database};
 
 use crate::PATH_SEP;
 
@@ -105,14 +105,14 @@ impl FromStr for Statistic {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[allow(non_camel_case_types)]
 pub enum Query {
-    SELECT{table_name: KeyString, primary_keys: RangeOrListorAll, columns: Vec<KeyString>, conditions: Vec<OpOrCond>},
-    LEFT_JOIN{left_table: KeyString, right_table: KeyString, match_columns: (KeyString, KeyString), primary_keys: RangeOrListorAll},
+    SELECT{table_name: KeyString, primary_keys: RangeOrListOrAll, columns: Vec<KeyString>, conditions: Vec<OpOrCond>},
+    LEFT_JOIN{left_table_name: KeyString, right_table_name: KeyString, match_columns: (KeyString, KeyString), primary_keys: RangeOrListOrAll},
     INNER_JOIN,
     RIGHT_JOIN,
     FULL_JOIN,
-    UPDATE{table_name: KeyString, primary_keys: RangeOrListorAll, conditions: Vec<OpOrCond>, updates: Vec<Update>},
+    UPDATE{table_name: KeyString, primary_keys: RangeOrListOrAll, conditions: Vec<OpOrCond>, updates: Vec<Update>},
     INSERT{table_name: KeyString, inserts: Inserts},
-    DELETE{primary_keys: RangeOrListorAll, table_name: KeyString, conditions: Vec<OpOrCond>},
+    DELETE{primary_keys: RangeOrListOrAll, table_name: KeyString, conditions: Vec<OpOrCond>},
     SUMMARY{table_name: KeyString, columns: Vec<Statistic>},
 }
 
@@ -130,7 +130,7 @@ impl Display for Query {
                 ));
 
             },
-            Query::LEFT_JOIN { left_table, right_table, match_columns, primary_keys } => {
+            Query::LEFT_JOIN { left_table_name: left_table, right_table_name: right_table, match_columns, primary_keys } => {
                 printer.push_str(&format!("LEFT_JOIN(left_table: {}, right_table: {}, primary_keys: {}, match_columns: ({}, {}))",
                         left_table,
                         right_table,
@@ -196,7 +196,7 @@ impl Query {
     pub fn new() -> Self {
         Query::SELECT {
             table_name: KeyString::from("__RESULT__"),
-            primary_keys: RangeOrListorAll::All,
+            primary_keys: RangeOrListOrAll::All,
             columns: Vec::new(),
             conditions: Vec::new(),
         }
@@ -205,14 +205,24 @@ impl Query {
     pub fn blank(keyword: &str) -> Result<Query, QueryError> {
         match keyword {
             "INSERT" => Ok(Query::INSERT{ table_name: KeyString::new(), inserts: Inserts{value_columns: Vec::new(), new_values: String::new()} }),
-            "SELECT" => Ok(Query::SELECT{ table_name: KeyString::new(), primary_keys: RangeOrListorAll::All, columns: Vec::new(), conditions: Vec::new()  }),
-            "UPDATE" => Ok(Query::UPDATE{ table_name: KeyString::new(), primary_keys: RangeOrListorAll::All, conditions: Vec::new(), updates: Vec::new() }),
-            "DELETE" => Ok(Query::DELETE{ table_name: KeyString::new(), primary_keys: RangeOrListorAll::All, conditions: Vec::new() }),
-            "LEFT_JOIN" => Ok(Query::LEFT_JOIN{ left_table: KeyString::new(), right_table: KeyString::new(), match_columns: (KeyString::new(), KeyString::new()), primary_keys: RangeOrListorAll::All }),
+            "SELECT" => Ok(Query::SELECT{ table_name: KeyString::new(), primary_keys: RangeOrListOrAll::All, columns: Vec::new(), conditions: Vec::new()  }),
+            "UPDATE" => Ok(Query::UPDATE{ table_name: KeyString::new(), primary_keys: RangeOrListOrAll::All, conditions: Vec::new(), updates: Vec::new() }),
+            "DELETE" => Ok(Query::DELETE{ table_name: KeyString::new(), primary_keys: RangeOrListOrAll::All, conditions: Vec::new() }),
+            "LEFT_JOIN" => Ok(Query::LEFT_JOIN{ left_table_name: KeyString::new(), right_table_name: KeyString::new(), match_columns: (KeyString::new(), KeyString::new()), primary_keys: RangeOrListOrAll::All }),
             "FULL_JOIN" => Ok(Query::FULL_JOIN),
             "INNER_JOIN" => Ok(Query::INNER_JOIN),
             "SUMMARY" => Ok(Query::SUMMARY{ table_name: KeyString::new(), columns: Vec::new() }),
             _ => return Err(QueryError::InvalidQuery),
+        }
+    }
+
+    pub fn get_primary_keys_ref(&self) -> Option<&RangeOrListOrAll> {
+        match self {
+            Query::SELECT { table_name: _, primary_keys, columns: _, conditions: _ } => Some(primary_keys),
+            Query::LEFT_JOIN { left_table_name: _, right_table_name: _, match_columns: _, primary_keys } => Some(primary_keys),
+            Query::UPDATE { table_name: _, primary_keys, conditions: _, updates: _ } => Some(primary_keys),
+            Query::DELETE { primary_keys, table_name: _, conditions: _ } => Some(primary_keys),
+            _ => None
         }
     }
 }
@@ -336,23 +346,23 @@ impl UpdateOp {
 /// This enum represents the possible ways to list primary keys to test. 
 /// See EZQL spec for details (handlers.rs).
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum RangeOrListorAll {
+pub enum RangeOrListOrAll {
     Range(KeyString, KeyString),
     List(Vec<KeyString>),
     All,
 }
 
-impl Display for RangeOrListorAll {
+impl Display for RangeOrListOrAll {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut printer = String::new();
         match &self {
-            RangeOrListorAll::Range(start, stop) => printer.push_str(&format!("{}..{}", start, stop)),
-            RangeOrListorAll::List(list) => {
+            RangeOrListOrAll::Range(start, stop) => printer.push_str(&format!("{}..{}", start, stop)),
+            RangeOrListOrAll::List(list) => {
                 printer.push('(');
                 printer.push_str(&print_sep_list(list, ", "));
                 printer.push(')');
             },
-            RangeOrListorAll::All => printer.push('*'),
+            RangeOrListOrAll::All => printer.push('*'),
         };
         write!(f, "{}", printer)
     }
@@ -579,14 +589,12 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
         word_buffer: Vec::with_capacity(64),
     };
 
-    let mut query = Query::new();
-
     let first_paren = match query_string.find('(') {
         Some(x) => x,
         None => return Err(QueryError::InvalidQueryStructure("The arguments to the query must be surrounded by parentheses".to_owned()))
     };
 
-    query = Query::blank(&query_string[0..first_paren])?;
+    let mut query = Query::blank(&query_string[0..first_paren])?;
 
     let mut args: HashMap<String, Vec<String>> = HashMap::new();
     let mut current_arg = String::new();
@@ -655,27 +663,9 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
     state.word_buffer.clear();
     args.entry(current_arg.clone()).and_modify(|n| n.push(word.clone())).or_insert(vec![word.clone()]);
 
-    let table_name = match args.get("table_name") {
-        Some(x) => {
-            let x = match x.first() {
-                Some(n) => n,
-                None => return Err(QueryError::InvalidQueryStructure("Missing table_name".to_owned())),
-            };
-            KeyString::from(x.as_str())
-        },
-        None => {
-            match args.get("left_table") {
-                Some(x) => match x.first() {
-                    Some(n) => KeyString::from(n.as_str()),
-                    None => return Err(QueryError::InvalidQueryStructure("Missing argument for left_table".to_owned())),
-                },
-                None => return Err(QueryError::InvalidQueryStructure("Missing left_table".to_owned())),
-            }
-        },
-    };
-    match query {
+    match &mut query {
         Query::INSERT { table_name, inserts } => {
-            let table_name = match args.get("table_name") {
+            let temp_table_name = match args.get("table_name") {
                 Some(x) => {
                     let x = match x.first() {
                         Some(n) => n,
@@ -685,6 +675,7 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
                 },
                 None => return Err(QueryError::InvalidQueryStructure("Missing table_name".to_owned())),
             };
+            *table_name = KeyString::from(temp_table_name.as_str());
 
             let value_columns: Vec<KeyString> = match args.get("value_columns") {
                 Some(x) => x.iter().map(|n| KeyString::from(n.as_str())).collect(),
@@ -708,124 +699,51 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
                     acc.push('\n');
                 }
                 acc.pop();
-                inserts = Inserts{value_columns: value_columns, new_values: acc};
+                *inserts = Inserts{value_columns: value_columns, new_values: acc};
             }
 
         },
-        Query::SELECT { table_name, primary_keys, columns, conditions } 
-        | Query::UPDATE { table_name, primary_keys, conditions, updates } 
-        | Query::DELETE { primary_keys, table_name, conditions } => {
-            let table_name = match args.get("table_name") {
-                Some(x) => {
-                    let x = match x.first() {
-                        Some(n) => n,
-                        None => return Err(QueryError::InvalidQueryStructure("Missing table_name".to_owned())),
-                    };
-                    KeyString::from(x.as_str())
-                },
-                None => return Err(QueryError::InvalidQueryStructure("Missing table_name".to_owned())),
-            };
-            let temp_conditions = match args.get("conditions") {
-                Some(x) => {
-                    if x.len() != 1 {
-                        return Err(QueryError::InvalidQueryStructure("Conditions should be enclosed in parentheses and separated by whitespace".to_owned()))
-                    } else {
-                        x[0].split_whitespace().collect::<Vec<&str>>()
-                    }
-                },
-                None => return Err(QueryError::InvalidQueryStructure("Missing conditions. If you want no conditions just write 'conditions: ()'".to_owned())),
-            };
+        Query::SELECT { table_name, primary_keys, columns, conditions } => {
 
-            let mut condition_buffer = String::new();
-            for condition in temp_conditions {
-                match condition {
-                    "AND" => {
-                        conditions.push(OpOrCond::Cond(Condition::from_str(condition_buffer.trim())?));
-                        condition_buffer.clear();
-                        conditions.push(OpOrCond::Op(Operator::AND));
-                    },
-                    "OR" => {
-                        conditions.push(OpOrCond::Cond(Condition::from_str(condition_buffer.trim())?));
-                        condition_buffer.clear();
-                        conditions.push(OpOrCond::Op(Operator::AND));
-                    },
-                    x => {
-                        condition_buffer.push_str(x);
-                        condition_buffer.push(' ');
-                    }
-                }
-            }
-            if !condition_buffer.is_empty() {
-                conditions.push(OpOrCond::Cond(Condition::from_str(condition_buffer.trim())?));
-            }
-
-
-            let temp_primary_keys = match args.get("primary_keys") {
-                Some(x) => x,
-                None => return Err(QueryError::InvalidQueryStructure("Missing primary_keys. To select all write: 'primary_keys: *'".to_owned())),
-            };
-
-            match temp_primary_keys.len() {
-                0 => return Err(QueryError::InvalidQueryStructure("Missing argument for primary_keys".to_owned())),
-                1 => {
-                    match temp_primary_keys[0].as_str() {
-                        "*" => primary_keys = RangeOrListorAll::All,
-                        x => {
-                            match x.find("..") {
-                                Some(_) => {
-                                    let mut split = x.split("..");
-                                    let start = match split.next() {
-                                        Some(x) => KeyString::from(x),
-                                        None => return Err(QueryError::InvalidQueryStructure("Ranges must have start and stop values".to_owned())),
-                                    };
-                                    let stop = match split.next() {
-                                        Some(x) => KeyString::from(x),
-                                        None => return Err(QueryError::InvalidQueryStructure("Ranges must have both start and stop values".to_owned()))
-                                    };
-                                    primary_keys = RangeOrListorAll::Range(start, stop);
-                                },
-                                None => {
-                                    primary_keys = RangeOrListorAll::List(vec![KeyString::from(x)]);
-                                }
-                            }
-                            
-                        }
-                    }
-                },
-                _ => {
-                    let temp_primary_keys: Vec<KeyString> = temp_primary_keys.iter().map(|n| KeyString::from(n.as_str())).collect();
-                    primary_keys = RangeOrListorAll::List(temp_primary_keys);
-                }
-            };
-
+            (*table_name, *conditions, *primary_keys) = fill_fields(&args)?;
+    
             match args.get("columns") {
-                Some(x) => columns = x.iter().map(|n| KeyString::from(n.as_str())).collect(),
-                None => {
-                        if query.query_type == Query::SELECT {
-                            return Err(QueryError::InvalidQueryStructure("Missing column list. To select all columns use * as the columns argument.".to_owned()));
-                        } else {
-                            query.columns = Vec::new();
-                        }
-                    },
+                Some(x) => *columns = x.iter().map(|n| KeyString::from(n.as_str())).collect(),
+                None => return Err(QueryError::InvalidQueryStructure("Missing column list. To select all columns use * as the columns argument.".to_owned())),
             };
+        },
 
-            
+        Query::UPDATE { table_name, primary_keys, conditions, updates } => {
+            (*table_name, *conditions, *primary_keys) = fill_fields(&args)?;
 
-            if query.query_type == Query::UPDATE {
-                let updates = match args.get("updates") {
-                    Some(x) => x,
-                    None => return Err(QueryError::InvalidQueryStructure("Missing updates".to_owned())),
-                };
-                let mut acc = Vec::with_capacity(updates.len());
-                for update in updates {
-                    acc.push(Update::from_str(update)?);
-                }
-                query.updates = acc;
+            let temp_updates = match args.get("updates") {
+                Some(x) => x,
+                None => return Err(QueryError::InvalidQueryStructure("Missing updates".to_owned())),
+            };
+            let mut acc = Vec::with_capacity(updates.len());
+            for update in temp_updates {
+                acc.push(Update::from_str(update)?);
             }
+            *updates = acc;
 
         },
-        Query::LEFT_JOIN | Query::INNER_JOIN | Query::RIGHT_JOIN | Query::FULL_JOIN => {
-            query.join.table = match args.get("right_table") {
+
+        Query::DELETE { primary_keys, table_name, conditions } => {
+            (*table_name, *conditions, *primary_keys) = fill_fields(&args)?;
+        },
+
+        Query::LEFT_JOIN{ left_table_name: left_table, right_table_name: right_table, match_columns, primary_keys } => {
+
+            let temp_left_table_name = match args.get("left_table") {
+                Some(x) => match x.first() {
+                    Some(n) => KeyString::from(n.as_str()),
+                    None => return Err(QueryError::InvalidQueryStructure("Missing argument for left_table".to_owned())),
+                },
+                None => return Err(QueryError::InvalidQueryStructure("Missing left_table".to_owned())),
+            };
+            *left_table = temp_left_table_name;
+
+            *right_table = match args.get("right_table") {
                 Some(x) => match x.first() {
                     Some(n) => KeyString::from(n.as_str()),
                     None => return Err(QueryError::InvalidQueryStructure("Missing argument for right_table".to_owned())),
@@ -833,16 +751,16 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
                 None => return Err(QueryError::InvalidQueryStructure("Missing right_table".to_owned())),
             };
 
-            let primary_keys = match args.get("primary_keys") {
+            let temp_primary_keys = match args.get("primary_keys") {
                 Some(x) => x,
                 None => return Err(QueryError::InvalidQueryStructure("Missing primary_keys".to_owned())),
             };
 
-            match primary_keys.len() {
+            match temp_primary_keys.len() {
                 0 => return Err(QueryError::InvalidQueryStructure("Missing argumenr for primary_keys".to_owned())),
                 1 => {
-                    match primary_keys[0].as_str() {
-                        "*" => query.primary_keys = RangeOrListorAll::All,
+                    match temp_primary_keys[0].as_str() {
+                        "*" => *primary_keys = RangeOrListOrAll::All,
                         x => {
                             let mut split = x.split("..");
                             let start = match split.next() {
@@ -853,31 +771,42 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
                                 Some(x) => KeyString::from(x),
                                 None => return Err(QueryError::InvalidQueryStructure("Ranges must have start and stop values".to_owned())),
                             };
-                            query.primary_keys = RangeOrListorAll::Range(start, stop);
+                            *primary_keys = RangeOrListOrAll::Range(start, stop);
                         }
                     }
                 },
                 _ => {
-                    let primary_keys: Vec<KeyString> = primary_keys.iter().map(|n| KeyString::from(n.as_str())).collect();
-                    query.primary_keys = RangeOrListorAll::List(primary_keys);
+                    let temp_primary_keys: Vec<KeyString> = temp_primary_keys.iter().map(|n| KeyString::from(n.as_str())).collect();
+                    *primary_keys = RangeOrListOrAll::List(temp_primary_keys);
                 }
             };
 
-            let match_columns: Vec<KeyString> = match args.get("match_columns") {
+            let temp_match_columns: Vec<KeyString> = match args.get("match_columns") {
                 Some(x) => x.iter().map(|s| KeyString::from(s.as_str())).collect(),
                 None => return Err(QueryError::InvalidQueryStructure("Missing match_columns".to_owned())),
             };
 
-            if match_columns.len() != 2 {
+            if temp_match_columns.len() != 2 {
                 return Err(QueryError::InvalidQueryStructure("There should always be exactly two match columns, separated by a comma".to_owned()))
             } else {
-                query.join.join_column = (match_columns[0], match_columns[1]);
+                *match_columns = (temp_match_columns[0], temp_match_columns[1]);
             }
-
-
-
         },
-        Query::SUMMARY => {
+
+        Query::SUMMARY{ table_name, columns } => {
+
+            let temp_table_name = match args.get("table_name") {
+                Some(x) => {
+                    let x = match x.first() {
+                        Some(n) => n,
+                        None => return Err(QueryError::InvalidQueryStructure("Missing table_name".to_owned())),
+                    };
+                    KeyString::from(x.as_str())
+                },
+                None => return Err(QueryError::InvalidQueryStructure("Missing table_name".to_owned())),
+            };
+            *table_name = KeyString::from(temp_table_name.as_str());
+
             // SUMMARY(table_name: products, columns: ((SUM stock), (MEAN price)))
             let summary = match args.get("columns") {
                 Some(x) => x,
@@ -890,14 +819,104 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
                 temp.push(s);
             }
 
-            query.summary = temp;
+            *columns = temp;
 
         },
+
+        _ => unimplemented!()
     }
 
 
     Ok(query)
 
+}
+
+fn fill_fields(args: &HashMap<String, Vec<String>>) -> Result<(KeyString, Vec<OpOrCond>, RangeOrListOrAll), QueryError> {
+    let table_name = match args.get("table_name") {
+        Some(x) => {
+            let x = match x.first() {
+                Some(n) => n,
+                None => return Err(QueryError::InvalidQueryStructure("Missing table_name".to_owned())),
+            };
+            KeyString::from(x.as_str())
+        },
+        None => return Err(QueryError::InvalidQueryStructure("Missing table_name".to_owned())),
+    };
+    let temp_conditions = match args.get("conditions") {
+        Some(x) => {
+            if x.len() != 1 {
+                return Err(QueryError::InvalidQueryStructure("Conditions should be enclosed in parentheses and separated by whitespace".to_owned()))
+            } else {
+                x[0].split_whitespace().collect::<Vec<&str>>()
+            }
+        },
+        None => return Err(QueryError::InvalidQueryStructure("Missing conditions. If you want no conditions just write 'conditions: ()'".to_owned())),
+    };
+
+    let mut condition_buffer = String::new();
+    let mut conditions = Vec::new();
+    for condition in temp_conditions {
+        match condition {
+            "AND" => {
+                conditions.push(OpOrCond::Cond(Condition::from_str(condition_buffer.trim())?));
+                condition_buffer.clear();
+                conditions.push(OpOrCond::Op(Operator::AND));
+            },
+            "OR" => {
+                conditions.push(OpOrCond::Cond(Condition::from_str(condition_buffer.trim())?));
+                condition_buffer.clear();
+                conditions.push(OpOrCond::Op(Operator::AND));
+            },
+            x => {
+                condition_buffer.push_str(x);
+                condition_buffer.push(' ');
+            }
+        }
+    }
+    if !condition_buffer.is_empty() {
+        conditions.push(OpOrCond::Cond(Condition::from_str(condition_buffer.trim())?));
+    }
+
+    let temp_primary_keys = match args.get("primary_keys") {
+        Some(x) => x,
+        None => return Err(QueryError::InvalidQueryStructure("Missing primary_keys. To select all write: 'primary_keys: *'".to_owned())),
+        };
+        
+    let primary_keys: RangeOrListOrAll;
+    match temp_primary_keys.len() {
+        0 => return Err(QueryError::InvalidQueryStructure("Missing argument for primary_keys".to_owned())),
+        1 => {
+            match temp_primary_keys[0].as_str() {
+                "*" => primary_keys = RangeOrListOrAll::All,
+                x => {
+                    match x.find("..") {
+                        Some(_) => {
+                            let mut split = x.split("..");
+                            let start = match split.next() {
+                                Some(x) => KeyString::from(x),
+                                None => return Err(QueryError::InvalidQueryStructure("Ranges must have start and stop values".to_owned())),
+                            };
+                            let stop = match split.next() {
+                                Some(x) => KeyString::from(x),
+                                None => return Err(QueryError::InvalidQueryStructure("Ranges must have both start and stop values".to_owned()))
+                            };
+                            primary_keys = RangeOrListOrAll::Range(start, stop);
+                        },
+                        None => {
+                            primary_keys = RangeOrListOrAll::List(vec![KeyString::from(x)]);
+                        }
+                    }
+                    
+                }
+            }
+        },
+        _ => {
+            let temp_primary_keys: Vec<KeyString> = temp_primary_keys.iter().map(|n| KeyString::from(n.as_str())).collect();
+            primary_keys = RangeOrListOrAll::List(temp_primary_keys);
+        }
+    };
+
+    Ok((table_name, conditions, primary_keys))
 }
 
 
@@ -969,41 +988,41 @@ pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Res
     let mut result_table = None;
     for query in queries.into_iter() {
 
-        match query.query_type {
-            Query::DELETE => {
+        match &query {
+            Query::DELETE{ primary_keys: _, table_name, conditions: _ } => {
                 match result_table {
                     Some(mut table) => result_table = execute_delete_query(query, &mut table)?,
                     None => {
                         let tables = database.buffer_pool.tables.read().unwrap();
-                        let mut table = tables.get(&query.table).unwrap().write().unwrap();
+                        let mut table = tables.get(table_name).unwrap().write().unwrap();
                         result_table = execute_delete_query(query, &mut table)?;
                         database.buffer_pool.table_naughty_list.write().unwrap().insert(table.name);
                     },
                 }
                 
             },
-            Query::SELECT => {
+            Query::SELECT{ table_name, primary_keys: _, columns: _, conditions: _ } => {
                 match result_table {
                     Some(mut table) => result_table = execute_select_query(query, &mut table)?,
                     None => {
-                        println!("table name: {}", &query.table);
+                        println!("table name: {}", table_name);
                         let tables = database.buffer_pool.tables.read().unwrap();
-                        let table = tables.get(&query.table).unwrap().read().unwrap();
+                        let table = tables.get(table_name).unwrap().read().unwrap();
                         result_table = execute_select_query(query, &table)?;
                     },
                 }
             },
-            Query::LEFT_JOIN => {
+            Query::LEFT_JOIN{ left_table_name, right_table_name, match_columns: _, primary_keys: _ } => {
                 match result_table {
                     Some(table) => {
                         let tables = database.buffer_pool.tables.read().unwrap();
-                        let right_table = tables.get(&query.join.table).unwrap().read().unwrap();
+                        let right_table = tables.get(right_table_name).unwrap().read().unwrap();
                         result_table = execute_left_join_query(query, &table, &right_table)?;
                     },
                     None => {
                         let tables = database.buffer_pool.tables.read().unwrap();
-                        let left_table = tables.get(&query.table).unwrap().read().unwrap();
-                        let right_table = tables.get(&query.join.table).unwrap().read().unwrap();
+                        let left_table = tables.get(left_table_name).unwrap().read().unwrap();
+                        let right_table = tables.get(right_table_name).unwrap().read().unwrap();
                         execute_left_join_query(query, &left_table, &right_table)?;
                     },
                 }
@@ -1023,29 +1042,29 @@ pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Res
 
                 // execute_full_join_query(query, database);
             },
-            Query::UPDATE => {
+            Query::UPDATE{ table_name, primary_keys: _, conditions: _, updates: _ } => {
                 match result_table {
                     Some(mut table) => result_table = execute_update_query(query, &mut table)?,
                     None => {
                         let tables = database.buffer_pool.tables.read().unwrap();
-                        let mut table = tables.get(&query.table).unwrap().write().unwrap();
+                        let mut table = tables.get(table_name).unwrap().write().unwrap();
                         result_table = execute_update_query(query, &mut table)?;
                         database.buffer_pool.table_naughty_list.write().unwrap().insert(table.name);
                     },
                 }
             },
-            Query::INSERT => {
+            Query::INSERT{ table_name, inserts: _ } => {
                 match result_table {
                     Some(mut table) => result_table = execute_insert_query(query, &mut table)?,
                     None => {
                         let tables = database.buffer_pool.tables.read().unwrap();
-                        let mut table = tables.get(&query.table).unwrap().write().unwrap();
+                        let mut table = tables.get(table_name).unwrap().write().unwrap();
                         result_table = execute_insert_query(query, &mut table)?;
                         database.buffer_pool.table_naughty_list.write().unwrap().insert(table.name);
                     },
                 }
             },
-            Query::SUMMARY => {
+            Query::SUMMARY{ table_name, columns: _ } => {
                 match result_table {
                     Some(table) => {
                         let result = execute_summary_query(query, &table)?;
@@ -1056,7 +1075,7 @@ pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Res
                     },
                     None => {
                         let tables = database.buffer_pool.tables.read().unwrap();
-                        let table = tables.get(&query.table).unwrap().read().unwrap();
+                        let table = tables.get(table_name).unwrap().read().unwrap();
                         let result = execute_summary_query(query, &table)?;
                         match result {
                             Some(s) => return Ok(Some(s)),
@@ -1077,221 +1096,251 @@ pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Res
 
 pub fn execute_delete_query(query: Query, table: &mut EZTable) -> Result<Option<EZTable>, ServerError> {
     
-    let keepers = filter_keepers(&query, table)?;
-    table.delete_by_indexes(&keepers);
+    match query {
+        Query::DELETE { primary_keys, table_name: _, conditions } => {
+            let keepers = filter_keepers(&conditions, &primary_keys, table)?;
+            table.delete_by_indexes(&keepers);
+        
+            Ok(
+                None
+            )
+        },
+        other_query => return Err(ServerError::Query(format!("Wrong type of query passed to execute_delete_query() function.\nReceived query: {}", other_query))),
+    }
 
-    Ok(
-        None
-    )
 }
 
 pub fn execute_left_join_query(query: Query, left_table: &EZTable, right_table: &EZTable) -> Result<Option<EZTable>, ServerError> {
     
-    let filtered_indexes = keys_to_indexes(left_table, &query.primary_keys)?;
-    let mut filtered_table = left_table.subtable_from_indexes(&filtered_indexes, &KeyString::from("__RESULT__"));
+    match query {
+        Query::LEFT_JOIN { left_table_name: _, right_table_name: _, match_columns, primary_keys } => {
+            let filtered_indexes = keys_to_indexes(left_table, &primary_keys)?;
+            let mut filtered_table = left_table.subtable_from_indexes(&filtered_indexes, &KeyString::from("__RESULT__"));
+        
+            filtered_table.alt_left_join(right_table, &match_columns.0)?;
+        
+            Ok(Some(filtered_table))
+        },
+        other_query => return Err(ServerError::Query(format!("Wrong type of query passed to execute_left_join_query() function.\nReceived query: {}", other_query))),
+    }    
+}
 
-    filtered_table.alt_left_join(right_table, &query.join.join_column.0)?;
+pub fn execute_update_query(query: Query, table: &mut EZTable) -> Result<Option<EZTable>, ServerError> {
+    
+    match query {
+        Query::UPDATE { table_name: _, primary_keys, conditions, updates } => {
+            let keepers = filter_keepers(&conditions, &primary_keys, table)?;
 
-    Ok(Some(filtered_table))
+            for keeper in &keepers {
+                for update in &updates{
+                    if !table.columns.contains_key(&update.attribute) {
+                        return Err(ServerError::Query(format!("Table does not contain column {}", update.attribute)))
+                    }
+                    match update.operator {
+                        UpdateOp::Assign => {
+                            match table.columns.get_mut(&update.attribute).unwrap() {
+                                DbColumn::Ints(ref mut column) => column[*keeper] = update.value.to_i32(),
+                                DbColumn::Floats(ref mut column) => column[*keeper] = update.value.to_f32(),
+                                DbColumn::Texts(ref mut column) => column[*keeper] = update.value,
+                            }
+                        },
+                        UpdateOp::PlusEquals => {
+                            match table.columns.get_mut(&update.attribute).unwrap() {
+                                DbColumn::Ints(ref mut column) => column[*keeper] += update.value.to_i32(),
+                                DbColumn::Floats(ref mut column) => column[*keeper] += update.value.to_f32(),
+                                DbColumn::Texts(ref mut _column) => return Err(ServerError::Query("'+=' operator cannot be performed on text data".to_owned())),
+                            }
+                        },
+                        UpdateOp::MinusEquals => {
+                            match table.columns.get_mut(&update.attribute).unwrap() {
+                                DbColumn::Ints(ref mut column) => column[*keeper] -= update.value.to_i32(),
+                                DbColumn::Floats(ref mut column) => column[*keeper] -= update.value.to_f32(),
+                                DbColumn::Texts(ref mut _column) => return Err(ServerError::Query("'-=' operator cannot be performed on text data".to_owned())),
+                            }
+                        }
+                        UpdateOp::TimesEquals => {
+                            match table.columns.get_mut(&update.attribute).unwrap() {
+                                DbColumn::Ints(ref mut column) => column[*keeper] *= update.value.to_i32(),
+                                DbColumn::Floats(ref mut column) => column[*keeper] *= update.value.to_f32(),
+                                DbColumn::Texts(ref mut column) => column[*keeper] = update.value,
+                            }
+                        },
+                        UpdateOp::Append => {
+                            match table.columns.get_mut(&update.attribute).unwrap() {
+                                DbColumn::Ints(ref mut _column) => return Err(ServerError::Query("'append' operator can only be performed on text data".to_owned())),
+                                DbColumn::Floats(ref mut _column) => return Err(ServerError::Query("'append' operator can only be performed on text data".to_owned())),
+                                DbColumn::Texts(ref mut column) => column[*keeper].push(update.value.as_str())?,
+                            }
+                        },
+                        UpdateOp::Prepend => {
+                            match table.columns.get_mut(&update.attribute).unwrap() {
+                                DbColumn::Ints(ref mut _column) => return Err(ServerError::Query("'prepend' operator can only be performed on text data".to_owned())),
+                                DbColumn::Floats(ref mut _column) => return Err(ServerError::Query("'prepend' operator can only be performed on text data".to_owned())),
+                                DbColumn::Texts(ref mut column) => {
+                                    let mut new = update.value;
+                                    new.push(column[*keeper].as_str())?;
+                                    column[*keeper] = new;
+                                },
+                            }
+                        },
+                    }
+                }
+            }
+
+            Ok(
+                None    
+            )
+        },
+        other_query => return Err(ServerError::Query(format!("Wrong type of query passed to execute_update_query() function.\nReceived query: {}", other_query))),
+    }
+
+    
+}
+
+pub fn execute_insert_query(query: Query, table: &mut EZTable) -> Result<Option<EZTable>, ServerError> {
+
+    match query {
+        Query::INSERT { table_name: _, inserts } => {
+            table.insert(inserts)?;
+        
+            Ok(
+                None
+            )
+        },
+        other_query => return Err(ServerError::Query(format!("Wrong type of query passed to execute_insert_query() function.\nReceived query: {}", other_query))),
+
+    }
+}
+
+pub fn execute_select_query(query: Query, table: &EZTable) -> Result<Option<EZTable>, ServerError> {
+
+    match query {
+        Query::SELECT { table_name: _, primary_keys, columns, conditions } => {
+            let keepers = filter_keepers(&conditions, &primary_keys, table)?;
+        
+            Ok(
+                Some(
+                    table
+                        .subtable_from_indexes(&keepers, &KeyString::from("RESULT"))
+                        .subtable_from_columns(&columns, "RESULT")?
+                    )
+            )
+        },
+        other_query => return Err(ServerError::Query(format!("Wrong type of query passed to execute_select_query() function.\nReceived query: {}", other_query))),
+    }
+}
+
+pub fn execute_summary_query(query: Query, table: &EZTable) -> Result<Option<EZTable>, ServerError> {
+
+    match query {
+        Query::SUMMARY { table_name: _, columns } => {
+            let mut result = EZTable::blank(&Vec::new(), KeyString::from("RESULT"), "QUERY");
+
+            for stat in columns {
+                let _ = match stat {
+                    Statistic::SUM(column) => {
+                        let requested_column = match table.columns.get(&column) {
+                            Some(c) => c,
+                            None => return Err(ServerError::Query(format!("No column named {} in table {}", column, table.name)))
+                        };
+                        match requested_column {
+                            DbColumn::Floats(col) => result.add_column(KeyString::from(format!("SUM_{}", column).as_str()), DbColumn::Floats(vec![sum_f32_slice(col)])),
+                            DbColumn::Ints(col) => {
+                                match sum_i32_slice(col) {
+                                    Some(x) => result.add_column(KeyString::from(format!("SUM_{}", column).as_str()), DbColumn::Ints(vec![x])),
+                                    None => result.add_column(KeyString::from(format!("SUM_{}", column).as_str()), DbColumn::Texts(vec![KeyString::from("Operation would have overflowed i32")])),
+                                }
+                            },
+                            DbColumn::Texts(_col) => result.add_column(KeyString::from(format!("SUM_{}", column).as_str()), DbColumn::Texts(vec![KeyString::from("Can't SUM a text column")])),
+                        }
+                    },
+                    Statistic::MEAN(column) => {
+                        let requested_column = match table.columns.get(&column) {
+                            Some(c) => c,
+                            None => return Err(ServerError::Query(format!("No column named {} in table {}", column, table.name)))
+                        };
+                        match requested_column {
+                            DbColumn::Floats(col) => result.add_column(KeyString::from(format!("MEAN_{}", column).as_str()), DbColumn::Floats(vec![mean_f32_slice(col)])),
+                            DbColumn::Ints(col) => result.add_column(KeyString::from(format!("MEAN_{}", column).as_str()), DbColumn::Floats(vec![mean_i32_slice(col)])),
+                            DbColumn::Texts(_col) => result.add_column(KeyString::from(format!("MEAN_{}", column).as_str()), DbColumn::Texts(vec![KeyString::from("Can't mean a text column")])),
+                        }
+                    },
+                    Statistic::MEDIAN(column) => {
+                        let requested_column = match table.columns.get(&column) {
+                            Some(c) => c,
+                            None => return Err(ServerError::Query(format!("No column named {} in table {}", column, table.name)))
+                        };
+                        match requested_column {
+                            DbColumn::Floats(col) => result.add_column(KeyString::from(format!("MEDIAN_{}", column).as_str()), DbColumn::Floats(vec![median_f32_slice(col)])),
+                            DbColumn::Ints(col) => result.add_column(KeyString::from(format!("MEDIAN_{}", column).as_str()), DbColumn::Floats(vec![median_i32_slice(col)])),
+                            DbColumn::Texts(_col) => result.add_column(KeyString::from(format!("MEDIAN_{}", column).as_str()), DbColumn::Texts(vec![KeyString::from("Can't median a text column")])),
+                        }
+                    },
+                    Statistic::MODE(column) => {
+                        let requested_column = match table.columns.get(&column) {
+                            Some(c) => c,
+                            None => return Err(ServerError::Query(format!("No column named {} in table {}", column, table.name)))
+                        };
+                        match requested_column {
+                            DbColumn::Floats(_col) => result.add_column(KeyString::from(format!("MODE_{}", column).as_str()), DbColumn::Texts(vec![KeyString::from("Can't mode a float slice")])),
+                            DbColumn::Ints(col) => result.add_column(KeyString::from(format!("MODE_{}", column).as_str()), DbColumn::Ints(vec![mode_i32_slice(col)])),
+                            DbColumn::Texts(col) => result.add_column(KeyString::from(format!("MODE_{}", column).as_str()), DbColumn::Texts(vec![mode_string_slice(col)])),
+                        }
+                    },
+                    Statistic::STDEV(column) => {
+                        let requested_column = match table.columns.get(&column) {
+                            Some(c) => c,
+                            None => return Err(ServerError::Query(format!("No column named {} in table {}", column, table.name)))
+                        };
+                        match requested_column {
+                            DbColumn::Floats(col) => result.add_column(KeyString::from(format!("STDEV_{}", column).as_str()), DbColumn::Floats(vec![stdev_f32_slice(col)])),
+                            DbColumn::Ints(col) => result.add_column(KeyString::from(format!("STDEV_{}", column).as_str()), DbColumn::Floats(vec![stdev_i32_slice(col)])),
+                            DbColumn::Texts(_col) => result.add_column(KeyString::from(format!("STDEV_{}", column).as_str()), DbColumn::Texts(vec![KeyString::from("Can't stdev a text column")])),
+                        }
+                    },
+                };
+
+            }
+
+
+            Ok(Some(result))
+        },
+        other_query => return Err(ServerError::Query(format!("Wrong type of query passed to execute_select_query() function.\nReceived query: {}", other_query))),
+    }
+
     
 }
 
 pub fn execute_inner_join_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
-    let tables = database.buffer_pool.tables.read().unwrap();
-    let table = tables.get(&query.table).unwrap().read().unwrap();
-    let keepers = filter_keepers(&query, &table)?;
+    
+    // let tables = database.buffer_pool.tables.read().unwrap();
+    // let table = tables.get(&query.table).unwrap().read().unwrap();
+    // let keepers = filter_keepers(&query, &table)?;
 
     Err(ServerError::Unimplemented("inner joins are not yet implemented".to_owned()))
 }
 
 pub fn execute_right_join_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
-    let tables = database.buffer_pool.tables.read().unwrap();
-    let table = tables.get(&query.table).unwrap().read().unwrap();
-    let keepers = filter_keepers(&query, &table)?;
+    // let tables = database.buffer_pool.tables.read().unwrap();
+    // let table = tables.get(&query.table).unwrap().read().unwrap();
+    // let keepers = filter_keepers(&query, &table)?;
 
     Err(ServerError::Unimplemented("right joins are not yet implemented".to_owned()))
 }
 
 pub fn execute_full_join_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
-    let tables = database.buffer_pool.tables.read().unwrap();
-    let table = tables.get(&query.table).unwrap().read().unwrap();
-    let keepers = filter_keepers(&query, &table)?;
+    // let tables = database.buffer_pool.tables.read().unwrap();
+    // let table = tables.get(&query.table).unwrap().read().unwrap();
+    // let keepers = filter_keepers(&query, &table)?;
 
     Err(ServerError::Unimplemented("full joins are not yet implemented".to_owned()))
 }
 
-// pub struct Update {
-//     attribute: KeyString,
-//     Operator: UpdateOp,
-//     Value: KeyString,
-// }
-
-pub fn execute_update_query(query: Query, table: &mut EZTable) -> Result<Option<EZTable>, ServerError> {
-    
-    let keepers = filter_keepers(&query, table)?;
-
-    for keeper in &keepers {
-        for update in &query.updates{
-            if !table.columns.contains_key(&update.attribute) {
-                return Err(ServerError::Query(format!("Table does not contain column {}", update.attribute)))
-            }
-            match update.operator {
-                UpdateOp::Assign => {
-                    match table.columns.get_mut(&update.attribute).unwrap() {
-                        DbColumn::Ints(ref mut column) => column[*keeper] = update.value.to_i32(),
-                        DbColumn::Floats(ref mut column) => column[*keeper] = update.value.to_f32(),
-                        DbColumn::Texts(ref mut column) => column[*keeper] = update.value,
-                    }
-                },
-                UpdateOp::PlusEquals => {
-                    match table.columns.get_mut(&update.attribute).unwrap() {
-                        DbColumn::Ints(ref mut column) => column[*keeper] += update.value.to_i32(),
-                        DbColumn::Floats(ref mut column) => column[*keeper] += update.value.to_f32(),
-                        DbColumn::Texts(ref mut _column) => return Err(ServerError::Query("'+=' operator cannot be performed on text data".to_owned())),
-                    }
-                },
-                UpdateOp::MinusEquals => {
-                    match table.columns.get_mut(&update.attribute).unwrap() {
-                        DbColumn::Ints(ref mut column) => column[*keeper] -= update.value.to_i32(),
-                        DbColumn::Floats(ref mut column) => column[*keeper] -= update.value.to_f32(),
-                        DbColumn::Texts(ref mut _column) => return Err(ServerError::Query("'-=' operator cannot be performed on text data".to_owned())),
-                    }
-                }
-                UpdateOp::TimesEquals => {
-                    match table.columns.get_mut(&update.attribute).unwrap() {
-                        DbColumn::Ints(ref mut column) => column[*keeper] *= update.value.to_i32(),
-                        DbColumn::Floats(ref mut column) => column[*keeper] *= update.value.to_f32(),
-                        DbColumn::Texts(ref mut column) => column[*keeper] = update.value,
-                    }
-                },
-                UpdateOp::Append => {
-                    match table.columns.get_mut(&update.attribute).unwrap() {
-                        DbColumn::Ints(ref mut _column) => return Err(ServerError::Query("'append' operator can only be performed on text data".to_owned())),
-                        DbColumn::Floats(ref mut _column) => return Err(ServerError::Query("'append' operator can only be performed on text data".to_owned())),
-                        DbColumn::Texts(ref mut column) => column[*keeper].push(update.value.as_str())?,
-                    }
-                },
-                UpdateOp::Prepend => {
-                    match table.columns.get_mut(&update.attribute).unwrap() {
-                        DbColumn::Ints(ref mut _column) => return Err(ServerError::Query("'prepend' operator can only be performed on text data".to_owned())),
-                        DbColumn::Floats(ref mut _column) => return Err(ServerError::Query("'prepend' operator can only be performed on text data".to_owned())),
-                        DbColumn::Texts(ref mut column) => {
-                            let mut new = update.value;
-                            new.push(column[*keeper].as_str())?;
-                            column[*keeper] = new;
-                        },
-                    }
-                },
-            }
-        }
-    }
-
-    Ok(
-        None    
-    )
-}
-
-pub fn execute_insert_query(query: Query, table: &mut EZTable) -> Result<Option<EZTable>, ServerError> {
-
-    table.insert(query.inserts)?;
-
-    Ok(
-        None
-    )
-}
-
-pub fn execute_select_query(query: Query, table: &EZTable) -> Result<Option<EZTable>, ServerError> {
-
-    let keepers = filter_keepers(&query, table)?;
-
-    Ok(
-        Some(
-            table
-                .subtable_from_indexes(&keepers, &KeyString::from("RESULT"))
-                .subtable_from_columns(&query.columns, "RESULT")?
-            )
-    )
-}
-
-pub fn execute_summary_query(query: Query, table: &EZTable) -> Result<Option<EZTable>, ServerError> {
-
-    let mut result = EZTable::blank(&Vec::new(), KeyString::from("RESULT"), "QUERY");
-
-    for stat in query.summary {
-        let _ = match stat {
-            Statistic::SUM(column) => {
-                let requested_column = match table.columns.get(&column) {
-                    Some(c) => c,
-                    None => return Err(ServerError::Query(format!("No column named {} in table {}", column, table.name)))
-                };
-                match requested_column {
-                    DbColumn::Floats(col) => result.add_column(KeyString::from(format!("SUM_{}", column).as_str()), DbColumn::Floats(vec![sum_f32_slice(col)])),
-                    DbColumn::Ints(col) => {
-                        match sum_i32_slice(col) {
-                            Some(x) => result.add_column(KeyString::from(format!("SUM_{}", column).as_str()), DbColumn::Ints(vec![x])),
-                            None => result.add_column(KeyString::from(format!("SUM_{}", column).as_str()), DbColumn::Texts(vec![KeyString::from("Operation would have overflowed i32")])),
-                        }
-                    },
-                    DbColumn::Texts(_col) => result.add_column(KeyString::from(format!("SUM_{}", column).as_str()), DbColumn::Texts(vec![KeyString::from("Can't SUM a text column")])),
-                }
-            },
-            Statistic::MEAN(column) => {
-                let requested_column = match table.columns.get(&column) {
-                    Some(c) => c,
-                    None => return Err(ServerError::Query(format!("No column named {} in table {}", column, table.name)))
-                };
-                match requested_column {
-                    DbColumn::Floats(col) => result.add_column(KeyString::from(format!("MEAN_{}", column).as_str()), DbColumn::Floats(vec![mean_f32_slice(col)])),
-                    DbColumn::Ints(col) => result.add_column(KeyString::from(format!("MEAN_{}", column).as_str()), DbColumn::Floats(vec![mean_i32_slice(col)])),
-                    DbColumn::Texts(_col) => result.add_column(KeyString::from(format!("MEAN_{}", column).as_str()), DbColumn::Texts(vec![KeyString::from("Can't mean a text column")])),
-                }
-            },
-            Statistic::MEDIAN(column) => {
-                let requested_column = match table.columns.get(&column) {
-                    Some(c) => c,
-                    None => return Err(ServerError::Query(format!("No column named {} in table {}", column, table.name)))
-                };
-                match requested_column {
-                    DbColumn::Floats(col) => result.add_column(KeyString::from(format!("MEDIAN_{}", column).as_str()), DbColumn::Floats(vec![median_f32_slice(col)])),
-                    DbColumn::Ints(col) => result.add_column(KeyString::from(format!("MEDIAN_{}", column).as_str()), DbColumn::Floats(vec![median_i32_slice(col)])),
-                    DbColumn::Texts(_col) => result.add_column(KeyString::from(format!("MEDIAN_{}", column).as_str()), DbColumn::Texts(vec![KeyString::from("Can't median a text column")])),
-                }
-            },
-            Statistic::MODE(column) => {
-                let requested_column = match table.columns.get(&column) {
-                    Some(c) => c,
-                    None => return Err(ServerError::Query(format!("No column named {} in table {}", column, table.name)))
-                };
-                match requested_column {
-                    DbColumn::Floats(_col) => result.add_column(KeyString::from(format!("MODE_{}", column).as_str()), DbColumn::Texts(vec![KeyString::from("Can't mode a float slice")])),
-                    DbColumn::Ints(col) => result.add_column(KeyString::from(format!("MODE_{}", column).as_str()), DbColumn::Ints(vec![mode_i32_slice(col)])),
-                    DbColumn::Texts(col) => result.add_column(KeyString::from(format!("MODE_{}", column).as_str()), DbColumn::Texts(vec![mode_string_slice(col)])),
-                }
-            },
-            Statistic::STDEV(column) => {
-                let requested_column = match table.columns.get(&column) {
-                    Some(c) => c,
-                    None => return Err(ServerError::Query(format!("No column named {} in table {}", column, table.name)))
-                };
-                match requested_column {
-                    DbColumn::Floats(col) => result.add_column(KeyString::from(format!("STDEV_{}", column).as_str()), DbColumn::Floats(vec![stdev_f32_slice(col)])),
-                    DbColumn::Ints(col) => result.add_column(KeyString::from(format!("STDEV_{}", column).as_str()), DbColumn::Floats(vec![stdev_i32_slice(col)])),
-                    DbColumn::Texts(_col) => result.add_column(KeyString::from(format!("STDEV_{}", column).as_str()), DbColumn::Texts(vec![KeyString::from("Can't stdev a text column")])),
-                }
-            },
-        };
-
-    }
-
-
-    Ok(Some(result))
-}
-
-pub fn keys_to_indexes(table: &EZTable, keys: &RangeOrListorAll) -> Result<Vec<usize>, StrictError> {
+pub fn keys_to_indexes(table: &EZTable, keys: &RangeOrListOrAll) -> Result<Vec<usize>, StrictError> {
     let mut indexes = Vec::new();
 
     match keys {
-        RangeOrListorAll::Range(ref start, ref stop) => {
+        RangeOrListOrAll::Range(ref start, ref stop) => {
             match &table.columns[&table.get_primary_key_col_index()] {
                 DbColumn::Ints(column) => {
                     let first = match column.binary_search(&start.to_i32()) {
@@ -1320,7 +1369,7 @@ pub fn keys_to_indexes(table: &EZTable, keys: &RangeOrListorAll) -> Result<Vec<u
                 },
             }
         },
-        RangeOrListorAll::List(ref keys) => {
+        RangeOrListOrAll::List(ref keys) => {
             match &table.columns[&table.get_primary_key_col_index()] {
                 DbColumn::Ints(column) => {
                     if keys.len() > column.len() {
@@ -1355,22 +1404,22 @@ pub fn keys_to_indexes(table: &EZTable, keys: &RangeOrListorAll) -> Result<Vec<u
                 },
             }
         },
-        RangeOrListorAll::All => indexes = (0..table.len()).collect(),
+        RangeOrListOrAll::All => indexes = (0..table.len()).collect(),
     };
 
     Ok(indexes)
 }
 
 
-pub fn filter_keepers(query: &Query, table: &EZTable) -> Result<Vec<usize>, ServerError> {
-    let indexes = keys_to_indexes(table, &query.primary_keys)?;
+pub fn filter_keepers(conditions: &Vec<OpOrCond>, primary_keys: &RangeOrListOrAll, table: &EZTable) -> Result<Vec<usize>, ServerError> {
+    let indexes = keys_to_indexes(table, primary_keys)?;
     
-    if query.conditions.is_empty() {
+    if conditions.is_empty() {
         return Ok(indexes);
     }
     let mut keepers = Vec::<usize>::new();
     let mut current_op = Operator::OR;
-    for condition in query.conditions.iter() {
+    for condition in conditions.iter() {
         match condition {
             OpOrCond::Op(op) => current_op = *op,
             OpOrCond::Cond(cond) => {
