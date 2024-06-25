@@ -157,16 +157,14 @@ pub fn check_permission(
     }
 
     for query in queries {
-        match query.query_type {
-            crate::ezql::QueryType::SELECT => if user.can_read.contains(&query.table.to_string()) {continue},
-            crate::ezql::QueryType::LEFT_JOIN => if user.can_read.contains(&query.table.to_string()) {continue},
-            crate::ezql::QueryType::INNER_JOIN => if user.can_read.contains(&query.table.to_string()) {continue},
-            crate::ezql::QueryType::RIGHT_JOIN => if user.can_read.contains(&query.table.to_string()) {continue},
-            crate::ezql::QueryType::FULL_JOIN => if user.can_read.contains(&query.table.to_string()) {continue},
-            crate::ezql::QueryType::UPDATE => if user.can_write.contains(&query.table.to_string()) {continue},
-            crate::ezql::QueryType::INSERT => if user.can_write.contains(&query.table.to_string()) {continue},
-            crate::ezql::QueryType::DELETE => if user.can_write.contains(&query.table.to_string()) {continue},
-            crate::ezql::QueryType::SUMMARY => if user.can_read.contains(&query.table.to_string()) {continue},
+        match query {
+            Query::SELECT{table_name, primary_keys: _, columns: _, conditions: _ } => if user.can_read.contains(&table_name.to_string()) {continue},
+            Query::LEFT_JOIN{left_table_name, right_table_name, match_columns: _, primary_keys: _ } => if user.can_read.contains(&left_table_name.to_string()) && user.can_read.contains(&right_table_name.to_string()) {continue},
+            Query::UPDATE{table_name, primary_keys: _, conditions: _, updates: _ } => if user.can_write.contains(&table_name.to_string()) {continue},
+            Query::INSERT{table_name, inserts: _ } => if user.can_write.contains(&table_name.to_string()) {continue},
+            Query::DELETE{table_name, primary_keys: _, conditions: _ } => if user.can_write.contains(&table_name.to_string()) {continue},
+            Query::SUMMARY{table_name, columns: _ } => if user.can_read.contains(&table_name.to_string()) {continue},
+            _ => unimplemented!()
         }
         return Err(AuthenticationError::Permission)
     }

@@ -225,6 +225,20 @@ impl Query {
             _ => None
         }
     }
+
+    pub fn get_table_name(&self) -> KeyString {
+        match self {
+            Query::SELECT { table_name, primary_keys, columns, conditions } => *table_name,
+            Query::LEFT_JOIN { left_table_name, right_table_name, match_columns, primary_keys } => *left_table_name,
+            Query::UPDATE { table_name, primary_keys, conditions, updates } => *table_name,
+            Query::INSERT { table_name, inserts } => *table_name,
+            Query::DELETE { primary_keys, table_name, conditions } => *table_name,
+            Query::SUMMARY { table_name, columns } => *table_name,
+            Query::INNER_JOIN => todo!(),
+            Query::RIGHT_JOIN => todo!(),
+            Query::FULL_JOIN => todo!(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
