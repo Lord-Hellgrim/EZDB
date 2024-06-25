@@ -1,12 +1,8 @@
 use std::{
-    collections::{BTreeMap, HashMap, HashSet}, fmt::{self, Debug, Display}, hash::BuildHasherDefault, io::Write, num::{ParseFloatError, ParseIntError}, sync::atomic::{AtomicU64, Ordering}
+    collections::{BTreeMap, HashMap, HashSet}, fmt::{self, Debug, Display}, io::Write, num::{ParseFloatError, ParseIntError}, sync::atomic::{AtomicU64, Ordering}
 };
 
 // use smartstring::{LazyCompact, SmartString, };
-
-
-use fnv::{FnvHashMap, FnvHasher};
-use rayon::iter::IntoParallelRefIterator;
 
 use crate::{ezql::Inserts, networking_utilities::*};
 
@@ -19,6 +15,7 @@ use crate::PATH_SEP;
 pub struct KeyString {
     inner: [u8;64],
 }
+
 
 impl fmt::Debug for KeyString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

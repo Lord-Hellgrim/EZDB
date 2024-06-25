@@ -71,7 +71,7 @@ impl Database {
         let database = Database {
             buffer_pool: buffer_pool,
             users: users,
-            logger: Logger::default(),
+            logger: Logger::new(),
         };
 
         Ok(database)

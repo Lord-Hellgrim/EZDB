@@ -1,22 +1,43 @@
-use std::fmt::Display;
+use std::{collections::BTreeMap, fmt::Display};
 
-use crate::{db_structure::KeyString, ezql::Query, networking_utilities::{print_sep_list, Instruction}};
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+use crate::{db_structure::{EZTable, KeyString}, ezql::Query, networking_utilities::{print_sep_list, Instruction}};
+
 pub struct Entry {
-    action: Instruction,
     timestamp: u64,
     user: KeyString,
     client_address: KeyString,
+    query: String,
+    before_snap: BTreeMap<KeyString, EZTable>,
+    after_snap: BTreeMap<KeyString, EZTable>,
 }
 
 impl Display for Entry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f,"{} from {} did {} at {}", self.user, self.client_address, self.action, self.timestamp)
+        let mut printer = format!(
+            "{} from {} made {} at {}\n\nBefore change:\n",
+            self.user,
+            self.client_address,
+            self.query,
+            self.timestamp,
+        );
+        for table in self.before_snap.values() {
+            printer.push_str(&table.to_string());
+            printer.push_str("\n\n");
+        }
+        printer.push_str("After change:\n");
+
+        for table in self.after_snap.values() {
+            printer.push_str(&table.to_string());
+            printer.push_str("\n\n");
+        }
+
+        write!(f, "{}", printer)
+
     }
 }
 
-#[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Logger {
     entries: Vec<Entry>,
 }
