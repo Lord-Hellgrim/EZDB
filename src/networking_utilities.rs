@@ -1,9 +1,13 @@
+
+
 use std::arch::asm;
 use std::fmt::Display;
 use std::hash::Hash;
+use std::simd;
 use std::io::{Write, Read, ErrorKind};
 use std::net::TcpStream;
 use std::num::ParseIntError;
+use std::simd::num::SimdInt;
 use std::str::{self, Utf8Error};
 use std::sync::Arc;
 use std::time::Duration;
@@ -557,26 +561,95 @@ pub fn chunk3_vec<T>(list: &[T]) -> Option<[&T;3]> {
 
 #[inline]
 pub fn sum_i32_slice(slice: &[i32]) -> Option<i32> {
-    let mut sum: i32 = 0;
-    for item in slice {
-        sum = sum.checked_add(*item)?;
+
+    let mut suma = simd::i32x4::splat(0);
+    let mut sumb = simd::i32x4::splat(0);
+    let mut sumc = simd::i32x4::splat(0);
+    let mut sumd = simd::i32x4::splat(0);
+    let mut i = 0;
+    while i + 15 < slice.len() {
+        suma = suma.saturating_add(simd::i32x4::from_slice(&slice[i..i+4]));
+        sumb = sumb.saturating_add(simd::i32x4::from_slice(&slice[i+4..i+8]));
+        sumc = sumc.saturating_add(simd::i32x4::from_slice(&slice[i+8..i+12]));
+        sumd = sumd.saturating_add(simd::i32x4::from_slice(&slice[i+12..i+16]));
+        i += 16;
     }
+
+    let suma = suma.as_array().iter().fold(0, |acc: i32, x| acc.saturating_add(*x));
+    let sumb = sumb.as_array().iter().fold(0, |acc: i32, x| acc.saturating_add(*x));
+    let sumc = sumc.as_array().iter().fold(0, |acc: i32, x| acc.saturating_add(*x));
+    let sumd = sumd.as_array().iter().fold(0, |acc: i32, x| acc.saturating_add(*x));
+
+    let mut sum = suma + sumb + sumc + sumd;
+    while i < slice.len() {
+        sum = sum.checked_add(slice[i])?;
+        i += 1;
+    }
+
     Some(sum)
 }
 
 #[inline]
 pub fn sum_f32_slice(slice: &[f32]) -> f32 {
-    slice.iter().sum::<f32>()
+    let mut suma = simd::f32x4::splat(0.0);
+    let mut sumb = simd::f32x4::splat(0.0);
+    let mut sumc = simd::f32x4::splat(0.0);
+    let mut sumd = simd::f32x4::splat(0.0);
+    let mut i = 0;
+    while i + 15 < slice.len() {
+        suma = suma + simd::f32x4::from_slice(&slice[i..i+4]);
+        sumb = sumb + simd::f32x4::from_slice(&slice[i+4..i+8]);
+        sumc = sumc + simd::f32x4::from_slice(&slice[i+8..i+12]);
+        sumd = sumd + simd::f32x4::from_slice(&slice[i+12..i+16]);
+        i += 16;
+    }
+
+    let suma = suma.as_array().iter().fold(0.0, |acc: f32, x| acc + *x);
+    let sumb = sumb.as_array().iter().fold(0.0, |acc: f32, x| acc + *x);
+    let sumc = sumc.as_array().iter().fold(0.0, |acc: f32, x| acc + *x);
+    let sumd = sumd.as_array().iter().fold(0.0, |acc: f32, x| acc + *x);
+
+    let mut sum = suma + sumb + sumc + sumd;
+    while i < slice.len() {
+        sum = sum + slice[i];
+        i += 1;
+    }
+
+    sum
 }
 
 #[inline]
 pub fn mean_i32_slice(slice: &[i32]) -> f32 {
-    slice.iter().map(|n| *n as f32).sum::<f32>() / (slice.len() as f32)
+    let mut suma = simd::f32x4::splat(0.0);
+    let mut sumb = simd::f32x4::splat(0.0);
+    let mut sumc = simd::f32x4::splat(0.0);
+    let mut sumd = simd::f32x4::splat(0.0);
+    let mut i = 0;
+    while i + 15 < slice.len() {
+        suma = suma + simd::i32x4::from_slice(&slice[i..i+4]).cast();
+        sumb = sumb + simd::i32x4::from_slice(&slice[i+4..i+8]).cast();
+        sumc = sumc + simd::i32x4::from_slice(&slice[i+8..i+12]).cast();
+        sumd = sumd + simd::i32x4::from_slice(&slice[i+12..i+16]).cast();
+        i += 16;
+    }
+
+    let suma = suma.as_array().iter().fold(0.0, |acc: f32, x| acc + *x);
+    let sumb = sumb.as_array().iter().fold(0.0, |acc: f32, x| acc + *x);
+    let sumc = sumc.as_array().iter().fold(0.0, |acc: f32, x| acc + *x);
+    let sumd = sumd.as_array().iter().fold(0.0, |acc: f32, x| acc + *x);
+
+    let mut sum = suma + sumb + sumc + sumd;
+    while i < slice.len() {
+        sum = sum + slice[i] as f32;
+        i += 1;
+    }
+
+    sum / slice.len() as f32
 }
 
 #[inline]
 pub fn mean_f32_slice(slice: &[f32]) -> f32 {
-    slice.iter().sum::<f32>() / (slice.len() as f32)
+    sum_f32_slice(slice) / (slice.len() as f32)
 }
 
 #[inline]
@@ -608,7 +681,10 @@ pub fn mode_string_slice(slice: &[KeyString]) -> KeyString {
 
     let mut map = FnvHashMap::default();
     for item in slice {
-        map.entry(item).and_modify(|n| *n += 1).or_insert(1);
+        map
+        .entry(item)
+        .and_modify(|n| *n += 1)
+        .or_insert(1);
     }
 
     let mut max = 0;
@@ -622,28 +698,88 @@ pub fn mode_string_slice(slice: &[KeyString]) -> KeyString {
     result
 }
 
+
 #[inline]
 pub fn stdev_i32_slice(slice: &[i32]) -> f32 {
     let mean = mean_i32_slice(slice);
 
-    let mut variance = 0.0;
-    for item in slice {
-        variance += (*item as f32 - mean) * (*item as f32 - mean);
+    let mut variancea = simd::f32x4::splat(0.0);
+    let mut varianceb = simd::f32x4::splat(0.0);
+    let mut variancec = simd::f32x4::splat(0.0);
+    let mut varianced = simd::f32x4::splat(0.0);
+
+    let mut i = 0;
+    while i+15 < slice.len() {
+        let mut updatea: simd::f32x4 = simd::i32x4::from_slice(&slice[i..i+4]).cast();
+        let mut updateb: simd::f32x4 = simd::i32x4::from_slice(&slice[i+4..i+8]).cast();
+        let mut updatec: simd::f32x4 = simd::i32x4::from_slice(&slice[i+8..i+12]).cast();
+        let mut updated: simd::f32x4 = simd::i32x4::from_slice(&slice[i+12..i+16]).cast();
+
+        updatea = updatea - simd::f32x4::splat(mean);
+        updateb = updateb - simd::f32x4::splat(mean);
+        updatec = updatec - simd::f32x4::splat(mean);
+        updated = updated - simd::f32x4::splat(mean);
+
+        variancea = updatea * updatea;
+        varianceb = updateb * updateb;
+        variancec = updatec * updatec;
+        varianced = updated * updated;
+
+        i += 16;
     }
 
+    let mut variance = variancea.as_array().iter().fold(0.0, |acc, x| acc + x);
+    variance += varianceb.as_array().iter().fold(0.0, |acc, x| acc + x);
+    variance += variancec.as_array().iter().fold(0.0, |acc, x| acc + x);
+    variance += varianced.as_array().iter().fold(0.0, |acc, x| acc + x);
+
+    while i < slice.len() {
+        variance += (slice[i] as f32 - mean) * (slice[i] as f32 - mean);
+        i += 1;
+    }
 
     (variance/slice.len() as f32).sqrt()
+
 }
 
 #[inline]
 pub fn stdev_f32_slice(slice: &[f32]) -> f32 {
     let mean = mean_f32_slice(slice);
 
-    let mut variance = 0.0;
-    for item in slice {
-        variance += (*item - mean) * (*item - mean);
+    let mut variancea = simd::f32x4::splat(0.0);
+    let mut varianceb = simd::f32x4::splat(0.0);
+    let mut variancec = simd::f32x4::splat(0.0);
+    let mut varianced = simd::f32x4::splat(0.0);
+
+    let mut i = 0;
+    while i+15 < slice.len() {
+        let mut updatea: simd::f32x4 = simd::f32x4::from_slice(&slice[i..i+4]);
+        let mut updateb: simd::f32x4 = simd::f32x4::from_slice(&slice[i+4..i+8]);
+        let mut updatec: simd::f32x4 = simd::f32x4::from_slice(&slice[i+8..i+12]);
+        let mut updated: simd::f32x4 = simd::f32x4::from_slice(&slice[i+12..i+16]);
+
+        updatea = updatea - simd::f32x4::splat(mean);
+        updateb = updateb - simd::f32x4::splat(mean);
+        updatec = updatec - simd::f32x4::splat(mean);
+        updated = updated - simd::f32x4::splat(mean);
+
+        variancea = updatea * updatea;
+        varianceb = updateb * updateb;
+        variancec = updatec * updatec;
+        varianced = updated * updated;
+
+        i += 16;
     }
 
+    let mut variance = variancea.as_array().iter().fold(0.0, |acc, x| acc + x);
+    variance += varianceb.as_array().iter().fold(0.0, |acc, x| acc + x);
+    variance += variancec.as_array().iter().fold(0.0, |acc, x| acc + x);
+    variance += varianced.as_array().iter().fold(0.0, |acc, x| acc + x);
+
+    while i < slice.len() {
+        variance += (slice[i] - mean) * (slice[i] - mean);
+        i += 1;
+    }
 
     (variance/slice.len() as f32).sqrt()
 }
@@ -910,16 +1046,26 @@ mod tests {
 
     #[test]
     fn test_stdev() {
-        let data = [3, 1, 6, 1, 5, 8, 1, 8, 10, 11];
+        let data = [3, 1, 6, 1, 5, 8, 1, 8, 10, 11, 3, 1, 6, 1, 5, 8, 1, 8, 10, 11];
         let stdev = stdev_i32_slice(&data);
+        println!("stdev: {}", stdev);
         assert!(stdev > 3.611 && stdev < 3.612);
     }
 
     #[test]
-    fn test_sum() {
+    fn test_sum_i32_slice() {
         let data = [3, 6, 9];
         let sum = sum_i32_slice(&data);
+        println!("sum: {}", sum.unwrap());
         assert!(sum == Some(18));
+    }
+
+    #[test]
+    fn test_sum_f32_slice() {
+        let data = [3.0, 6.0, 9.0];
+        let sum = sum_f32_slice(&data);
+        println!("sum: {}", sum);
+        assert!(sum == 18.0);
     }
 
 }

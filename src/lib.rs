@@ -1,5 +1,6 @@
 //#![allow(unused)]
 //#![allow(non_snake_case)]
+#![feature(portable_simd)]
 
 #[cfg(target_os="windows")]
 pub const PATH_SEP: char = '\\';

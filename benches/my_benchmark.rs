@@ -1,5 +1,6 @@
 
 use criterion::{criterion_group, criterion_main, Criterion};
+use rand::Rng;
 use EZDB::compression::brotli_compress;
 use EZDB::compression::brotli_decompress;
 use EZDB::compression::miniz_compress;
@@ -8,6 +9,7 @@ use EZDB::db_structure::*;
 use EZDB::ezql::*;
 use EZDB::ezql::parse_EZQL;
 
+use EZDB::networking_utilities::*;
 use EZDB::PATH_SEP;
 
 fn my_benchmark(c: &mut Criterion) {
@@ -138,9 +140,30 @@ fn my_benchmark(c: &mut Criterion) {
     let brotli_compressed = brotli_compress(&binary).unwrap();
     let miniz_compressed = miniz_compress(&binary).unwrap();
 
-    group.bench_function("brotli decompress", |b| b.iter(|| brotli_decompress(&binary).unwrap()));
-    group.bench_function("miniz decompress", |b| b.iter(|| miniz_decompress(&binary).unwrap()));
+    group.bench_function("brotli decompress", |b| b.iter(|| brotli_decompress(&brotli_compressed).unwrap()));
+    group.bench_function("miniz decompress", |b| b.iter(|| miniz_decompress(&miniz_compressed).unwrap()));
     
+    let i32_slice: Vec<i32> = (0..98304).collect();
+    let f32_slice: Vec<f32> = i32_slice.clone().iter().map(|n| *n as f32).collect();
+    group.bench_function("sum_slice_i32", |b| b.iter(|| sum_i32_slice(&i32_slice).unwrap()));
+    group.bench_function("sum_slice_f32", |b| b.iter(|| sum_f32_slice(&f32_slice)));
+
+    group.bench_function("mean_slice_i32", |b| b.iter(|| mean_i32_slice(&i32_slice)));
+    group.bench_function("mean_slice_f32", |b| b.iter(|| mean_f32_slice(&f32_slice)));
+
+    group.bench_function("stdev_slice_i32", |b| b.iter(|| stdev_i32_slice(&i32_slice)));
+    group.bench_function("stdev_slice_f32", |b| b.iter(|| stdev_f32_slice(&f32_slice)));
+
+    group.bench_function("median_slice_i32", |b| b.iter(|| median_i32_slice(&i32_slice)));
+    group.bench_function("median_slice_f32", |b| b.iter(|| median_f32_slice(&f32_slice)));
+
+    let mut mode_slice = Vec::new();  
+    let mut thread_rng = rand::thread_rng();     
+    for i in 0..98304 {
+        mode_slice.push(thread_rng.gen_range(0..1000));
+    }
+    group.bench_function("mode_slice_i32", |b| b.iter(|| mode_i32_slice(&i32_slice)));
+
 
 
 }
