@@ -48,13 +48,13 @@ fn my_benchmark(c: &mut Criterion) {
     
     let t = EZTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
     
-    group.bench_function("Write to raw binary", |b| b.iter(|| t.write_to_raw_binary()));
+    group.bench_function("Write to raw binary", |b| b.iter(|| t.write_to_binary()));
     group.bench_function("Write to csv string", |b| b.iter(|| t.to_string()));
 
-    let bint_t = t.write_to_raw_binary();
+    let bint_t = t.write_to_binary();
     let string_t = t.to_string();
     
-    group.bench_function("read from raw binary", |b| b.iter(|| EZTable::read_raw_binary("bench", &bint_t)));
+    group.bench_function("read from raw binary", |b| b.iter(|| EZTable::from_binary("bench", &bint_t)));
     group.bench_function("read from csv string", |b| b.iter(|| EZTable::from_csv_string(&string_t, "bench2", "criterion")));
 
     // header:
@@ -102,19 +102,19 @@ fn my_benchmark(c: &mut Criterion) {
     let mut t = EZTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
     group.bench_function("execute INSERT query", |b| b.iter(|| {
         execute_insert_query(parsed_INSERT_query.clone(), &mut t).unwrap();
-        t = EZTable::read_raw_binary("test", &bint_t).unwrap();
+        t = EZTable::from_binary("test", &bint_t).unwrap();
     }));
     group.bench_function("execute UPDATE query", |b| b.iter(|| {
         execute_update_query(parsed_UPDATE_query.clone(), &mut t).unwrap();
-        t = EZTable::read_raw_binary("test", &bint_t).unwrap();
+        t = EZTable::from_binary("test", &bint_t).unwrap();
     }));
     group.bench_function("execute DELETE query", |b| b.iter(|| {
         execute_delete_query(parsed_DELETE_query.clone(), &mut t).unwrap();
-        t = EZTable::read_raw_binary("test", &bint_t).unwrap();
+        t = EZTable::from_binary("test", &bint_t).unwrap();
     }));
     group.bench_function("execute SUM query"   , |b| b.iter(|| {
         execute_summary_query(parsed_SUM_query.clone(), &mut t).unwrap();
-        t = EZTable::read_raw_binary("test", &bint_t).unwrap();
+        t = EZTable::from_binary("test", &bint_t).unwrap();
     }));
     group.bench_function("execute SELECT query", |b| b.iter(|| execute_select_query(parsed_SELECT_query.clone(), &mut t).unwrap()));
     let mut t = EZTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
@@ -132,7 +132,7 @@ fn my_benchmark(c: &mut Criterion) {
 
     let table_string = std::fs::read_to_string(&format!("test_files{PATH_SEP}test_csv_from_google_sheets_combined_sorted.csv")).unwrap();
     let table = EZTable::from_csv_string(&table_string, "basic_test", "test").unwrap();
-    let binary = table.write_to_raw_binary();
+    let binary = table.write_to_binary();
 
     group.bench_function("brotli compress", |b| b.iter(|| brotli_compress(&binary).unwrap()));
     group.bench_function("miniz compress", |b| b.iter(|| miniz_compress(&binary).unwrap()));
@@ -163,6 +163,12 @@ fn my_benchmark(c: &mut Criterion) {
         mode_slice.push(thread_rng.gen_range(0..1000));
     }
     group.bench_function("mode_slice_i32", |b| b.iter(|| mode_i32_slice(&i32_slice)));
+    let mut list_to_be_printed = Vec::new();
+    for i in 0..98304 {
+        let x = KeyString::from(format!("text{i}").as_str());
+        list_to_be_printed.push(x);
+    }
+    group.bench_function("print_sep_list", |b| b.iter(|| print_sep_list(&list_to_be_printed, ",")));
 
 
 

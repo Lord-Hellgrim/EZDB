@@ -1,8 +1,5 @@
-
-
 use std::arch::asm;
 use std::fmt::Display;
-use std::hash::Hash;
 use std::simd;
 use std::io::{Write, Read, ErrorKind};
 use std::net::TcpStream;
@@ -126,7 +123,6 @@ impl From<QueryError> for ServerError {
 }
 
 /// An enum that lists the possible instructions that the database can receive.
-/// Will be rewritten soon to handle EZQL.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Instruction {
     Upload(KeyString),
@@ -374,6 +370,16 @@ pub fn get_current_time() -> u64 {
         .as_secs()
 }
 
+/// Gets the current time as seconds since UNIX_EPOCH. Used for logging, mostly.
+#[inline]
+pub fn get_precise_time() -> u128 {
+
+    std::time::SystemTime::now()
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_micros()
+}
+
 /// Count cycles for benchmarking
 #[inline(always)]
 pub fn rdtsc() -> u64 {
@@ -525,10 +531,11 @@ pub fn usize_from_le_slice(slice: &[u8]) -> usize {
     usize::from_le_bytes(l)
 }
 
+
 #[inline]
-pub fn print_sep_list<T>(list: &Vec<T>, sep: &str) -> String 
+pub fn print_sep_list<T>(list: &[T], sep: &str) -> String 
 where T: Display  {
-    let mut printer = String::new();
+    let mut printer = String::with_capacity(64*list.len());
     for item in list {
         printer.push_str(&item.to_string());
         printer.push_str(sep);
@@ -539,6 +546,7 @@ where T: Display  {
 
     printer
 }
+
 
 #[inline]
 pub fn chunk3_vec<T>(list: &[T]) -> Option<[&T;3]> {
@@ -673,7 +681,6 @@ pub fn mode_i32_slice(slice: &[i32]) -> i32 {
     }
     result
 }
-
 
 
 #[inline]

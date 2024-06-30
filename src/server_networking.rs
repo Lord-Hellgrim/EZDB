@@ -71,7 +71,7 @@ impl Database {
         let database = Database {
             buffer_pool: buffer_pool,
             users: users,
-            logger: Logger::new(),
+            logger: Logger::init(),
         };
 
         Ok(database)
@@ -105,6 +105,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
         std::fs::create_dir("EZconfig").expect("Need IO access to initialize database");
         std::fs::create_dir("EZconfig/raw_tables").expect("Need IO access to initialize database");
         std::fs::create_dir("EZconfig/raw_values").expect("Need IO access to initialize database");
+        std::fs::File::create_new("EZconfig/log").expect("Need IO access to initialize database");
     } else {
         println!("config folder exists");
 

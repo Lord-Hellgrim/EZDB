@@ -43,7 +43,7 @@ impl BufferPool {
             let mut binary = Vec::with_capacity(file_size as usize);
             table_file.read_to_end(&mut binary)?;
 
-            let table = EZTable::read_raw_binary(&name, &binary)?;
+            let table = EZTable::from_binary(&name, &binary)?;
             self.add_table(table, table_file)?;
         }
 
@@ -67,7 +67,7 @@ impl BufferPool {
             let mut binary = Vec::with_capacity(file_size as usize);
             value_file.read_to_end(&mut binary)?;
 
-            let value = Value::read_raw_binary(&name, &binary);
+            let value = Value::from_binary(&name, &binary);
 
             self.add_value(value, value_file)?;
         }
@@ -132,7 +132,7 @@ impl BufferPool {
     
     pub fn write_table_to_file(&self, table_name: &KeyString) -> Result<(), ServerError> {
 
-        let disk_data = self.tables.read().unwrap()[table_name].read().unwrap().write_to_raw_binary();
+        let disk_data = self.tables.read().unwrap()[table_name].read().unwrap().write_to_binary();
         self.files.write().unwrap().get_mut(table_name).unwrap().write().unwrap().write_all(&disk_data)?;
         Ok(())
 
@@ -140,7 +140,7 @@ impl BufferPool {
 
     pub fn write_value_to_file(&self, value_name: &KeyString) -> Result<(), ServerError> {
 
-        let disk_data = self.values.read().unwrap()[value_name].read().unwrap().write_to_raw_binary();
+        let disk_data = self.values.read().unwrap()[value_name].read().unwrap().write_to_binary();
         self.files.write().unwrap().get_mut(value_name).unwrap().write().unwrap().write_all(&disk_data)?;
         Ok(())
 

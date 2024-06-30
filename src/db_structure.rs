@@ -25,7 +25,7 @@ impl fmt::Debug for KeyString {
 
 impl fmt::Display for KeyString {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let text = bytes_to_str(&self.inner).expect(&format!("A KeyString should always be valid utf8.\nThe KeyString that was just attempted to Display was:\n{:x?}", self.inner));
+        let text = std::str::from_utf8(&self.inner).expect(&format!("A KeyString should always be valid utf8.\nThe KeyString that was just attempted to Display was:\n{:x?}", self.inner));
         write!(f, "{}", text)
     }   
 }
@@ -56,7 +56,6 @@ impl From<&str> for KeyString {
         KeyString {
             inner
         }
-
     }
 }
 
@@ -1860,7 +1859,7 @@ impl EZTable {
     }
 
     /// Writes to EZ binary format
-    pub fn write_to_raw_binary(&self) -> Vec<u8> {
+    pub fn write_to_binary(&self) -> Vec<u8> {
 
         let mut output: Vec<u8> = Vec::with_capacity(self.metadata.size_of_table());
         
@@ -1916,7 +1915,7 @@ impl EZTable {
 
 
     /// Reads an EZ binary formatted file to a ColumnTable, checking for strictness.
-    pub fn read_raw_binary(name: &str, binary: &[u8]) -> Result<EZTable, StrictError> {
+    pub fn from_binary(name: &str, binary: &[u8]) -> Result<EZTable, StrictError> {
         let mut binter = binary.iter();
         let first_newline = binter.position(|n| *n == b'\n').expect(&format!("Reading the first newline should never fail unless the data is corrupted. The file that was being read is {name}"));
         let bin_header = &binary[0..first_newline];
@@ -2297,7 +2296,7 @@ impl Value {
     } 
 
     /// Saves the binary blob to disk in a file named key.
-    pub fn write_to_raw_binary(&self) -> Vec<u8> {
+    pub fn write_to_binary(&self) -> Vec<u8> {
         let mut output = Vec::with_capacity(self.body.len() + 80);
 
         // WRITING METADATA
@@ -2310,7 +2309,7 @@ impl Value {
         output
     }
 
-    pub fn read_raw_binary(name: &str, binary: &[u8]) -> Value {
+    pub fn from_binary(name: &str, binary: &[u8]) -> Value {
 
         let metadata_created_by = KeyString::try_from(&binary[0..64]).expect("This should only fail if the binary data is corrupt");
         let metadata_last_access = u64_from_le_slice(&binary[64..72]);
@@ -2472,8 +2471,8 @@ mod tests {
         ))
         .unwrap();
         let t = EZTable::from_csv_string(&input, "test", "test").unwrap();
-        let bin_t = t.write_to_raw_binary();
-        let trans_t = EZTable::read_raw_binary("test", &bin_t).unwrap();
+        let bin_t = t.write_to_binary();
+        let trans_t = EZTable::from_binary("test", &bin_t).unwrap();
         assert_eq!(t, trans_t);
     }
 

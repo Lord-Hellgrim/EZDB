@@ -22,7 +22,7 @@ pub fn handle_download_request(
         let global_read_binding = database.buffer_pool.tables.read().unwrap();
     
         let requested_table = global_read_binding.get(&KeyString::from(name)).expect("Instruction parser should have verified table").read().unwrap();
-        requested_csv = requested_table.write_to_raw_binary();
+        requested_csv = requested_table.write_to_binary();
         println!("Requested_csv.len(): {}", requested_csv.len());
     }
 
@@ -150,7 +150,7 @@ pub fn handle_query_request(
     check_permission(&queries, &connection.user, database.users.clone())?;
     let requested_table = match execute_EZQL_queries(queries, database) {
         Ok(res) => match res {
-            Some(table) => table.write_to_raw_binary(),
+            Some(table) => table.write_to_binary(),
             None => "None.".as_bytes().to_vec(),
         },
         Err(e) => format!("ERROR -> Could not process query because of error: '{}'", e.to_string()).as_bytes().to_vec(),

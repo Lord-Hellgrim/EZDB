@@ -42,7 +42,7 @@ pub fn download_table(
     };
     connection.stream.flush()?;
 
-    let table = EZTable::read_raw_binary(table_name, &data)?;
+    let table = EZTable::from_binary(table_name, &data)?;
 
     Ok(table)
 }
@@ -150,7 +150,7 @@ pub fn query_table(
 
     match String::from_utf8(data.clone()) {
         Ok(x) => Ok(Response::Message(x)),
-        Err(_) => match EZTable::read_raw_binary("RESULT", &data) {
+        Err(_) => match EZTable::from_binary("RESULT", &data) {
             Ok(table) => Ok(Response::Table(table)),
             Err(e) => Err(e.into()),
         },
