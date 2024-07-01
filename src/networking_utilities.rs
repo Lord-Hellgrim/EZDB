@@ -791,6 +791,7 @@ pub fn stdev_f32_slice(slice: &[f32]) -> f32 {
     (variance/slice.len() as f32).sqrt()
 }
 
+#[inline]
 fn partition<T: Copy + PartialOrd>(data: &[T]) -> (Vec<T>, T, Vec<T>) {
     let (pivot_slice, tail) = data.split_at(1);
     let pivot = pivot_slice[0];
@@ -808,6 +809,7 @@ fn partition<T: Copy + PartialOrd>(data: &[T]) -> (Vec<T>, T, Vec<T>) {
     (left, pivot, right)
 }
 
+#[inline]
 fn select<T: Copy + PartialOrd>(data: &[T], k: usize) -> T {
 
     let (left, pivot, right) = partition(data);
@@ -821,6 +823,7 @@ fn select<T: Copy + PartialOrd>(data: &[T], k: usize) -> T {
     }
 }
 
+#[inline]
 pub fn median_i32_slice(data: &[i32]) -> f32 {
 
 
@@ -835,6 +838,7 @@ pub fn median_i32_slice(data: &[i32]) -> f32 {
     }
 }
 
+#[inline]
 pub fn median_f32_slice(data: &[f32]) -> f32 {
 
 
@@ -849,6 +853,7 @@ pub fn median_f32_slice(data: &[f32]) -> f32 {
     }
 }
 
+#[inline]
 pub fn bytes_from_strings(strings: &[&str]) -> Vec<u8> {
     let mut v = Vec::with_capacity(strings.len()*64);
     for string in strings {
