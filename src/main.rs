@@ -7,6 +7,12 @@ use EZDB::networking_utilities;
 
 fn main() -> Result<(), networking_utilities::ServerError> {
 
+    let args = std::env::args();
+
+    for arg in args {
+        println!("{}", arg);
+    }
+
     // This stuff is for debugging purposes around simd
     #[cfg(target_feature="avx2")]
     unsafe fn p() {

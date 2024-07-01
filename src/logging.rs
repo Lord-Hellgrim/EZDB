@@ -1,6 +1,6 @@
-use std::{collections::BTreeMap, fmt::Display, fs::{File, OpenOptions}, io::{Read, Write}, os::unix::fs::FileExt, sync::{atomic::{AtomicU64, Ordering}, Mutex}};
+use std::{collections::BTreeMap, fmt::Display, fs::{File, OpenOptions}, io::{Read, Seek, Write}, os::unix::fs::FileExt, sync::{atomic::{AtomicU64, Ordering}, Mutex}};
 
-use crate::{db_structure::{EZTable, KeyString}, ezql::Query, networking_utilities::{blake3_hash, get_current_time, print_sep_list, u64_from_le_slice, Instruction}, server_networking::Database};
+use crate::{db_structure::{EZTable, KeyString}, ezql::Query, networking_utilities::{blake3_hash, get_current_time, get_precise_time, print_sep_list, u64_from_le_slice, Instruction}, server_networking::Database};
 
 use crate::PATH_SEP;
 
@@ -100,7 +100,8 @@ impl Entry {
             true => binary.extend_from_slice(&(1 as usize).to_le_bytes()),
             false => binary.extend_from_slice(&(0 as usize).to_le_bytes()),
         }
-        binary[0..8].copy_from_slice(&entry_size.to_le_bytes());
+        let binary_len = binary.len() - 8; // Offset the length at the start
+        binary[0..8].copy_from_slice(&binary_len.to_le_bytes());
 
         binary
     }
@@ -182,7 +183,6 @@ impl Entry {
 pub struct Logger {
     entries: BTreeMap<u64, Entry>,
     counter: AtomicU64,
-    log_file: File,
 }
 
 impl Display for Logger {
@@ -193,8 +193,14 @@ impl Display for Logger {
 
 impl Logger {
     pub fn init() -> Logger {
-        
-        let mut log_file = OpenOptions::new().write(true).append(true).open("EZconfig/log").expect("Log file should exist before Logger is initialized");
+        Logger {
+            entries: BTreeMap::new(),
+            counter: AtomicU64::from(0),
+        }
+    }
+
+    pub fn read_log_file(timestamp_path: &str) -> Logger {
+        let mut log_file = OpenOptions::new().read(true).append(true).open(&format!("EZconfig/log/{}", timestamp_path)).expect("Log file should exist before Logger is initialized");
         let mut log = Vec::new();
         log_file.read_to_end(&mut log).expect("If reading the log file fails then we damn well better panic!");
         let mut entries = BTreeMap::new();
@@ -204,7 +210,8 @@ impl Logger {
             let mut i = 0;
             while i < log.len() {
                 let entry_size = u64_from_le_slice(&log[i..i+8]) as usize;
-                let entry = Entry::from_binary(&log[i+8..i+8+entry_size]);
+                i += 8;
+                let entry = Entry::from_binary(&log[i..i+entry_size]);
                 if entry.count > counter {
                     counter = entry.count;
                 }
@@ -217,7 +224,6 @@ impl Logger {
         Logger {
             entries,
             counter: AtomicU64::from(counter),
-            log_file,
         }
     }
 
@@ -265,7 +271,10 @@ impl Logger {
             binary.extend_from_slice(&entry_size.to_le_bytes());
             binary.extend_from_slice(&entry_binary);
         }
-        self.log_file.write_all(&binary).unwrap();
+        let mut log_file = File::create(format!("EZconfig/log/{}", get_precise_time())).unwrap();
+        log_file.write_all(&binary).unwrap();
+        self.entries = BTreeMap::new();
+        self.counter.store(0, Ordering::SeqCst);
     }
 }
 
