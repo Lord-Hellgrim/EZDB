@@ -748,25 +748,7 @@ impl EZTable {
 
     pub fn insert(&mut self, inserts: Inserts) -> Result<(), StrictError> {
 
-        let mut new_header = Vec::new();
-
-        for item in &inserts.value_columns {
-            match self.header.iter().find(|x| &x.name == item) {
-                Some(x) => {
-                    new_header.push(x.clone());
-                },
-                None => return Err(StrictError::Query(format!("Headers do not match:\nOld:{:?}\nnew{:?}", print_sep_list(&self.header.iter().map(|x| x.name).collect::<Vec<KeyString>>(), ","), print_sep_list(&inserts.value_columns, ",")))),
-            }
-        }
-
-        let mut csv = print_sep_list(&new_header, ";");
-        csv.push('\n');
-        csv.push_str(&inserts.new_values);
-
-        let mut input_table = EZTable::from_csv_string(&csv, "input", "inserts")?;
-        if self.header != input_table.header {
-            return Err(StrictError::Query("Input table header does not match target table header".to_owned()));
-        }
+        let mut input_table = table_from_inserts(&inserts, "inserts", &self)?;
 
         let mut losers = Vec::new();
 
@@ -2136,6 +2118,30 @@ pub fn subtable_from_keys(table: &EZTable, mut keys: Vec<KeyString>) -> Result<E
     Ok(
         table.subtable_from_indexes(&indexes, &KeyString::from("__RESULT__"))
     )
+}
+
+pub fn table_from_inserts(inserts: &Inserts, table_name: &str, template_table: &EZTable) -> Result<EZTable, StrictError> {
+    let mut new_header = Vec::new();
+
+        for item in &inserts.value_columns {
+            match template_table.header.iter().find(|x| &x.name == item) {
+                Some(x) => {
+                    new_header.push(x.clone());
+                },
+                None => return Err(StrictError::Query(format!("Headers do not match:\nOld:{:?}\nnew{:?}", print_sep_list(&template_table.header.iter().map(|x| x.name).collect::<Vec<KeyString>>(), ","), print_sep_list(&inserts.value_columns, ",")))),
+            }
+        }
+
+        let mut csv = print_sep_list(&new_header, ";");
+        csv.push('\n');
+        csv.push_str(&inserts.new_values);
+
+        let input_table = EZTable::from_csv_string(&csv, table_name, "inserts")?;
+        if template_table.header != input_table.header {
+            Err(StrictError::Query("Input table header does not match target table header".to_owned()))
+        } else {
+            Ok(input_table)
+        }
 }
 
 
