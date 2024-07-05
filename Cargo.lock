@@ -11,6 +11,7 @@ dependencies = [
  "blake3",
  "brotli",
  "criterion",
+ "ezcbor",
  "fnv",
  "http",
  "miniz_oxide",
@@ -397,6 +398,12 @@ name = "either"
 version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3dca9240753cf90908d7e4aac30f630662b02aebaa1b58a3cadabdb23385b58b"
+
+[[package]]
+name = "ezcbor"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4224728bd49cd2ac90b3cbbd2b9c34a411cf7a4ce0bd51bbdcaa366fd7c116a9"
 
 [[package]]
 name = "fiat-crypto"
