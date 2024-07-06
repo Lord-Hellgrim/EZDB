@@ -4,6 +4,8 @@ use std::{
 
 // use smartstring::{LazyCompact, SmartString, };
 
+use ezcbor::cbor::{byteslice_from_cbor, byteslice_to_cbor, expected_data_item, Cbor, CborError, DataItem};
+
 use crate::{ezql::Inserts, networking_utilities::*};
 
 use crate::PATH_SEP;
@@ -88,6 +90,24 @@ impl Ord for KeyString {
 impl PartialOrd for KeyString {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.as_str().cmp(other.as_str()))
+    }
+}
+
+impl Cbor for KeyString {
+    fn to_cbor_bytes(&self) -> Vec<u8> {
+        byteslice_to_cbor(self.as_bytes())
+    }
+
+    fn from_cbor_bytes(bytes: &[u8]) -> Result<(Self, usize), ezcbor::cbor::CborError>
+        where 
+            Self: Sized 
+    {
+        let (bytes, bytes_read) = byteslice_from_cbor(bytes)?;
+        let text = match String::from_utf8(bytes) {
+            Ok(t) => t,
+            Err(_) => return Err(CborError::Unexpected)
+        };
+        Ok((KeyString::from(text.as_str()), bytes_read))
     }
 }
 
@@ -271,6 +291,44 @@ impl fmt::Display for Metadata {
     }
 }
 
+impl Cbor for Metadata {
+    fn to_cbor_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&self.last_access.load(Ordering::Relaxed).to_cbor_bytes());
+        bytes.extend_from_slice(&self.times_accessed.load(Ordering::Relaxed).to_cbor_bytes());
+        bytes.extend_from_slice(&self.created_by.to_cbor_bytes());
+        bytes.extend_from_slice(&self.size_of_table.to_cbor_bytes());
+        bytes.extend_from_slice(&self.size_of_row.to_cbor_bytes());
+        bytes
+    }
+
+    fn from_cbor_bytes(bytes: &[u8]) -> Result<(Self, usize), ezcbor::cbor::CborError>
+        where 
+            Self: Sized 
+    {
+        println!("METADATA");
+        let mut i = 0;
+        let mut count = 0;
+        let (last_access, bytes_read) = <u64 as Cbor>::from_cbor_bytes(&bytes[i..])?;
+        i += bytes_read;
+        let (times_accessed, bytes_read) = <u64 as Cbor>::from_cbor_bytes(&bytes[i..])?;
+        i += bytes_read;
+        let (created_by, bytes_read) = <KeyString as Cbor>::from_cbor_bytes(&bytes[i..])?;
+        i += bytes_read;
+        let (size_of_table, bytes_read) = <usize as Cbor>::from_cbor_bytes(&bytes[i..])?;
+        i += bytes_read;
+        let (size_of_row, bytes_read) = <usize as Cbor>::from_cbor_bytes(&bytes[i..])?;
+        i += bytes_read;
+        Ok((Self {
+            last_access: AtomicU64::from(last_access),
+            times_accessed: AtomicU64::from(times_accessed),
+            created_by,
+            size_of_table,
+            size_of_row,
+        }, i))
+    }
+}
+
 impl Metadata {
     pub fn new(client: &str) -> Metadata {
         Metadata {
@@ -346,6 +404,34 @@ pub enum DbType {
     Text,
 }
 
+impl Cbor for DbType {
+    fn to_cbor_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        match self {
+            DbType::Int => bytes.push(0xc6),
+            DbType::Float => bytes.push(0xc6+1),
+            DbType::Text => bytes.push(0xc6+2),
+        };
+        bytes
+    }
+
+    fn from_cbor_bytes(bytes: &[u8]) -> Result<(Self, usize), CborError>
+        where 
+            Self: Sized 
+    {
+        println!("DBTYPE");
+        match expected_data_item(bytes[0]) {
+            DataItem::Tag(byte) => match byte {
+                0 => Ok((DbType::Int, 1)),
+                1 => Ok((DbType::Float, 1)),
+                2 => Ok((DbType::Text, 1)),
+                _ => return Err(CborError::Unexpected)
+            },
+            _ => return Err(CborError::Unexpected)
+        }
+    }
+}
+
 /// A single column in a database table.
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub enum DbColumn {
@@ -360,6 +446,53 @@ impl Display for DbColumn {
             DbColumn::Ints(v) => write!(f, "{:?}", v),
             DbColumn::Floats(v) => write!(f, "{:?}", v),
             DbColumn::Texts(v) => write!(f, "{:?}", v),
+        }
+    }
+}
+
+impl Cbor for DbColumn {
+    fn to_cbor_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        match self {
+            DbColumn::Ints(col) => {
+                bytes.push(0xc6);
+                bytes.extend_from_slice(&col.to_cbor_bytes());
+                println!("bytes: {:x?}", bytes);
+            },
+            DbColumn::Texts(col) => {
+                bytes.push(0xc6+1);
+                bytes.extend_from_slice(&col.to_cbor_bytes());
+            },
+            DbColumn::Floats(col) => {
+                bytes.push(0xc6+2);
+                bytes.extend_from_slice(&col.to_cbor_bytes());
+            },
+        }
+        bytes
+    }
+
+    fn from_cbor_bytes(bytes: &[u8]) -> Result<(Self, usize), CborError>
+        where 
+            Self: Sized 
+    {
+        println!("DBCOLUMN");
+        match expected_data_item(bytes[0]) {
+            DataItem::Tag(byte) => match byte {
+                0 => {
+                    let (thing, bytes_read) = <Vec<i32> as Cbor>::from_cbor_bytes(&bytes[1..])?;
+                    Ok((DbColumn::Ints(thing), bytes_read))
+                },
+                1 => {
+                    let (thing, bytes_read) = <Vec<KeyString> as Cbor>::from_cbor_bytes(&bytes[1..])?;
+                    Ok((DbColumn::Texts(thing), bytes_read))
+                },
+                2 => {
+                    let (thing, bytes_read) = <Vec<f32> as Cbor>::from_cbor_bytes(&bytes[1..])?;
+                    Ok((DbColumn::Floats(thing), bytes_read))
+                },
+                _ => return Err(CborError::Unexpected),
+            },
+            _ => return Err(CborError::Unexpected),
         }
     }
 }
@@ -429,6 +562,36 @@ impl Default for HeaderItem {
     }
 }
 
+impl Cbor for HeaderItem {
+    fn to_cbor_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&self.name.to_cbor_bytes());
+        bytes.extend_from_slice(&self.kind.to_cbor_bytes());
+        bytes.extend_from_slice(&self.key.to_cbor_bytes());
+        bytes
+    }
+
+    fn from_cbor_bytes(bytes: &[u8]) -> Result<(Self, usize), CborError>
+        where 
+            Self: Sized 
+    {
+        println!("HEADERITEM");
+        let mut i = 0;
+        let (name, bytes_read) = <KeyString as Cbor>::from_cbor_bytes(&bytes[i..])?;
+        i += bytes_read;
+        let (kind, bytes_read) = <DbType as Cbor>::from_cbor_bytes(&bytes[i..])?;
+        i += bytes_read;
+        let (key, bytes_read) = <TableKey as Cbor>::from_cbor_bytes(&bytes[i..])?;
+        i += bytes_read;
+        Ok(
+            (
+                Self { name, kind, key },
+                i
+            )
+        )
+    }
+}
+
 impl HeaderItem {
     pub fn new() -> HeaderItem {
         HeaderItem {
@@ -449,6 +612,34 @@ pub enum TableKey {
     Foreign,
 }
 
+impl Cbor for TableKey {
+    fn to_cbor_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        match self {
+            TableKey::Primary => bytes.push(0xc6),
+            TableKey::None => bytes.push(0xc6+1),
+            TableKey::Foreign => bytes.push(0xc6+2),
+        };
+        bytes
+    }
+
+    fn from_cbor_bytes(bytes: &[u8]) -> Result<(Self, usize), CborError>
+        where 
+            Self: Sized 
+    {
+        println!("TABLEKEY");
+        match expected_data_item(bytes[0]) {
+            DataItem::Tag(byte) => match byte {
+                0 => Ok((TableKey::Primary, 1)),
+                1 => Ok((TableKey::None, 1)),
+                2 => Ok((TableKey::Foreign, 1)),
+                _ => return Err(CborError::Unexpected)
+            },
+            _ => return Err(CborError::Unexpected)
+        }
+    }
+}
+
 
 /// This is the main data structure of EZDB. It represents a table as a list of columns.
 #[derive(Clone, Debug, PartialOrd)]
@@ -457,6 +648,39 @@ pub struct EZTable {
     pub name: KeyString,
     pub header: Vec<HeaderItem>,
     pub columns: BTreeMap<KeyString, DbColumn>,
+}
+
+impl Cbor for EZTable {
+    fn to_cbor_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&self.metadata.to_cbor_bytes());
+        bytes.extend_from_slice(&self.name.to_cbor_bytes());
+        bytes.extend_from_slice(&self.header.to_cbor_bytes());
+        bytes.extend_from_slice(&self.columns.to_cbor_bytes());
+        bytes
+    }
+
+    fn from_cbor_bytes(bytes: &[u8]) -> Result<(Self, usize), CborError>
+        where 
+            Self: Sized 
+    {
+        println!("EZTABLE");
+        let mut i = 0;
+        let (metadata, bytes_read) = <Metadata as Cbor>::from_cbor_bytes(&bytes[i..])?;
+        i += bytes_read;
+        let (name, bytes_read) = <KeyString as Cbor>::from_cbor_bytes(&bytes[i..])?;
+        i += bytes_read;
+        let (header, bytes_read) = <Vec<HeaderItem> as Cbor>::from_cbor_bytes(&bytes[i..])?;
+        i += bytes_read;
+        let (columns, bytes_read) = <BTreeMap<KeyString, DbColumn> as Cbor>::from_cbor_bytes(&bytes[i..])?;
+        i += bytes_read;
+        Ok(
+            (
+                Self { metadata, name, header, columns  },
+                i
+            )
+        )
+    }
 }
 
 impl PartialEq for EZTable {
@@ -2340,6 +2564,7 @@ impl Value {
 mod tests {
     #![allow(unused)]
 
+    use ezcbor::cbor::decode_cbor;
     use rand::Rng;
 
     use super::*;
@@ -2571,6 +2796,16 @@ mod tests {
         left_table.left_join(&right_table, &KeyString::from("department"));
         println!("{}", left_table);
 
+    }
+
+    #[test]
+    fn test_cbor_eztable() {
+        let csv = std::fs::read_to_string(format!("test_files{PATH_SEP}departments.csv")).unwrap();
+        let table = EZTable::from_csv_string(&csv, "cbor test", "test").unwrap();
+        println!("table:\n{}", table);
+        let bytes = table.to_cbor_bytes();
+        let decoded_table = decode_cbor::<EZTable>(&bytes).unwrap();
+        assert_eq!(table, decoded_table);
     }
 }
 
