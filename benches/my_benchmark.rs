@@ -12,6 +12,8 @@ use EZDB::ezql::parse_EZQL;
 use EZDB::networking_utilities::*;
 use EZDB::PATH_SEP;
 
+use ezcbor::cbor::Cbor;
+
 fn my_benchmark(c: &mut Criterion) {
 
     // count char
@@ -170,6 +172,12 @@ fn my_benchmark(c: &mut Criterion) {
     }
     group.bench_function("print_sep_list", |b| b.iter(|| print_sep_list(&list_to_be_printed, ",")));
 
+
+    let table_string = std::fs::read_to_string(&format!("test_files{PATH_SEP}test_csv_from_google_sheets_combined_sorted.csv")).unwrap();
+    let table = EZTable::from_csv_string(&table_string, "basic_test", "test").unwrap();
+    group.bench_function("binary_vs_CBOR: BINARY VERSION", |b| b.iter(|| table.write_to_binary()));
+    group.bench_function("binary_vs_CBOR: CBOR VERSION", |b| b.iter(|| table.to_cbor_bytes()));
+    
 
 
 }

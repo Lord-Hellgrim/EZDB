@@ -105,7 +105,7 @@ impl Cbor for KeyString {
         let (bytes, bytes_read) = byteslice_from_cbor(bytes)?;
         let text = match String::from_utf8(bytes) {
             Ok(t) => t,
-            Err(_) => return Err(CborError::Unexpected)
+            Err(_) => return Err(CborError::Unexpected(format!("Error originated in KeyString implementation")))
         };
         Ok((KeyString::from(text.as_str()), bytes_read))
     }
@@ -425,9 +425,10 @@ impl Cbor for DbType {
                 0 => Ok((DbType::Int, 1)),
                 1 => Ok((DbType::Float, 1)),
                 2 => Ok((DbType::Text, 1)),
-                _ => return Err(CborError::Unexpected)
+                _ => return Err(CborError::Unexpected(format!("Unexpected byte encountered while decoding a DbType. Should only allow 0x0, 0x1, or 0x2 but encounterd '{:x}'", byte))),
+
             },
-            _ => return Err(CborError::Unexpected)
+            _ => return Err(CborError::Unexpected("Error originated from TableKey implementation".to_owned())),
         }
     }
 }
@@ -494,9 +495,9 @@ impl Cbor for DbColumn {
                     let (thing, bytes_read) = <Vec<f32> as Cbor>::from_cbor_bytes(&bytes[1..])?;
                     Ok((DbColumn::Floats(thing), bytes_read+1))
                 },
-                _ => return Err(CborError::Unexpected),
+                _ => return Err(CborError::Unexpected(format!("Unexpected byte encountered while decoding a DbColumn. Should only allow 0x0, 0x1, or 0x2 but encounterd '{:x}'", byte))),
             },
-            _ => return Err(CborError::Unexpected),
+            _ => return Err(CborError::Unexpected("Error originated from TableKey implementation".to_owned())),
         }
     }
 }
@@ -637,9 +638,9 @@ impl Cbor for TableKey {
                 0 => Ok((TableKey::Primary, 1)),
                 1 => Ok((TableKey::None, 1)),
                 2 => Ok((TableKey::Foreign, 1)),
-                _ => return Err(CborError::Unexpected)
+                _ => return Err(CborError::Unexpected(format!("Unexpected byte encountered while decoding a TableKey. Should only allow 0x0, 0x1, or 0x2 but encounterd '{:x}'", byte))),
             },
-            _ => return Err(CborError::Unexpected)
+            _ => return Err(CborError::Unexpected("Error originated from TableKey implementation".to_owned())),
         }
     }
 }
