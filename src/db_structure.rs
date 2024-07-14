@@ -306,7 +306,6 @@ impl Cbor for Metadata {
         where 
             Self: Sized 
     {
-        println!("METADATA");
         let mut i = 0;
         let mut count = 0;
         let (last_access, bytes_read) = <u64 as Cbor>::from_cbor_bytes(&bytes[i..])?;
@@ -419,7 +418,6 @@ impl Cbor for DbType {
         where 
             Self: Sized 
     {
-        println!("DBTYPE");
         match expected_data_item(bytes[0]) {
             DataItem::Tag(byte) => match byte {
                 0 => Ok((DbType::Int, 1)),
@@ -458,18 +456,15 @@ impl Cbor for DbColumn {
             DbColumn::Ints(col) => {
                 bytes.push(0xc6);
                 bytes.extend_from_slice(&col.to_cbor_bytes());
-                println!("bytes: {:x?}", bytes);
             },
             DbColumn::Texts(col) => {
                 bytes.push(0xc6+1);
                 bytes.extend_from_slice(&col.to_cbor_bytes());
-                println!("bytes: {:x?}", bytes);
 
             },
             DbColumn::Floats(col) => {
                 bytes.push(0xc6+2);
                 bytes.extend_from_slice(&col.to_cbor_bytes());
-                println!("bytes: {:x?}", bytes);
 
             },
         }
@@ -480,7 +475,6 @@ impl Cbor for DbColumn {
         where 
             Self: Sized 
     {
-        println!("DBCOLUMN");
         match expected_data_item(bytes[0]) {
             DataItem::Tag(byte) => match byte {
                 0 => {
@@ -580,7 +574,6 @@ impl Cbor for HeaderItem {
         where 
             Self: Sized 
     {
-        println!("HEADERITEM");
         let mut i = 0;
         let (name, bytes_read) = <KeyString as Cbor>::from_cbor_bytes(&bytes[i..])?;
         i += bytes_read;
@@ -632,7 +625,6 @@ impl Cbor for TableKey {
         where 
             Self: Sized 
     {
-        println!("TABLEKEY");
         match expected_data_item(bytes[0]) {
             DataItem::Tag(byte) => match byte {
                 0 => Ok((TableKey::Primary, 1)),
@@ -669,7 +661,6 @@ impl Cbor for EZTable {
         where 
             Self: Sized 
     {
-        println!("EZTABLE");
         let mut i = 0;
         let (metadata, bytes_read) = <Metadata as Cbor>::from_cbor_bytes(&bytes[i..])?;
         i += bytes_read;

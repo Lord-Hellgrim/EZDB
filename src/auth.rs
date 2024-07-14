@@ -1,9 +1,11 @@
+use core::slice::SlicePattern;
 use std::{
     collections::{BTreeMap, HashSet},
     fmt::{self, Display},
     sync::{Arc, RwLock},
 };
 
+use ezcbor::cbor::{self, Cbor};
 use serde::{Deserialize, Serialize};
 
 use crate::{db_structure::KeyString, ezql::Query, networking_utilities::{blake3_hash, encode_hex}};
@@ -73,6 +75,34 @@ impl Display for User {
             self.username, encode_hex(&self.password), self.admin, self.can_upload, can_read, can_write
         );
         write!(f, "{}", printer)
+    }
+}
+
+impl Cbor for User {
+    fn to_cbor_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&self.username.to_cbor_bytes());
+        bytes.extend_from_slice(&cbor::byteslice_to_cbor(&self.password.as_slice()));
+        bytes.extend_from_slice(&self.admin.to_cbor_bytes());
+        bytes.extend_from_slice(&self.can_upload.to_cbor_bytes());
+        bytes.extend_from_slice(&self.can_read.to_cbor_bytes());
+        bytes.extend_from_slice(&self.can_write.to_cbor_bytes());
+
+        bytes
+    }
+
+    fn from_cbor_bytes(bytes: &[u8]) -> Result<(Self, usize), ezcbor::cbor::CborError>
+        where 
+            Self: Sized 
+    {
+        User {
+            pub username: String,
+            pub password: [u8; 32],
+            pub admin: bool,
+            pub can_upload: bool,
+            pub can_read: HashSet<String>,
+            pub can_write: HashSet<String>,
+        }
     }
 }
 
