@@ -1,11 +1,10 @@
-use core::slice::SlicePattern;
 use std::{
     collections::{BTreeMap, HashSet},
     fmt::{self, Display},
     sync::{Arc, RwLock},
 };
 
-use ezcbor::cbor::{self, Cbor};
+use ezcbor::cbor::{self, byteslice_from_cbor, Cbor};
 use serde::{Deserialize, Serialize};
 
 use crate::{db_structure::KeyString, ezql::Query, networking_utilities::{blake3_hash, encode_hex}};
@@ -95,14 +94,33 @@ impl Cbor for User {
         where 
             Self: Sized 
     {
-        User {
-            pub username: String,
-            pub password: [u8; 32],
-            pub admin: bool,
-            pub can_upload: bool,
-            pub can_read: HashSet<String>,
-            pub can_write: HashSet<String>,
-        }
+        let mut i = 0;
+        let (username, bytes_read) = <String as Cbor>::from_cbor_bytes(&bytes[i..])?;
+        i += bytes_read;
+        let (temp_password, bytes_read) = byteslice_from_cbor(&bytes[i..])?;
+        i += bytes_read;
+        let (admin, bytes_read) = <bool as Cbor>::from_cbor_bytes(&bytes[i..])?;
+        i += bytes_read;
+        let (can_upload, bytes_read) = <bool as Cbor>::from_cbor_bytes(&bytes[i..])?;
+        i += bytes_read;
+        let (can_read, bytes_read) = <HashSet<String> as Cbor>::from_cbor_bytes(&bytes[i..])?;
+        i += bytes_read;
+        let (can_write, bytes_read) = <HashSet<String> as Cbor>::from_cbor_bytes(&bytes[i..])?;
+        i += bytes_read;
+
+        let mut password = [0u8;32];
+        password.copy_from_slice(&temp_password[0..32]);
+        Ok((
+            User {
+                username,
+                password: password.into(),
+                admin,
+                can_upload,
+                can_read,
+                can_write,
+            },
+            i
+        ))
     }
 }
 
@@ -255,6 +273,8 @@ impl fmt::Display for AuthenticationError {
 
 #[cfg(test)]
 mod tests {
+    use cbor::decode_cbor;
+
     use super::*;
 
     #[test]
@@ -286,4 +306,33 @@ mod tests {
     //     let parsed_user = User::from_str(&s).unwrap();
     //     println!("parsed:\n{}", parsed_user);
     // }
+
+    #[test]
+    fn test_user_cbor() {
+        
+        let username = "Jimbo".to_owned();
+        let password = [5;32];
+        let admin= true;
+        let can_upload = true;
+        let mut can_read = HashSet::new();
+        for i in 0..30 {
+            can_read.insert(i.to_string());
+        }
+        let mut can_write = HashSet::new();
+        for i in 0..30 {
+            can_write.insert(i.to_string());
+        }
+        let user = User {
+            username,
+            password,
+            admin,
+            can_upload,
+            can_read,
+            can_write,
+        };
+
+        let encoded_user = user.to_cbor_bytes();
+        let decoded_user = decode_cbor(&encoded_user).unwrap();
+        assert_eq!(user, decoded_user);
+    }
 }
