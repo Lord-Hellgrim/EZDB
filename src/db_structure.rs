@@ -462,10 +462,14 @@ impl Cbor for DbColumn {
             DbColumn::Texts(col) => {
                 bytes.push(0xc6+1);
                 bytes.extend_from_slice(&col.to_cbor_bytes());
+                println!("bytes: {:x?}", bytes);
+
             },
             DbColumn::Floats(col) => {
                 bytes.push(0xc6+2);
                 bytes.extend_from_slice(&col.to_cbor_bytes());
+                println!("bytes: {:x?}", bytes);
+
             },
         }
         bytes
@@ -480,15 +484,15 @@ impl Cbor for DbColumn {
             DataItem::Tag(byte) => match byte {
                 0 => {
                     let (thing, bytes_read) = <Vec<i32> as Cbor>::from_cbor_bytes(&bytes[1..])?;
-                    Ok((DbColumn::Ints(thing), bytes_read))
+                    Ok((DbColumn::Ints(thing), bytes_read+1))
                 },
                 1 => {
                     let (thing, bytes_read) = <Vec<KeyString> as Cbor>::from_cbor_bytes(&bytes[1..])?;
-                    Ok((DbColumn::Texts(thing), bytes_read))
+                    Ok((DbColumn::Texts(thing), bytes_read+1))
                 },
                 2 => {
                     let (thing, bytes_read) = <Vec<f32> as Cbor>::from_cbor_bytes(&bytes[1..])?;
-                    Ok((DbColumn::Floats(thing), bytes_read))
+                    Ok((DbColumn::Floats(thing), bytes_read+1))
                 },
                 _ => return Err(CborError::Unexpected),
             },
@@ -2804,6 +2808,7 @@ mod tests {
         let table = EZTable::from_csv_string(&csv, "cbor test", "test").unwrap();
         println!("table:\n{}", table);
         let bytes = table.to_cbor_bytes();
+        println!("{:x?}", bytes);
         let decoded_table = decode_cbor::<EZTable>(&bytes).unwrap();
         assert_eq!(table, decoded_table);
     }
