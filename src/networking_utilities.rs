@@ -12,7 +12,7 @@ use std::{usize, fmt};
 
 use ezcbor::cbor::CborError;
 use fnv::FnvHashMap;
-use x25519_dalek::{EphemeralSecret, PublicKey};
+use x25519_dalek::{EphemeralSecret, PublicKey, X25519_BASEPOINT_BYTES};
 use aes_gcm::aead;
 
 use crate::aes_temp_crypto::{encrypt_aes256, decrypt_aes256};
@@ -143,7 +143,7 @@ pub enum Instruction {
     Update(KeyString),
     Query(String),
     Delete(KeyString),
-    NewUser(String),
+    NewUser(Vec<u8>),
     KvUpload(KeyString),
     KvUpdate(KeyString),
     KvDownload(KeyString),
@@ -159,7 +159,7 @@ impl Display for Instruction {
             Instruction::Update(s) => write!(f, "Update({})", s),
             Instruction::Query(s) => write!(f, "Query({})", s),
             Instruction::Delete(s) => write!(f, "Delete({})", s),
-            Instruction::NewUser(s) => write!(f, "NewUser({})", s),
+            Instruction::NewUser(s) => write!(f, "NewUser({:x?})", s),
             Instruction::KvUpload(s) => write!(f, "KvUpload({})", s),
             Instruction::KvUpdate(s) => write!(f, "KvUpdate({})", s),
             Instruction::KvDownload(s) => write!(f, "KvDownload({})", s),
@@ -890,7 +890,11 @@ pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut C
             q
         }, 
         Instruction::Delete(table_name) => bytes_from_strings(&vec![&connection.user, "Deleting", &table_name.as_str(),"blank", ]), 
-        Instruction::NewUser(user_string) => bytes_from_strings(&vec![&connection.user, "NewUser", "blank", &user_string.as_str()]), 
+        Instruction::NewUser(user_string) => {
+            let mut bytes = bytes_from_strings(&vec![&connection.user, "NewUser", "blank"]);
+            bytes.extend_from_slice(&user_string);
+            bytes
+        }
         Instruction::KvUpload(table_name) => bytes_from_strings(&vec![&connection.user, "KvUpload", &table_name.as_str(),"blank", ]), 
         Instruction::KvUpdate(table_name) => bytes_from_strings(&vec![&connection.user, "KvUpdate", &table_name.as_str(),"blank", ]), 
         Instruction::KvDownload(table_name) => bytes_from_strings(&vec![&connection.user, "KvDownload", &table_name.as_str(),"blank", ]), 

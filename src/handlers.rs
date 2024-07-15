@@ -1,5 +1,7 @@
 use std::{collections::BTreeMap, fs::File, io::Write, sync::{atomic::Ordering, Arc, RwLock}};
 
+use ezcbor::cbor::decode_cbor;
+
 use crate::{auth::{check_permission, User}, db_structure::{EZTable, KeyString, Value}, ezql::{execute_EZQL_queries, parse_serial_query}, networking_utilities::*, server_networking::Database};
 
 use crate::PATH_SEP;
@@ -194,12 +196,12 @@ pub fn handle_delete_request(
 /// Handles a create user request from a client. The user requesting the new user must have permission to create users
 pub fn handle_new_user_request(
     connection: &mut Connection, 
-    user_string: &str, 
+    user_string: &[u8], 
     database: Arc<Database>,
 ) -> Result<(), ServerError> {
     
     
-    let user: User = ron::from_str(user_string).unwrap();
+    let user: User = decode_cbor(user_string).unwrap();
     let mut user_lock = database.users.write().unwrap();
     user_lock.insert(KeyString::from(user.username.as_str()), RwLock::new(user));
     

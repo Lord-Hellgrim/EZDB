@@ -416,10 +416,16 @@ pub fn parse_instruction(
     let username = KeyString::try_from(&plaintext[0..64])?;
     let action = KeyString::try_from(&plaintext[64..128])?;
     let table_name = KeyString::try_from(&plaintext[128..192])?;
-    let query = match String::from_utf8(Vec::from(&plaintext[192..])) {
-        Ok(x) => x,
-        Err(e) => return Err(ServerError::Utf8(e.utf8_error())),
-    };
+    let user_bytes: Vec<u8> = Vec::new();
+    let query = String::new();
+    if action.as_str() == "MetaNewUser" {
+        let user_bytes = Vec::from(&plaintext[192..]);
+    } else {
+        let query = match String::from_utf8(Vec::from(&plaintext[192..])) {
+            Ok(x) => x,
+            Err(e) => return Err(ServerError::Utf8(e.utf8_error())),
+        };
+    }
 
     if table_name.as_str() == "All" {
         return Err(ServerError::Instruction(InstructionError::InvalidTable("Table cannot be called 'All'".to_owned())));
@@ -514,7 +520,7 @@ pub fn parse_instruction(
         },
         "MetaNewUser" => {
             if user_has_permission(table_name.as_str(), Permission::Write, username.as_str(), database.users.clone()) {
-                Ok(Instruction::NewUser(query))
+                Ok(Instruction::NewUser(user_bytes))
             } else {
                 Err(ServerError::Authentication(AuthenticationError::Permission))
             }

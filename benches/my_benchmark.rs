@@ -1,8 +1,8 @@
 
 use criterion::{criterion_group, criterion_main, Criterion};
 use rand::Rng;
-use EZDB::compression::brotli_compress;
-use EZDB::compression::brotli_decompress;
+// use EZDB::compression::brotli_compress;
+// use EZDB::compression::brotli_decompress;
 use EZDB::compression::miniz_compress;
 use EZDB::compression::miniz_decompress;
 use EZDB::db_structure::*;
@@ -136,13 +136,13 @@ fn my_benchmark(c: &mut Criterion) {
     let table = EZTable::from_csv_string(&table_string, "basic_test", "test").unwrap();
     let binary = table.write_to_binary();
 
-    group.bench_function("brotli compress", |b| b.iter(|| brotli_compress(&binary).unwrap()));
+    // group.bench_function("brotli compress", |b| b.iter(|| brotli_compress(&binary).unwrap()));
     group.bench_function("miniz compress", |b| b.iter(|| miniz_compress(&binary).unwrap()));
 
-    let brotli_compressed = brotli_compress(&binary).unwrap();
+    // let brotli_compressed = brotli_compress(&binary).unwrap();
     let miniz_compressed = miniz_compress(&binary).unwrap();
 
-    group.bench_function("brotli decompress", |b| b.iter(|| brotli_decompress(&brotli_compressed).unwrap()));
+    // group.bench_function("brotli decompress", |b| b.iter(|| brotli_decompress(&brotli_compressed).unwrap()));
     group.bench_function("miniz decompress", |b| b.iter(|| miniz_decompress(&miniz_compressed).unwrap()));
     
     let i32_slice: Vec<i32> = (0..98304).collect();

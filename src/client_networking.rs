@@ -1,6 +1,8 @@
 use std::io::Write;
 use std::str::{self};
 
+use ezcbor::cbor::Cbor;
+
 use crate::auth::{AuthenticationError, User};
 use crate::db_structure::{EZTable, KeyString};
 use crate::networking_utilities::*;
@@ -333,12 +335,9 @@ pub fn meta_create_new_user(
 
     let mut connection = Connection::connect(address, username, password)?;
 
-    let user_string = match ron::to_string::<User>(&user) {
-        Ok(s) => s,
-        Err(e) => todo!(),
-    };
+    let user_bytes = user.to_cbor_bytes();
 
-    let response = instruction_send_and_confirm(Instruction::NewUser(user_string), &mut connection)?;
+    let response = instruction_send_and_confirm(Instruction::NewUser(user_bytes), &mut connection)?;
 
     println!("Create new user - parsing response");
     let confirmation: String = match parse_response(&response, &connection.user, "no table") {

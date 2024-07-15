@@ -5,7 +5,7 @@ use std::{
 };
 
 use ezcbor::cbor::{self, byteslice_from_cbor, Cbor};
-use serde::{Deserialize, Serialize};
+// use serde::{Deserialize, Serialize};
 
 use crate::{db_structure::KeyString, ezql::Query, networking_utilities::{blake3_hash, encode_hex}};
 
@@ -42,7 +42,7 @@ impl Permission {
 /// The password field is a blake3 hash of the users password
 /// the can_upload field tracks whether the user should be allowed to upload tables or binary blobs
 /// the can_X fields are lists of tables / values on which X operation is allowed.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct User {
     pub username: String,
     pub password: [u8; 32],
@@ -277,18 +277,18 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn test_user_string_parsing() {
-        let temp = String::from(
-            r#"(username:"admin",password:(210,137,178,218,155,112,81,243,107,78,57,110,10,243,224,105,231,140,241,25,167,253,203,100,55,182,133,196,135,94,159,158),admin:true,can_upload:true,can_read:[],can_write:[])"#,
-        );
-        let test_user: User = ron::from_str(&temp).unwrap();
-        dbg!(test_user);
-        let user_string = ron::to_string(&User::admin("admin", "admin")).unwrap();
-        println!("{}", user_string);
-        let user: User = ron::from_str(&user_string).unwrap();
-        assert_eq!(user, User::admin("admin", "admin"));
-    }
+    // #[test]
+    // fn test_user_string_parsing() {
+    //     let temp = String::from(
+    //         r#"(username:"admin",password:(210,137,178,218,155,112,81,243,107,78,57,110,10,243,224,105,231,140,241,25,167,253,203,100,55,182,133,196,135,94,159,158),admin:true,can_upload:true,can_read:[],can_write:[])"#,
+    //     );
+    //     let test_user: User = ron::from_str(&temp).unwrap();
+    //     dbg!(test_user);
+    //     let user_string = ron::to_string(&User::admin("admin", "admin")).unwrap();
+    //     println!("{}", user_string);
+    //     let user: User = ron::from_str(&user_string).unwrap();
+    //     assert_eq!(user, User::admin("admin", "admin"));
+    // }
 
     // #[test]
     // fn test_user_string_parsing_non_serde() {
