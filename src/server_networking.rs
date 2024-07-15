@@ -6,6 +6,7 @@ use std::str::{self};
 use std::time::Duration;
 use std::convert::{TryFrom, From};
 
+use ezcbor::cbor::{decode_cbor, Cbor};
 use x25519_dalek::{StaticSecret, PublicKey};
 
 use crate::aes_temp_crypto::decrypt_aes256;
@@ -47,30 +48,27 @@ impl Database {
         let buffer_pool = BufferPool::empty(std::sync::atomic::AtomicU64::new(MAX_BUFFERPOOL_SIZE));
         buffer_pool.init_tables(&format!("EZconfig{PATH_SEP}raw_tables"))?;
         buffer_pool.init_values(&format!("EZconfig{PATH_SEP}raw_values"))?;
-        let users = BTreeMap::<KeyString, RwLock<User>>::new();
-        let users = Arc::new(RwLock::new(users));
+        let mut temp_users = BTreeMap::new();
         let path = &format!("EZconfig{PATH_SEP}.users");
         if std::path::Path::new(path).exists() {
-            let temp = std::fs::read_to_string(path)?;
-            for line in temp.lines() {
-                if line.as_bytes()[0] == b'#' {
-                    continue
-                }
-                let temp_user: User = ron::from_str(line).unwrap();
-                println!("user: {}", temp_user.username);
-                users.write().unwrap().insert(KeyString::from(temp_user.username.as_str()), RwLock::new(temp_user));
-            }
+            let temp = std::fs::read(path)?;
+            temp_users = decode_cbor(&temp)?;
         } else {
             let mut users_file = std::fs::File::create(path)?;
             let admin = User::admin("admin", "admin");
             println!("user: '{:x?}'", admin.username.as_bytes());
-            users_file.write_all(ron::to_string(&admin).unwrap().as_bytes())?;
-            users.write().unwrap().insert(KeyString::from("admin"), RwLock::new(admin));
+            users_file.write_all(&admin.to_cbor_bytes())?;
+            temp_users.insert(KeyString::from("admin"), admin);
         }
+        let mut users = BTreeMap::new();
+        for (key, value) in temp_users {
+            users.insert(key, RwLock::new(value));
+        }
+        
 
         let database = Database {
             buffer_pool: buffer_pool,
-            users: users,
+            users: Arc::new(RwLock::new(users)),
             logger: Logger::init(),
         };
 

@@ -2560,6 +2560,7 @@ impl Value {
 mod tests {
     #![allow(unused)]
 
+    use aes_gcm::Key;
     use ezcbor::cbor::decode_cbor;
     use rand::Rng;
 
@@ -2803,6 +2804,12 @@ mod tests {
         println!("{:x?}", bytes);
         let decoded_table = decode_cbor::<EZTable>(&bytes).unwrap();
         assert_eq!(table, decoded_table);
+    }
+
+    #[test]
+    fn test_keystring_display() {
+        let s = KeyString::from("test");
+        println!("{}", s);
     }
 }
 

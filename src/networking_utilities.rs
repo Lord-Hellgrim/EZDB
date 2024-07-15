@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::{usize, fmt};
 
+use ezcbor::cbor::CborError;
 use fnv::FnvHashMap;
 use x25519_dalek::{EphemeralSecret, PublicKey};
 use aes_gcm::aead;
@@ -48,6 +49,7 @@ pub enum ServerError {
     Debug(String),
     NoMoreBufferSpace(usize),
     Unimplemented(String),
+    Serialization(String),
 }
 
 impl fmt::Display for ServerError {
@@ -69,6 +71,7 @@ impl fmt::Display for ServerError {
             ServerError::NoMoreBufferSpace(x) => write!(f, "No more space in buffer pool. Need to free {x} bytes"),
             ServerError::Unimplemented(s) => write!(f, "{}", s),
             ServerError::Debug(s) => write!(f, "{}", s),
+            ServerError::Serialization(s) => write!(f, "{}", s),
 
         }
     }
@@ -119,6 +122,16 @@ impl From<ParseIntError> for ServerError {
 impl From<QueryError> for ServerError {
     fn from(e: QueryError) -> Self {
         ServerError::Query(e.to_string())
+    }
+}
+
+impl From<CborError> for ServerError {
+    fn from(e: CborError) -> Self {
+        let s = match e {
+            CborError::IllFormed(x) => x,
+            CborError::Unexpected(x) => x,
+        };
+        ServerError::Serialization(s)
     }
 }
 
@@ -182,6 +195,7 @@ impl From<Utf8Error> for InstructionError {
         InstructionError::Utf8(e)
     }
 }
+
 
 /// A connection to a peer. The client side uses the same struct.
 pub struct Connection {

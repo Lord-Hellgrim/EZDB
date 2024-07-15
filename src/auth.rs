@@ -310,26 +310,7 @@ mod tests {
     #[test]
     fn test_user_cbor() {
         
-        let username = "Jimbo".to_owned();
-        let password = [5;32];
-        let admin= true;
-        let can_upload = true;
-        let mut can_read = HashSet::new();
-        for i in 0..30 {
-            can_read.insert(i.to_string());
-        }
-        let mut can_write = HashSet::new();
-        for i in 0..30 {
-            can_write.insert(i.to_string());
-        }
-        let user = User {
-            username,
-            password,
-            admin,
-            can_upload,
-            can_read,
-            can_write,
-        };
+        let user = User::admin("admin", "admin");
 
         let encoded_user = user.to_cbor_bytes();
         let decoded_user = decode_cbor(&encoded_user).unwrap();
