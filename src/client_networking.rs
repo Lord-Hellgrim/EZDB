@@ -51,7 +51,7 @@ pub fn download_table(
 
 /// Uploads a given csv string to the EZDB server at the given address.
 /// Will return an error if the string is not strictly formatted
-pub fn upload_table(
+pub fn upload_csv(
     address: &str,
     username: &str,
     password: &str,
@@ -379,7 +379,7 @@ mod tests {
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";
-        let e = upload_table(address, username, password, "good_csv", &csv);
+        let e = upload_csv(address, username, password, "good_csv", &csv);
         e.unwrap();
         // assert!(e.is_ok());
     }
@@ -390,11 +390,11 @@ mod tests {
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";
-        let e = upload_table(address, username, password, "good_csv", &csv);
+        let e = upload_csv(address, username, password, "good_csv", &csv);
         assert!(e.is_ok());
         println!("About to check second table");
         std::thread::sleep(std::time::Duration::from_secs(2));
-        let d = upload_table(address, username, password, "good_csv", &csv);
+        let d = upload_csv(address, username, password, "good_csv", &csv);
         assert!(d.is_ok());
     }
 
@@ -419,7 +419,7 @@ mod tests {
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";
-        let e = upload_table(address, username, password, "bad_csv", &csv);
+        let e = upload_csv(address, username, password, "bad_csv", &csv);
         assert!(e.is_err());
     }
 
@@ -458,7 +458,7 @@ mod tests {
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";
-        let e = upload_table(address, username, password, "large_csv", &printer).unwrap();
+        let e = upload_csv(address, username, password, "large_csv", &printer).unwrap();
     }
 
     #[test]
@@ -467,7 +467,7 @@ mod tests {
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";
-        let e = upload_table(address, username, password, "good_csv", &csv).unwrap();
+        let e = upload_csv(address, username, password, "good_csv", &csv).unwrap();
         assert_eq!(e, ());
 
         let query = "SELECT(table_name: good_csv, primary_keys: *, columns: *, conditions: ())";
