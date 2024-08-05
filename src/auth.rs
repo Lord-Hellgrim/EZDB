@@ -316,4 +316,6 @@ mod tests {
         let decoded_user = decode_cbor(&encoded_user).unwrap();
         assert_eq!(user, decoded_user);
     }
+
+    
 }

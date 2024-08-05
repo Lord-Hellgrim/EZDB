@@ -4,7 +4,9 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, RwLockReadGuard};
+
+use aes_gcm::Key;
 
 use crate::db_structure::{write_subtable_to_raw_binary, DbType, DbColumn, HeaderItem, KeyString, Metadata, StrictError, Value};
 use crate::networking_utilities::{f32_from_le_slice, i32_from_le_slice, ServerError};
@@ -90,7 +92,6 @@ impl BufferPool {
             table_naughty_list,
             value_naughty_list,
         }
-
     }
 
     pub fn occupied_buffer(&self) -> u64 {
@@ -115,7 +116,6 @@ impl BufferPool {
         self.files.write().unwrap().insert(table.name, RwLock::new(table_file));
         self.tables.write().unwrap().insert(table.name, RwLock::new(table));
 
-
         Ok(())
     }
 
@@ -135,7 +135,6 @@ impl BufferPool {
         let disk_data = self.tables.read().unwrap()[table_name].read().unwrap().write_to_binary();
         self.files.write().unwrap().get_mut(table_name).unwrap().write().unwrap().write_all(&disk_data)?;
         Ok(())
-
     }
 
     pub fn write_value_to_file(&self, value_name: &KeyString) -> Result<(), ServerError> {
@@ -143,7 +142,6 @@ impl BufferPool {
         let disk_data = self.values.read().unwrap()[value_name].read().unwrap().write_to_binary();
         self.files.write().unwrap().get_mut(value_name).unwrap().write().unwrap().write_all(&disk_data)?;
         Ok(())
-
     }
 
     pub fn clear_space(&mut self, space_to_clear: u64) -> Result<(), ServerError> {
@@ -184,146 +182,146 @@ impl BufferPool {
     }
 }
 
-pub fn write_table_to_binary_directory(table: &EZTable) -> Result<(), std::io::Error> {
+// pub fn write_table_to_binary_directory(table: &EZTable) -> Result<(), std::io::Error> {
 
-    let path_str = format!("{CONFIG_FOLDER}{PATH_SEP}{BIN_TABLE_DIR}{PATH_SEP}{}", table.name.as_str());
+//     let path_str = format!("{CONFIG_FOLDER}{PATH_SEP}{BIN_TABLE_DIR}{PATH_SEP}{}", table.name.as_str());
 
-    let bin_dir_path = Path::new(&path_str);
+//     let bin_dir_path = Path::new(&path_str);
 
-    if bin_dir_path.is_dir() {
-        return Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, "There is already a table on disk with this name"))
-    }
+//     if bin_dir_path.is_dir() {
+//         return Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, "There is already a table on disk with this name"))
+//     }
 
-    create_dir(&path_str)?;
+//     create_dir(&path_str)?;
 
-    if table.len() == 0 {
-        return Err(std::io::Error::new(std::io::ErrorKind::WriteZero, "The table that was attempted to write to disk was empty"))
-    }
+//     if table.len() == 0 {
+//         return Err(std::io::Error::new(std::io::ErrorKind::WriteZero, "The table that was attempted to write to disk was empty"))
+//     }
     
-    let mut header_file_path = path_str.clone();
-    header_file_path.push_str(&format!("{PATH_SEP}header"));
-    let mut full_header = String::new();
-    for head in &table.header {
-        full_header.push_str(&head.to_string());
-        full_header.push(';');
-    }
-    full_header.pop();
+//     let mut header_file_path = path_str.clone();
+//     header_file_path.push_str(&format!("{PATH_SEP}header"));
+//     let mut full_header = String::new();
+//     for head in &table.header {
+//         full_header.push_str(&head.to_string());
+//         full_header.push(';');
+//     }
+//     full_header.pop();
 
-    let mut start = 0;
-    let rows_per_chunk = CHUNK_SIZE / table.metadata.size_of_row();
-    while start + rows_per_chunk < table.len() {
+//     let mut start = 0;
+//     let rows_per_chunk = CHUNK_SIZE / table.metadata.size_of_row();
+//     while start + rows_per_chunk < table.len() {
 
-        let subtable = table.create_subtable_from_index_range(start, start + rows_per_chunk);
-        // println!("subtable:\n{}\n\n", subtable);
-        let stop = start + rows_per_chunk;
+//         let subtable = table.create_subtable_from_index_range(start, start + rows_per_chunk);
+//         // println!("subtable:\n{}\n\n", subtable);
+//         let stop = start + rows_per_chunk;
         
-        // println!("{}..={}", start, stop);
+//         // println!("{}..={}", start, stop);
         
-        let mut chunk_path = path_str.clone();
-        match &table.columns[&table.get_primary_key_col_index()] {
-            DbColumn::Ints(v) => {
-                // println!("{}..={}", v[start], v[stop]);
-                chunk_path.push_str(&format!("{PATH_SEP}{}..={}", v[start], v[stop]))
-            },
-            DbColumn::Floats(v) => {
-                // println!("{}..={}", v[start], v[stop]);
-                chunk_path.push_str(&format!("{PATH_SEP}{}..={}", v[start], v[stop]))
+//         let mut chunk_path = path_str.clone();
+//         match &table.columns[&table.get_primary_key_col_index()] {
+//             DbColumn::Ints(v) => {
+//                 // println!("{}..={}", v[start], v[stop]);
+//                 chunk_path.push_str(&format!("{PATH_SEP}{}..={}", v[start], v[stop]))
+//             },
+//             DbColumn::Floats(v) => {
+//                 // println!("{}..={}", v[start], v[stop]);
+//                 chunk_path.push_str(&format!("{PATH_SEP}{}..={}", v[start], v[stop]))
                 
-            },
-            DbColumn::Texts(v) => {
-                // println!("{}..={}", v[start], v[stop]);
-                chunk_path.push_str(&format!("{PATH_SEP}{}..={}", v[start], v[stop]))
-            },
-        };
-        let mut chunk_file = File::create(Path::new(&chunk_path))?;
-        let subtable_binary = write_subtable_to_raw_binary(subtable);
-        chunk_file.write_all(&subtable_binary)?;
+//             },
+//             DbColumn::Texts(v) => {
+//                 // println!("{}..={}", v[start], v[stop]);
+//                 chunk_path.push_str(&format!("{PATH_SEP}{}..={}", v[start], v[stop]))
+//             },
+//         };
+//         let mut chunk_file = File::create(Path::new(&chunk_path))?;
+//         let subtable_binary = write_subtable_to_raw_binary(subtable);
+//         chunk_file.write_all(&subtable_binary)?;
         
-        start += rows_per_chunk;
+//         start += rows_per_chunk;
         
-    }
+//     }
     
-    let subtable = table.create_subtable_from_index_range(start, table.len());
+//     let subtable = table.create_subtable_from_index_range(start, table.len());
     
-    let mut chunk_path = path_str.clone();
-    match &table.columns[&table.get_primary_key_col_index()] {
-        DbColumn::Ints(v) => {
-            chunk_path.push_str(&format!("{PATH_SEP}{}..={}", v[start], v.last().unwrap()))
-        },
-        DbColumn::Floats(v) => {
-            chunk_path.push_str(&format!("{PATH_SEP}{}..={}", v[start], v.last().unwrap()))
+//     let mut chunk_path = path_str.clone();
+//     match &table.columns[&table.get_primary_key_col_index()] {
+//         DbColumn::Ints(v) => {
+//             chunk_path.push_str(&format!("{PATH_SEP}{}..={}", v[start], v.last().unwrap()))
+//         },
+//         DbColumn::Floats(v) => {
+//             chunk_path.push_str(&format!("{PATH_SEP}{}..={}", v[start], v.last().unwrap()))
             
-        },
-        DbColumn::Texts(v) => {
-            chunk_path.push_str(&format!("{PATH_SEP}{}..={}", v[start], v.last().unwrap()))
-        },
-    };
-    let mut chunk_file = File::create(Path::new(&chunk_path))?;
-    let subtable_binary = write_subtable_to_raw_binary(subtable);
-    chunk_file.write_all(&subtable_binary)?;
+//         },
+//         DbColumn::Texts(v) => {
+//             chunk_path.push_str(&format!("{PATH_SEP}{}..={}", v[start], v.last().unwrap()))
+//         },
+//     };
+//     let mut chunk_file = File::create(Path::new(&chunk_path))?;
+//     let subtable_binary = write_subtable_to_raw_binary(subtable);
+//     chunk_file.write_all(&subtable_binary)?;
 
-    Ok(())
-}
+//     Ok(())
+// }
 
-pub fn read_binary_table_chunk_into_memory(table_file: &str, header: &[HeaderItem], metadata: &Metadata) -> Result<EZTable, StrictError> {
+// pub fn read_binary_table_chunk_into_memory(table_file: &str, header: &[HeaderItem], metadata: &Metadata) -> Result<EZTable, StrictError> {
 
-    let mut file = File::open(table_file)?;
+//     let mut file = File::open(table_file)?;
 
-    let file_size = file.metadata().unwrap().size();
-    let length = file_size / metadata.size_of_row() as u64;
+//     let file_size = file.metadata().unwrap().size();
+//     let length = file_size / metadata.size_of_row() as u64;
 
-    let mut table = BTreeMap::new();
-    let mut buf = [0u8;1_000_000];
-    let mut index = 0;
-    let mut total_bytes: usize = 0;
-    while total_bytes < file_size as usize {
+//     let mut table = BTreeMap::new();
+//     let mut buf = [0u8;1_000_000];
+//     let mut index = 0;
+//     let mut total_bytes: usize = 0;
+//     while total_bytes < file_size as usize {
         
-        match header[index].kind {
-            DbType::Int => {
-                let amount_to_read = (length * 4) as usize;
-                file.read_exact(&mut buf[..amount_to_read])?;
-                let v: Vec<i32> = buf[..(length * 4) as usize]
-                    .chunks(4)
-                    .map(i32_from_le_slice)
-                    .collect();
-                table.insert(header[index].name, DbColumn::Ints(v));
-                total_bytes += amount_to_read;
-            },
-            DbType::Float => {
-                let amount_to_read = (length * 4) as usize;
-                file.read_exact(&mut buf[..amount_to_read])?;
-                let v: Vec<f32> = buf[..(length * 4) as usize]
-                    .chunks(4)
-                    .map(f32_from_le_slice)
-                    .collect();
-                table.insert(header[index].name, DbColumn::Floats(v));
-                total_bytes += amount_to_read;
-            },
-            DbType::Text => {
-                let amount_to_read = (length * 64) as usize;
-                file.read_exact(&mut buf[..amount_to_read])?;
-                let v: Result<Vec<KeyString>, StrictError> = buf[..(length * 64) as usize]
-                    .chunks(64)
-                    .map(KeyString::try_from)
-                    .collect();
-                let v = v?;
-                table.insert(header[index].name, DbColumn::Texts(v));
-                total_bytes += amount_to_read;
-            },
-        }
-        index += 1;
-        file.seek(SeekFrom::Start(total_bytes as u64))?;
-    }
+//         match header[index].kind {
+//             DbType::Int => {
+//                 let amount_to_read = (length * 4) as usize;
+//                 file.read_exact(&mut buf[..amount_to_read])?;
+//                 let v: Vec<i32> = buf[..(length * 4) as usize]
+//                     .chunks(4)
+//                     .map(i32_from_le_slice)
+//                     .collect();
+//                 table.insert(header[index].name, DbColumn::Ints(v));
+//                 total_bytes += amount_to_read;
+//             },
+//             DbType::Float => {
+//                 let amount_to_read = (length * 4) as usize;
+//                 file.read_exact(&mut buf[..amount_to_read])?;
+//                 let v: Vec<f32> = buf[..(length * 4) as usize]
+//                     .chunks(4)
+//                     .map(f32_from_le_slice)
+//                     .collect();
+//                 table.insert(header[index].name, DbColumn::Floats(v));
+//                 total_bytes += amount_to_read;
+//             },
+//             DbType::Text => {
+//                 let amount_to_read = (length * 64) as usize;
+//                 file.read_exact(&mut buf[..amount_to_read])?;
+//                 let v: Result<Vec<KeyString>, StrictError> = buf[..(length * 64) as usize]
+//                     .chunks(64)
+//                     .map(KeyString::try_from)
+//                     .collect();
+//                 let v = v?;
+//                 table.insert(header[index].name, DbColumn::Texts(v));
+//                 total_bytes += amount_to_read;
+//             },
+//         }
+//         index += 1;
+//         file.seek(SeekFrom::Start(total_bytes as u64))?;
+//     }
 
-    Ok(
-        EZTable {
-            name: KeyString::from("test"),
-            metadata: metadata.clone(),
-            header: header.to_owned(),
-            columns: table,
-        }
-    )
-}
+//     Ok(
+//         EZTable {
+//             name: KeyString::from("test"),
+//             metadata: metadata.clone(),
+//             header: header.to_owned(),
+//             columns: table,
+//         }
+//     )
+// }
 
 #[cfg(test)]
 mod tests {

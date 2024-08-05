@@ -12,7 +12,7 @@ use std::{usize, fmt};
 
 use ezcbor::cbor::CborError;
 use fnv::FnvHashMap;
-use x25519_dalek::{EphemeralSecret, PublicKey, X25519_BASEPOINT_BYTES};
+use x25519_dalek::{EphemeralSecret, PublicKey};
 use aes_gcm::aead;
 
 use crate::aes_temp_crypto::{encrypt_aes256, decrypt_aes256};
@@ -582,7 +582,7 @@ pub fn chunk3_vec<T>(list: &[T]) -> Option<[&T;3]> {
 }
 
 #[inline]
-pub fn sum_i32_slice(slice: &[i32]) -> Option<i32> {
+pub fn sum_i32_slice(slice: &[i32]) -> i32 {
 
     let mut suma = simd::i32x4::splat(0);
     let mut sumb = simd::i32x4::splat(0);
@@ -602,13 +602,13 @@ pub fn sum_i32_slice(slice: &[i32]) -> Option<i32> {
     let sumc = sumc.as_array().iter().fold(0, |acc: i32, x| acc.saturating_add(*x));
     let sumd = sumd.as_array().iter().fold(0, |acc: i32, x| acc.saturating_add(*x));
 
-    let mut sum = suma + sumb + sumc + sumd;
+    let mut sum = suma.saturating_add(sumb).saturating_add(sumc).saturating_add(sumd);
     while i < slice.len() {
-        sum = sum.checked_add(slice[i])?;
+        sum = sum.saturating_add(slice[i]);
         i += 1;
     }
 
-    Some(sum)
+    sum
 }
 
 #[inline]
@@ -1086,8 +1086,19 @@ mod tests {
     fn test_sum_i32_slice() {
         let data = [3, 6, 9];
         let sum = sum_i32_slice(&data);
-        println!("sum: {}", sum.unwrap());
-        assert!(sum == Some(18));
+        println!("sum: {}", sum);
+        assert!(sum == 18);
+    }
+    
+    #[test]
+    fn test_sum_i32() {
+        let i32_slice: Vec<i32> = (0..98304).collect();
+        let start = std::time::Instant::now();
+        for i in 0..100 {
+            let sum = sum_i32_slice(&i32_slice);
+        }
+        let stop = start.elapsed().as_millis();
+        println!("{}", stop);
     }
 
     #[test]

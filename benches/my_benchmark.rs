@@ -147,7 +147,7 @@ fn my_benchmark(c: &mut Criterion) {
     
     let i32_slice: Vec<i32> = (0..98304).collect();
     let f32_slice: Vec<f32> = i32_slice.clone().iter().map(|n| *n as f32).collect();
-    group.bench_function("sum_slice_i32", |b| b.iter(|| sum_i32_slice(&i32_slice).unwrap()));
+    group.bench_function("sum_slice_i32", |b| b.iter(|| sum_i32_slice(&i32_slice)));
     group.bench_function("sum_slice_f32", |b| b.iter(|| sum_f32_slice(&f32_slice)));
 
     group.bench_function("mean_slice_i32", |b| b.iter(|| mean_i32_slice(&i32_slice)));

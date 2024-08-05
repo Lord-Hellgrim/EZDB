@@ -1259,12 +1259,7 @@ pub fn execute_summary_query(query: Query, table: &EZTable) -> Result<Option<EZT
                         };
                         match requested_column {
                             DbColumn::Floats(col) => result.add_column(KeyString::from(format!("SUM_{}", column).as_str()), DbColumn::Floats(vec![sum_f32_slice(col)])),
-                            DbColumn::Ints(col) => {
-                                match sum_i32_slice(col) {
-                                    Some(x) => result.add_column(KeyString::from(format!("SUM_{}", column).as_str()), DbColumn::Ints(vec![x])),
-                                    None => result.add_column(KeyString::from(format!("SUM_{}", column).as_str()), DbColumn::Texts(vec![KeyString::from("Operation would have overflowed i32")])),
-                                }
-                            },
+                            DbColumn::Ints(col) => result.add_column(KeyString::from(format!("SUM_{}", column).as_str()), DbColumn::Ints(vec![sum_i32_slice(col)])),
                             DbColumn::Texts(_col) => result.add_column(KeyString::from(format!("SUM_{}", column).as_str()), DbColumn::Texts(vec![KeyString::from("Can't SUM a text column")])),
                         }
                     },

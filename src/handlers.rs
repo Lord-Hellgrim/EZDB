@@ -84,6 +84,7 @@ pub fn handle_upload_request(
     };
     {
         let table_name = table.name;
+        println!("table_name: {}", table_name);
         database.buffer_pool.tables.write().unwrap().insert(KeyString::from(name), RwLock::new(table));
         database.buffer_pool.table_naughty_list.write().unwrap().insert(table_name);
         let f = File::create(format!("EZconfig{PATH_SEP}raw_tables{PATH_SEP}{table_name}")).expect("There should never be a duplicate file name");
