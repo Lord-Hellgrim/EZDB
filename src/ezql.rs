@@ -597,8 +597,6 @@ pub struct ParserState {
 #[allow(non_snake_case)]
 pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
 
-    println!("QUERY_STRING: {}", query_string);
-
     let mut state = ParserState {
         depth: 0,
         stack: Vec::with_capacity(256),
