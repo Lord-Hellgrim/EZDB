@@ -124,34 +124,51 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
             loop {
                 std::thread::sleep(Duration::from_secs(10));
                 println!("Background thread still running");
-                for key in writer_thread_db_ref.buffer_pool.tables.read().unwrap().keys() {
+                println!("{:?}", writer_thread_db_ref.buffer_pool.table_delete_list.read().unwrap());
+                for key in writer_thread_db_ref.buffer_pool.table_delete_list.read().unwrap().iter() {
+                    println!("KEY: {}", key);
+                    match std::fs::remove_file(format!("EZconfig{PATH_SEP}raw_tables{PATH_SEP}{}", key.as_str())) {
+                        Ok(_) => (),
+                        Err(e) => println!("LINE: {} - ERROR: {}", line!(), e),
+                    }
+                    
+                }
+                writer_thread_db_ref.buffer_pool.table_delete_list.write().unwrap().clear();
+                println!("{:?}", writer_thread_db_ref.buffer_pool.table_delete_list.read().unwrap());
+
+
+                for key in writer_thread_db_ref.buffer_pool.value_delete_list.read().unwrap().iter() {
+                    match std::fs::remove_file(format!("EZconfig{PATH_SEP}raw_values{PATH_SEP}{}", key.as_str())) {
+                        Ok(_) => (),
+                        Err(e) => println!("LINE: {} - ERROR: {}", line!(), e),
+                    }
+                }
+                writer_thread_db_ref.buffer_pool.value_delete_list.write().unwrap().clear();
+
+                for (key, table_lock) in writer_thread_db_ref.buffer_pool.tables.read().unwrap().iter() {
                     let mut table_naughty_list = writer_thread_db_ref.buffer_pool.table_naughty_list.write().unwrap();
                     if table_naughty_list.contains(key) {
-                        match writer_thread_db_ref.buffer_pool.write_table_to_file(key) {
-                            Ok(_) => (),
-                            Err(e) => match e {
-                                ServerError::Io(e) => println!("{}", e),
-                                e => panic!("The write thread should only ever throw IO errors and it just threw this error:\n {}", e),
-                            }
+                        let mut file = match std::fs::File::create(format!("EZconfig{PATH_SEP}raw_tables{PATH_SEP}{}", key.as_str())) {
+                            Ok(file) => file,
+                            Err(e) => {
+                                println!("LINE: {} - ERROR: {}", line!(), e);
+                                continue
+                            },
                         };
+                        file.write(&table_lock.read().unwrap().write_to_binary()).expect(&format!("Panic of line: {} of server_networking. The backup file could not be written.", line!()));
                         table_naughty_list.remove(key);
                     }
                 }
                 
-
-                for key in writer_thread_db_ref.buffer_pool.values.read().unwrap().keys() {
+                for (key, value_lock) in writer_thread_db_ref.buffer_pool.values.read().unwrap().iter() {
                     let mut value_naughty_list = writer_thread_db_ref.buffer_pool.value_naughty_list.write().unwrap();
                     if value_naughty_list.contains(key) {
-                        match writer_thread_db_ref.buffer_pool.write_value_to_file(key) {
-                            Ok(_) => (),
-                            Err(e) => match e {
-                                ServerError::Io(e) => println!("{}", e),
-                                e => panic!("The write thread should only ever throw IO errors and it just threw this error:\n {}", e),
-                            }
-                        };
+                        let mut file = std::fs::File::create(format!("EZconfig{PATH_SEP}raw_values{PATH_SEP}{}", key.as_str())).expect(&format!("Panic of line: {} of server_networking. The backup file could not be created.", line!()));
+                        file.write(&value_lock.read().unwrap().write_to_binary()).expect(&format!("Panic of line: {} of server_networking. The backup file could not be written.", line!()));
                         value_naughty_list.remove(key);
                     }
                 }
+
 
             }
         }); // Thread that writes in memory tables to disk
@@ -160,7 +177,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
 
         loop {
             // Reading instructions
-            let (mut stream, client_address) = match server.listener.accept() {
+            let (stream, client_address) = match server.listener.accept() {
                 Ok((n,m)) => (n, m),
                 Err(e) => {return Err(ServerError::Io(e.kind()));},
             };
@@ -318,6 +335,20 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                                 },
                             }
                         },
+                        Instruction::KvDelete(table_name) => {
+                            match handle_kv_delete(
+                                &mut connection, 
+                                table_name.as_str(), 
+                                db_ref.clone(),
+                            ) {
+                                Ok(_) => {
+                                    println!("Operation finished!");
+                                },
+                                Err(e) => {
+                                    println!("Operation failed because: {}", e);
+                                },
+                            }
+                        },
                         Instruction::KvDownload(table_name) => {
                             match handle_kv_download(
                                 &mut connection, 
@@ -415,11 +446,11 @@ pub fn parse_instruction(
     let action = KeyString::try_from(&plaintext[64..128])?;
     let table_name = KeyString::try_from(&plaintext[128..192])?;
     let user_bytes: Vec<u8> = Vec::new();
-    let query = String::new();
+    let mut query = String::new();
     if action.as_str() == "MetaNewUser" {
         let user_bytes = Vec::from(&plaintext[192..]);
     } else {
-        let query = match String::from_utf8(Vec::from(&plaintext[192..])) {
+        query = match String::from_utf8(Vec::from(&plaintext[192..])) {
             Ok(x) => x,
             Err(e) => return Err(ServerError::Utf8(e.utf8_error())),
         };
@@ -488,6 +519,16 @@ pub fn parse_instruction(
             user_has_permission(table_name.as_str(), Permission::Write, username.as_str(), database.users.clone())
             {
                 Ok(Instruction::KvUpdate(table_name))
+            } else {
+                Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' does not exist. Use 'upload' instead", table_name))))
+            }
+        },
+        "KvDelete" => {
+            if database.buffer_pool.values.read().unwrap().contains_key(&KeyString::from(table_name)) 
+            && 
+            user_has_permission(table_name.as_str(), Permission::Write, username.as_str(), database.users.clone())
+            {
+                Ok(Instruction::KvDelete(table_name))
             } else {
                 Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' does not exist. Use 'upload' instead", table_name))))
             }

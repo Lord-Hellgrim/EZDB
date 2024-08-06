@@ -146,6 +146,7 @@ pub enum Instruction {
     NewUser(Vec<u8>),
     KvUpload(KeyString),
     KvUpdate(KeyString),
+    KvDelete(KeyString),
     KvDownload(KeyString),
     MetaListTables,
     MetaListKeyValues,
@@ -162,6 +163,7 @@ impl Display for Instruction {
             Instruction::NewUser(s) => write!(f, "NewUser({:x?})", s),
             Instruction::KvUpload(s) => write!(f, "KvUpload({})", s),
             Instruction::KvUpdate(s) => write!(f, "KvUpdate({})", s),
+            Instruction::KvDelete(s) => write!(f, "KvDelete({})", s),
             Instruction::KvDownload(s) => write!(f, "KvDownload({})", s),
             Instruction::MetaListTables => write!(f, "MetaListTables"),
             Instruction::MetaListKeyValues => write!(f, "MetaListKeyValues"),
@@ -881,25 +883,26 @@ pub fn bytes_from_strings(strings: &[&str]) -> Vec<u8> {
 
 pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut Connection) -> Result<String, ServerError> {
     let instruction = match instruction {
-        Instruction::Download(table_name) => bytes_from_strings(&vec![&connection.user, "Downloading", &table_name.as_str(),"blank", ]),
-        Instruction::Upload(table_name) => bytes_from_strings(&vec![&connection.user, "Uploading", &table_name.as_str(),"blank", ]), 
-        Instruction::Update(table_name) => bytes_from_strings(&vec![&connection.user, "Updating", &table_name.as_str(),"blank", ]), 
+        Instruction::Download(table_name) => bytes_from_strings(&[&connection.user, "Downloading", &table_name.as_str(),"blank", ]),
+        Instruction::Upload(table_name) => bytes_from_strings(&[&connection.user, "Uploading", &table_name.as_str(),"blank", ]), 
+        Instruction::Update(table_name) => bytes_from_strings(&[&connection.user, "Updating", &table_name.as_str(),"blank", ]), 
         Instruction::Query(query) => {
-            let mut q = bytes_from_strings(&vec![&connection.user, "Querying", "blank", ]);
+            let mut q = bytes_from_strings(&[&connection.user, "Querying", "blank", ]);
             q.extend_from_slice(query.as_bytes());
             q
         }, 
-        Instruction::Delete(table_name) => bytes_from_strings(&vec![&connection.user, "Deleting", &table_name.as_str(),"blank", ]), 
+        Instruction::Delete(table_name) => bytes_from_strings(&[&connection.user, "Deleting", &table_name.as_str(),"blank", ]), 
         Instruction::NewUser(user_string) => {
-            let mut bytes = bytes_from_strings(&vec![&connection.user, "NewUser", "blank"]);
+            let mut bytes = bytes_from_strings(&[&connection.user, "NewUser", "blank"]);
             bytes.extend_from_slice(&user_string);
             bytes
         }
-        Instruction::KvUpload(table_name) => bytes_from_strings(&vec![&connection.user, "KvUpload", &table_name.as_str(),"blank", ]), 
-        Instruction::KvUpdate(table_name) => bytes_from_strings(&vec![&connection.user, "KvUpdate", &table_name.as_str(),"blank", ]), 
-        Instruction::KvDownload(table_name) => bytes_from_strings(&vec![&connection.user, "KvDownload", &table_name.as_str(),"blank", ]), 
-        Instruction::MetaListTables => bytes_from_strings(&vec![&connection.user, "MetaListTables", "blank","blank", ]), 
-        Instruction::MetaListKeyValues => bytes_from_strings(&vec![&connection.user, "MetaListKeyValues", "blank","blank", ]), 
+        Instruction::KvUpload(table_name) => bytes_from_strings(&[&connection.user, "KvUpload", &table_name.as_str(),"blank", ]), 
+        Instruction::KvUpdate(table_name) => bytes_from_strings(&[&connection.user, "KvUpdate", &table_name.as_str(),"blank", ]),
+        Instruction::KvDelete(table_name) => bytes_from_strings(&[&connection.user, "KvDelete", &table_name.as_str(),"blank", ]),
+        Instruction::KvDownload(table_name) => bytes_from_strings(&[&connection.user, "KvDownload", &table_name.as_str(),"blank", ]), 
+        Instruction::MetaListTables => bytes_from_strings(&[&connection.user, "MetaListTables", "blank","blank", ]), 
+        Instruction::MetaListKeyValues => bytes_from_strings(&[&connection.user, "MetaListKeyValues", "blank","blank", ]), 
     };
 
     println!("{:x?}", instruction);

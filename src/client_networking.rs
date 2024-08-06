@@ -268,6 +268,37 @@ pub fn kv_update(
     }
 }
 
+/// Overwrites the binary blob associated with the passed in key at the given address
+pub fn kv_delete(
+    address: &str,
+    username: &str,
+    password: &str,
+    key: &str,
+    value: &[u8],
+) -> Result<(), ServerError> {
+    let mut connection = Connection::connect(address, username, password)?;
+
+    let response =
+        instruction_send_and_confirm(Instruction::KvDelete(KeyString::from(key)), &mut connection)?;
+
+    let confirmation: String;
+    println!("upload_value - parsing response");
+    match parse_response(&response, &connection.user, key) {
+        Ok(_) => confirmation = data_send_and_confirm(&mut connection, value)?,
+        Err(e) => return Err(e),
+    };
+    println!("value uploaded successfully");
+
+    // The reason for the +28 in the length checker is that it accounts for the length of the nonce (IV) and the authentication tag
+    // in the aes-gcm encryption. The nonce is 12 bytes and the auth tag is 16 bytes
+    let data_len = (value.len() + 28).to_string();
+    if confirmation == data_len {
+        Ok(())
+    } else {
+        Err(ServerError::Confirmation(confirmation))
+    }
+}
+
 /// Returns a list of table_names in the database.
 pub fn meta_list_tables(
     address: &str,
@@ -470,7 +501,7 @@ mod tests {
         let e = upload_csv(address, username, password, "good_csv", &csv).unwrap();
         assert_eq!(e, ());
 
-        let query = "SELECT(table_name: good_csv, primary_keys: *, columns: *, conditions: ())";
+        let query = "SELECT(table_name: good_csv, primary_keys: (*), columns: (*), conditions: ())";
         let username = "admin";
         let password = "admin";
         let response = match query_table(address, username, password, query).unwrap() {

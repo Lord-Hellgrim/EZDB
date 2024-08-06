@@ -1,5 +1,6 @@
 use std::{collections::BTreeMap, fs::File, io::Write, sync::{atomic::Ordering, Arc, RwLock}};
 
+use aes_gcm::Key;
 use ezcbor::cbor::decode_cbor;
 
 use crate::{auth::{check_permission, User}, db_structure::{EZTable, KeyString, Value}, ezql::{execute_EZQL_queries, parse_serial_query}, networking_utilities::*, server_networking::Database};
@@ -87,8 +88,7 @@ pub fn handle_upload_request(
         println!("table_name: {}", table_name);
         database.buffer_pool.tables.write().unwrap().insert(KeyString::from(name), RwLock::new(table));
         database.buffer_pool.table_naughty_list.write().unwrap().insert(table_name);
-        let f = File::create(format!("EZconfig{PATH_SEP}raw_tables{PATH_SEP}{table_name}")).expect("There should never be a duplicate file name");
-        database.buffer_pool.files.write().unwrap().insert(table_name, RwLock::new(f));
+        
     }
     
 
@@ -183,11 +183,7 @@ pub fn handle_delete_request(
     let mut mutex_binding = database.buffer_pool.tables.write().unwrap();
     mutex_binding.remove(&KeyString::from(name)).expect("Instruction parser should have verified table");
 
-    let mut mutex_binding = database.buffer_pool.files.write().unwrap();
-    if mutex_binding.contains_key(&KeyString::from(name)) {
-        mutex_binding.remove(&KeyString::from(name)).expect("Instruction parser should have verified table");
-        std::fs::remove_file(&format!("EZconfig{PATH_SEP}raw_tables{PATH_SEP}{name}"))?;
-    }
+    database.buffer_pool.table_delete_list.write().unwrap().insert(KeyString::from(name));
     
     connection.stream.write_all("OK".as_bytes())?;
 
@@ -290,6 +286,31 @@ pub fn handle_kv_update(
     Ok(())
 
 }
+
+
+/// This will be rewritten to use EZQL soon.
+pub fn handle_kv_delete(
+    connection: &mut Connection, 
+    name: &str,
+    database: Arc<Database>,
+) -> Result<(), ServerError> {
+    match connection.stream.write("OK".as_bytes()) {
+        Ok(n) => println!("Wrote {n} bytes"),
+        Err(e) => {return Err(ServerError::Io(e.kind()));},
+    };
+    connection.stream.flush()?;
+    
+    let mut mutex_binding = database.buffer_pool.values.write().unwrap();
+    mutex_binding.remove(&KeyString::from(name)).expect("Instruction parser should have verified value");
+
+    database.buffer_pool.value_delete_list.write().unwrap().insert(KeyString::from(name));
+    
+    connection.stream.write_all("OK".as_bytes())?;
+
+    Ok(())
+}
+
+
 
 /// Handles a download request of a value associated with the given key. 
 /// Returns error if no value with that key exists or if user doesn't have permission.

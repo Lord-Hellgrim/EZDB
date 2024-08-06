@@ -22,9 +22,11 @@ pub struct BufferPool {
     max_size: AtomicU64,
     pub tables: Arc<RwLock<BTreeMap<KeyString, RwLock<EZTable>>>>,
     pub values: Arc<RwLock<BTreeMap<KeyString, RwLock<Value>>>>,
-    pub files: Arc<RwLock<BTreeMap<KeyString, RwLock<File>>>>,
     pub table_naughty_list: Arc<RwLock<HashSet<KeyString>>>,
     pub value_naughty_list: Arc<RwLock<HashSet<KeyString>>>,
+    pub table_delete_list: Arc<RwLock<HashSet<KeyString>>>,
+    pub value_delete_list: Arc<RwLock<HashSet<KeyString>>>,
+    
 }
 
 impl BufferPool {
@@ -46,7 +48,7 @@ impl BufferPool {
             table_file.read_to_end(&mut binary)?;
 
             let table = EZTable::from_binary(&name, &binary)?;
-            self.add_table(table, table_file)?;
+            self.add_table(table)?;
         }
 
         Ok(())
@@ -71,7 +73,7 @@ impl BufferPool {
 
             let value = Value::from_binary(&name, &binary);
 
-            self.add_value(value, value_file)?;
+            self.add_value(value)?;
         }
         
         Ok(())
@@ -80,17 +82,20 @@ impl BufferPool {
     pub fn empty(max_size: AtomicU64) -> BufferPool {
         let tables = Arc::new(RwLock::new(BTreeMap::new()));
         let values = Arc::new(RwLock::new(BTreeMap::new()));
-        let files = Arc::new(RwLock::new(BTreeMap::new()));
         let table_naughty_list = Arc::new(RwLock::new(HashSet::new()));
         let value_naughty_list = Arc::new(RwLock::new(HashSet::new()));
+        let table_delete_list = Arc::new(RwLock::new(HashSet::new()));
+        let value_delete_list = Arc::new(RwLock::new(HashSet::new()));
 
         BufferPool {
             max_size,
             tables,
             values,
-            files,
             table_naughty_list,
             value_naughty_list,
+            table_delete_list,
+            value_delete_list,
+            
         }
     }
 
@@ -107,79 +112,63 @@ impl BufferPool {
         self.max_size.load(std::sync::atomic::Ordering::Relaxed)
     }
 
-    pub fn add_table(&self, table: EZTable, table_file: File) -> Result<(), ServerError> {
+    pub fn add_table(&self, table: EZTable) -> Result<(), ServerError> {
 
         if self.occupied_buffer() + table.metadata.size_of_table() as u64 > self.max_size() {
             return Err(ServerError::NoMoreBufferSpace(table.metadata.size_of_table()))
         }
 
-        self.files.write().unwrap().insert(table.name, RwLock::new(table_file));
         self.tables.write().unwrap().insert(table.name, RwLock::new(table));
 
         Ok(())
     }
 
-    pub fn add_value(&self, value: Value, value_file: File) -> Result<(), ServerError> {
+    pub fn add_value(&self, value: Value) -> Result<(), ServerError> {
         if self.occupied_buffer() + value.body.len() as u64 > self.max_size() {
             return Err(ServerError::NoMoreBufferSpace(value.body.len()))
         }
 
-        self.files.write().unwrap().insert(value.name, RwLock::new(value_file));
         self.values.write().unwrap().insert(value.name, RwLock::new(value));
 
         Ok(())
     }
-    
-    pub fn write_table_to_file(&self, table_name: &KeyString) -> Result<(), ServerError> {
 
-        let disk_data = self.tables.read().unwrap()[table_name].read().unwrap().write_to_binary();
-        self.files.write().unwrap().get_mut(table_name).unwrap().write().unwrap().write_all(&disk_data)?;
-        Ok(())
-    }
-
-    pub fn write_value_to_file(&self, value_name: &KeyString) -> Result<(), ServerError> {
-
-        let disk_data = self.values.read().unwrap()[value_name].read().unwrap().write_to_binary();
-        self.files.write().unwrap().get_mut(value_name).unwrap().write().unwrap().write_all(&disk_data)?;
-        Ok(())
-    }
-
-    pub fn clear_space(&mut self, space_to_clear: u64) -> Result<(), ServerError> {
+    // pub fn clear_space(&mut self, space_to_clear: u64) -> Result<(), ServerError> {
         
-        let lru_table = self.tables
-            .read()
-            .unwrap()
-            .values()
-            .map(|n| {
-                let x = n.read().unwrap();
-                (x.metadata.last_access.load(Ordering::Relaxed), x.name)
-            })
-            .min_by(|x, y| x.0.cmp(&y.0))
-            .unwrap();
+    //     let lru_table = self.tables
+    //         .read()
+    //         .unwrap()
+    //         .values()
+    //         .map(|n| {
+    //             let x = n.read().unwrap();
+    //             (x.metadata.last_access.load(Ordering::Relaxed), x.name)
+    //         })
+    //         .min_by(|x, y| x.0.cmp(&y.0))
+    //         .unwrap();
 
-        let lru_value = self.values
-            .read()
-            .unwrap()
-            .values()
-            .map(|n| {
-                let x = n.read().unwrap();
-                (x.metadata.last_access.load(Ordering::Relaxed), x.name)
-            })
-            .min_by(|x, y| x.0.cmp(&y.0))
-            .unwrap();
+    //     let lru_value = self.values
+    //         .read()
+    //         .unwrap()
+    //         .values()
+    //         .map(|n| {
+    //             let x = n.read().unwrap();
+    //             (x.metadata.last_access.load(Ordering::Relaxed), x.name)
+    //         })
+    //         .min_by(|x, y| x.0.cmp(&y.0))
+    //         .unwrap();
 
-        if lru_table.0 < lru_value.0 {
-            self.write_table_to_file(&lru_table.1)?;
-            self.tables.write().unwrap()[&lru_table.1].write().unwrap().clear();
-        }
+    //     if lru_table.0 < lru_value.0 {
+    //         self.write_table_to_file(&lru_table.1)?;
+    //         self.tables.write().unwrap()[&lru_table.1].write().unwrap().clear();
+    //     }
 
-        if self.occupied_buffer() + space_to_clear < self.max_size() {   
-            Ok(())
-        } else {
-            self.clear_space(space_to_clear)
-        }
+    //     if self.occupied_buffer() + space_to_clear < self.max_size() {   
+    //         Ok(())
+    //     } else {
+    //         self.clear_space(space_to_clear)
+    //     }
             
-    }
+    // }
 }
 
 // pub fn write_table_to_binary_directory(table: &EZTable) -> Result<(), std::io::Error> {
@@ -323,11 +312,11 @@ impl BufferPool {
 //     )
 // }
 
-#[cfg(test)]
-mod tests {
-    // #![allow(unused)]
+// #[cfg(test)]
+// mod tests {
+//     // #![allow(unused)]
 
-    use super::*;
+//     use super::*;
 
     // #[test]
     // fn bin_dir_basic_test() {
@@ -397,4 +386,4 @@ mod tests {
 
     //     assert_eq!(read_table.columns, table.columns);
     // }
-}
+// }
