@@ -3,7 +3,7 @@ use aes_gcm::{
     Aes256Gcm, Key // Or `Aes128Gcm`
 };
 
-use crate::networking_utilities::ServerError;
+use crate::utilities::EzError;
 
 
 pub fn encrypt_aes256(s: &[u8], key: &[u8]) -> (Vec<u8>, [u8;12]) {
@@ -17,7 +17,7 @@ pub fn encrypt_aes256(s: &[u8], key: &[u8]) -> (Vec<u8>, [u8;12]) {
     
 }
 
-pub fn decrypt_aes256(s: &[u8], key: &[u8], nonce: &[u8] ) -> Result<Vec<u8>, ServerError> {
+pub fn decrypt_aes256(s: &[u8], key: &[u8], nonce: &[u8] ) -> Result<Vec<u8>, EzError> {
     // TODO Add clause to handle the case where the nonce is not 12 bytes
     let key = Key::<Aes256Gcm>::from_slice(key);
     

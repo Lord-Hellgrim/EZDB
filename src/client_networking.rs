@@ -5,7 +5,7 @@ use ezcbor::cbor::Cbor;
 
 use crate::auth::{AuthenticationError, User};
 use crate::db_structure::{EZTable, KeyString};
-use crate::networking_utilities::*;
+use crate::utilities::{EzError, instruction_send_and_confirm, Instruction, parse_response, receive_data, Connection, data_send_and_confirm, bytes_to_str};
 use crate::PATH_SEP;
 
 
@@ -20,7 +20,7 @@ pub fn download_table(
     username: &str,
     password: &str,
     table_name: &str,
-) -> Result<EZTable, ServerError> {
+) -> Result<EZTable, EzError> {
     let mut connection = Connection::connect(address, username, password)?;
 
     let response = instruction_send_and_confirm(
@@ -39,7 +39,7 @@ pub fn download_table(
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote 'OK' as {n} bytes"),
         Err(e) => {
-            return Err(ServerError::Io(e.kind()));
+            return Err(EzError::Io(e.kind()));
         }
     };
     connection.stream.flush()?;
@@ -57,7 +57,7 @@ pub fn upload_csv(
     password: &str,
     table_name: &str,
     csv: &String,
-) -> Result<(), ServerError> {
+) -> Result<(), EzError> {
     let mut connection = Connection::connect(address, username, password)?;
 
     let response =
@@ -73,7 +73,7 @@ pub fn upload_csv(
     if confirmation == "OK" {
         Ok(())
     } else {
-        Err(ServerError::Confirmation(confirmation))
+        Err(EzError::Confirmation(confirmation))
     }
 }
 
@@ -87,7 +87,7 @@ pub fn update_table(
     password: &str,
     table_name: &str,
     csv: &str,
-) -> Result<(), ServerError> {
+) -> Result<(), EzError> {
     let mut connection = Connection::connect(address, username, password)?;
 
     let response =
@@ -103,7 +103,7 @@ pub fn update_table(
         Ok(())
     } else {
         println!("Confirmation from server: {}", confirmation);
-        Err(ServerError::Confirmation(confirmation))
+        Err(EzError::Confirmation(confirmation))
     }
 }
 
@@ -113,7 +113,7 @@ pub fn query_table(
     username: &str,
     password: &str,
     query: &str,
-) -> Result<Response, ServerError> {
+) -> Result<Response, EzError> {
     let mut connection = Connection::connect(address, username, password)?;
 
     let response = instruction_send_and_confirm(
@@ -129,12 +129,12 @@ pub fn query_table(
         "OK" => data = receive_data(&mut connection)?,
         //###########################################################
         "Username is incorrect" => {
-            return Err(ServerError::Authentication(AuthenticationError::WrongUser(
+            return Err(EzError::Authentication(AuthenticationError::WrongUser(
                 connection.user,
             )))
         }
         "Password is incorrect" => {
-            return Err(ServerError::Authentication(
+            return Err(EzError::Authentication(
                 AuthenticationError::WrongPassword,
             ))
         }
@@ -146,7 +146,7 @@ pub fn query_table(
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote 'OK' as {n} bytes"),
         Err(e) => {
-            return Err(ServerError::Io(e.kind()));
+            return Err(EzError::Io(e.kind()));
         }
     };
 
@@ -164,7 +164,7 @@ pub fn delete_table(
     username: &str,
     password: &str,
     table_name: &str,
-) -> Result<(), ServerError> {
+) -> Result<(), EzError> {
 
     let mut connection = Connection::connect(address, username, password)?;
 
@@ -189,7 +189,7 @@ pub fn kv_upload(
     password: &str,
     key: &str,
     value: &[u8],
-) -> Result<(), ServerError> {
+) -> Result<(), EzError> {
     let mut connection = Connection::connect(address, username, password)?;
 
     let response = instruction_send_and_confirm(Instruction::KvUpload(KeyString::from(key)), &mut connection)?;
@@ -206,7 +206,7 @@ pub fn kv_upload(
     if confirmation == "OK" {
         Ok(())
     } else {
-        Err(ServerError::Confirmation(confirmation))
+        Err(EzError::Confirmation(confirmation))
     }
 }
 
@@ -216,7 +216,7 @@ pub fn kv_download(
     username: &str,
     password: &str,
     key: &str,
-) -> Result<Vec<u8>, ServerError> {
+) -> Result<Vec<u8>, EzError> {
     let mut connection = Connection::connect(address, username, password)?;
 
     let response = instruction_send_and_confirm(Instruction::KvDownload(KeyString::from(key)), &mut connection)?;
@@ -230,7 +230,7 @@ pub fn kv_download(
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote 'OK' as {n} bytes"),
         Err(e) => {
-            return Err(ServerError::Io(e.kind()));
+            return Err(EzError::Io(e.kind()));
         }
     };
 
@@ -244,7 +244,7 @@ pub fn kv_update(
     password: &str,
     key: &str,
     value: &[u8],
-) -> Result<(), ServerError> {
+) -> Result<(), EzError> {
     let mut connection = Connection::connect(address, username, password)?;
 
     let response =
@@ -264,7 +264,7 @@ pub fn kv_update(
     if confirmation == data_len {
         Ok(())
     } else {
-        Err(ServerError::Confirmation(confirmation))
+        Err(EzError::Confirmation(confirmation))
     }
 }
 
@@ -275,7 +275,7 @@ pub fn kv_delete(
     password: &str,
     key: &str,
     value: &[u8],
-) -> Result<(), ServerError> {
+) -> Result<(), EzError> {
     let mut connection = Connection::connect(address, username, password)?;
 
     let response =
@@ -295,7 +295,7 @@ pub fn kv_delete(
     if confirmation == data_len {
         Ok(())
     } else {
-        Err(ServerError::Confirmation(confirmation))
+        Err(EzError::Confirmation(confirmation))
     }
 }
 
@@ -304,7 +304,7 @@ pub fn meta_list_tables(
     address: &str,
     username: &str,
     password: &str,
-) -> Result<String, ServerError> {
+) -> Result<String, EzError> {
     let mut connection = Connection::connect(address, username, password)?;
 
     let response = instruction_send_and_confirm(Instruction::MetaListTables, &mut connection)?;
@@ -319,7 +319,7 @@ pub fn meta_list_tables(
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote 'OK' as {n} bytes"),
         Err(e) => {
-            return Err(ServerError::Io(e.kind()));
+            return Err(EzError::Io(e.kind()));
         }
     };
 
@@ -333,7 +333,7 @@ pub fn meta_list_key_values(
     address: &str,
     username: &str,
     password: &str,
-) -> Result<String, ServerError> {
+) -> Result<String, EzError> {
     let mut connection = Connection::connect(address, username, password)?;
 
     let response = instruction_send_and_confirm(Instruction::MetaListKeyValues, &mut connection)?;
@@ -348,7 +348,7 @@ pub fn meta_list_key_values(
     match connection.stream.write("OK".as_bytes()) {
         Ok(n) => println!("Wrote 'OK' as {n} bytes"),
         Err(e) => {
-            return Err(ServerError::Io(e.kind()));
+            return Err(EzError::Io(e.kind()));
         }
     };
 
@@ -362,7 +362,7 @@ pub fn meta_create_new_user(
     address: &str,
     username: &str,
     password: &str,
-) -> Result<(), ServerError> {
+) -> Result<(), EzError> {
 
     let mut connection = Connection::connect(address, username, password)?;
 
@@ -380,7 +380,7 @@ pub fn meta_create_new_user(
     if confirmation == "OK" {
         Ok(())
     } else {
-        Err(ServerError::Confirmation(confirmation))
+        Err(EzError::Confirmation(confirmation))
     }
 }
 

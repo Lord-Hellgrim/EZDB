@@ -32,7 +32,7 @@ pub const MAX_DATA_LEN: usize = u32::MAX as usize;
 
 /// The main error of all networking. Any error that can occur during a networking function should be covered here.
 #[derive(Debug)]
-pub enum ServerError {
+pub enum EzError {
     Utf8(Utf8Error),
     Io(ErrorKind),
     Instruction(InstructionError),
@@ -52,86 +52,110 @@ pub enum ServerError {
     Serialization(String),
 }
 
-impl fmt::Display for ServerError {
+impl fmt::Display for EzError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            ServerError::Utf8(e) => write!(f, "Encontered invalid utf-8: {}", e),
-            ServerError::Io(e) => write!(f, "Encountered an IO error: {}", e),
-            ServerError::Instruction(e) => write!(f, "{}", e),
-            ServerError::Confirmation(e) => write!(f, "Received corrupt confirmation {:?}", e),
-            ServerError::Authentication(e) => write!(f, "{}", e),
-            ServerError::Strict(e) => write!(f, "{}", e),
-            ServerError::Crypto(e) => write!(f, "There has been a crypto error. Most likely the nonce was incorrect. The error is: {}", e),
-            ServerError::ParseInt(e) => write!(f, "There has been a problem parsing an integer, presumably while sending a data_len. The error signature is: {}", e),
-            ServerError::ParseUser(e) => write!(f, "Failed to parse user from string because: {}", e),
-            ServerError::OversizedData => write!(f, "Sent data is too long. Maximum data size is {MAX_DATA_LEN}"),
-            ServerError::ParseResponse(e) => write!(f, "{}", e),
-            ServerError::Decompression(e) => write!(f, "Decompression error occurred from miniz_oxide library.\nLibrary error: {}", e),
-            ServerError::Query(s) => write!(f, "Query could not be processed because of: {}", s),
-            ServerError::NoMoreBufferSpace(x) => write!(f, "No more space in buffer pool. Need to free {x} bytes"),
-            ServerError::Unimplemented(s) => write!(f, "{}", s),
-            ServerError::Debug(s) => write!(f, "{}", s),
-            ServerError::Serialization(s) => write!(f, "{}", s),
+            EzError::Utf8(e) => write!(f, "Encontered invalid utf-8: {}", e),
+            EzError::Io(e) => write!(f, "Encountered an IO error: {}", e),
+            EzError::Instruction(e) => write!(f, "{}", e),
+            EzError::Confirmation(e) => write!(f, "Received corrupt confirmation {:?}", e),
+            EzError::Authentication(e) => write!(f, "{}", e),
+            EzError::Strict(e) => write!(f, "{}", e),
+            EzError::Crypto(e) => write!(f, "There has been a crypto error. Most likely the nonce was incorrect. The error is: {}", e),
+            EzError::ParseInt(e) => write!(f, "There has been a problem parsing an integer, presumably while sending a data_len. The error signature is: {}", e),
+            EzError::ParseUser(e) => write!(f, "Failed to parse user from string because: {}", e),
+            EzError::OversizedData => write!(f, "Sent data is too long. Maximum data size is {MAX_DATA_LEN}"),
+            EzError::ParseResponse(e) => write!(f, "{}", e),
+            EzError::Decompression(e) => write!(f, "Decompression error occurred from miniz_oxide library.\nLibrary error: {}", e),
+            EzError::Query(s) => write!(f, "Query could not be processed because of: {}", s),
+            EzError::NoMoreBufferSpace(x) => write!(f, "No more space in buffer pool. Need to free {x} bytes"),
+            EzError::Unimplemented(s) => write!(f, "{}", s),
+            EzError::Debug(s) => write!(f, "{}", s),
+            EzError::Serialization(s) => write!(f, "{}", s),
 
         }
     }
 }
 
-impl From<std::io::Error> for ServerError {
+impl From<std::io::Error> for EzError {
     fn from(e: std::io::Error) -> Self {
-        ServerError::Io(e.kind())
+        EzError::Io(e.kind())
     }
 }
 
-impl From<Utf8Error> for ServerError {
+impl From<Utf8Error> for EzError {
     fn from(e: Utf8Error) -> Self {
-        ServerError::Utf8(e)
+        EzError::Utf8(e)
     }
 }
 
-impl From<InstructionError> for ServerError {
+impl From<InstructionError> for EzError {
     fn from(e: InstructionError) -> Self {
-        ServerError::Instruction(e)
+        EzError::Instruction(e)
     }
 }
 
-impl From<AuthenticationError> for ServerError {
+impl From<AuthenticationError> for EzError {
     fn from(e: AuthenticationError) -> Self {
-        ServerError::Authentication(e)
+        EzError::Authentication(e)
     }
 }
 
-impl From<StrictError> for ServerError {
+impl From<StrictError> for EzError {
     fn from(e: StrictError) -> Self {
-        ServerError::Strict(e)
+        EzError::Strict(e)
     }
 }
 
-impl From<aead::Error> for ServerError {
+impl From<aead::Error> for EzError {
     fn from(e: aead::Error) -> Self {
-        ServerError::Crypto(e)
+        EzError::Crypto(e)
     }
 }
 
-impl From<ParseIntError> for ServerError {
+impl From<ParseIntError> for EzError {
     fn from(e: ParseIntError) -> Self {
-        ServerError::ParseInt(e)
+        EzError::ParseInt(e)
     }
 }
 
-impl From<QueryError> for ServerError {
+impl From<QueryError> for EzError {
     fn from(e: QueryError) -> Self {
-        ServerError::Query(e.to_string())
+        EzError::Query(e.to_string())
     }
 }
 
-impl From<CborError> for ServerError {
+impl From<CborError> for EzError {
     fn from(e: CborError) -> Self {
         let s = match e {
             CborError::IllFormed(x) => x,
             CborError::Unexpected(x) => x,
         };
-        ServerError::Serialization(s)
+        EzError::Serialization(s)
+    }
+}
+
+impl EzError {
+    pub fn to_error_code(&self) -> u64{
+        match self {
+            EzError::Utf8(_) => 1,
+            EzError::Io(_) => 2,
+            EzError::Instruction(_) => 3,
+            EzError::Confirmation(_) => 4,
+            EzError::Authentication(_) => 5,
+            EzError::Strict(_) => 6,
+            EzError::Crypto(_) => 7,
+            EzError::ParseInt(_) => 8,
+            EzError::ParseResponse(_) => todo!(),
+            EzError::ParseUser(_) => todo!(),
+            EzError::OversizedData => todo!(),
+            EzError::Decompression(_) => todo!(),
+            EzError::Query(_) => todo!(),
+            EzError::Debug(_) => todo!(),
+            EzError::NoMoreBufferSpace(_) => todo!(),
+            EzError::Unimplemented(_) => todo!(),
+            EzError::Serialization(_) => todo!(),
+        }
     }
 }
 
@@ -185,7 +209,7 @@ impl fmt::Display for InstructionError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             InstructionError::Invalid(instruction) => write!(f, "The instruction:\n\n\t{instruction}\n\nis invalid. See documentation for valid buffer\n\n"),
-            InstructionError::TooLong => write!(f, "Your instruction is too long. Maximum instruction length is: {INSTRUCTION_BUFFER}\n\n"),
+            InstructionError::TooLong => write!(f, "Your instruction is too long. Maximum instruction length is: {INSTRUCTION_BUFFER} bytes\n\n"),
             InstructionError::Utf8(e) => write!(f, "Invalid utf-8: {e}"),
             InstructionError::InvalidTable(_) => write!(f, "NT"),
         }
@@ -208,10 +232,10 @@ pub struct Connection {
 
 impl Connection {
     /// Initialize a connection. This means doing diffie hellman key exchange and establishing a shared secret
-    pub fn connect(address: &str, username: &str, password: &str) -> Result<Connection, ServerError> {
+    pub fn connect(address: &str, username: &str, password: &str) -> Result<Connection, EzError> {
 
         if username.len() > 512 || password.len() > 512 {
-            return Err(ServerError::Authentication(AuthenticationError::TooLong))
+            return Err(EzError::Authentication(AuthenticationError::TooLong))
         }
 
         let client_private_key = EphemeralSecret::random();
@@ -258,13 +282,13 @@ impl Connection {
 }
 
 /// THe server side of the Connection exchange
-pub fn establish_connection(mut stream: TcpStream, server: Arc<Server>, db_ref: Arc<Database>) -> Result<Connection, ServerError> {
+pub fn establish_connection(mut stream: TcpStream, server: Arc<Server>, db_ref: Arc<Database>) -> Result<Connection, EzError> {
 
     match stream.write(server.public_key.as_bytes()) {
         Ok(_) => (),
         Err(e) => {
             println!("failed to write server public key because: {}", e);
-            return Err(ServerError::Io(e.kind()));
+            return Err(EzError::Io(e.kind()));
         }
     }
     println!("About to get crypto");
@@ -274,7 +298,7 @@ pub fn establish_connection(mut stream: TcpStream, server: Arc<Server>, db_ref: 
         Ok(_) => (),
         Err(e) => {
             println!("failed to read client public key because: {}", e);
-            return Err(ServerError::Io(e.kind()));
+            return Err(EzError::Io(e.kind()));
         }
     }
     
@@ -289,7 +313,7 @@ pub fn establish_connection(mut stream: TcpStream, server: Arc<Server>, db_ref: 
         Ok(_) => (),
         Err(e) => {
             println!("failed to read auth_string because: {}", e);
-            return Err(ServerError::Io(e.kind()));
+            return Err(EzError::Io(e.kind()));
         }
     }
     // println!("encrypted auth_buffer: {:x?}", auth_buffer);
@@ -309,7 +333,7 @@ pub fn establish_connection(mut stream: TcpStream, server: Arc<Server>, db_ref: 
         Ok(s) => s,
         Err(e) => {
             println!("failed to read auth_string from bytes because: {}", e);
-            return Err(ServerError::Utf8(e));
+            return Err(EzError::Utf8(e));
         }
     };
     let password = &auth_string[512..];
@@ -330,12 +354,12 @@ pub fn establish_connection(mut stream: TcpStream, server: Arc<Server>, db_ref: 
                 println!("key: '{}'", key);
             }
             println!("Username:\n\t'{}'\n...is wrong", username);
-            return Err(ServerError::Authentication(AuthenticationError::WrongUser(format!("Username: '{}' does not exist", username))));
+            return Err(EzError::Authentication(AuthenticationError::WrongUser(format!("Username: '{}' does not exist", username))));
         } else if db_ref.users.read().unwrap()[&KeyString::from(username)].read().unwrap().password != password {
             // println!("thread_users_lock[username].password: {:?}", user_lock.password);
             // println!("password: {:?}", password);
             // println!("Password hash:\n\t{:?}\n...is wrong", password);
-            return Err(ServerError::Authentication(AuthenticationError::WrongPassword));
+            return Err(EzError::Authentication(AuthenticationError::WrongPassword));
         }
         Ok(
             Connection {
@@ -355,7 +379,7 @@ fn extract_query(request: &str) -> &str {
     ""
 }
 
-pub fn check_if_http_request(stream: &TcpStream) -> Result<String, ServerError> {
+pub fn check_if_http_request(stream: &TcpStream) -> Result<String, EzError> {
 
     let mut buffer = [0u8;1024];
     stream.peek(&mut buffer)?;
@@ -364,7 +388,7 @@ pub fn check_if_http_request(stream: &TcpStream) -> Result<String, ServerError> 
     if text.starts_with("POST /query HTTP/1.1") {
         Ok(extract_query(text).to_owned())
     } else {
-        Err(ServerError::Query("Not http. Proceed with normal".to_owned()))
+        Err(EzError::Query("Not http. Proceed with normal".to_owned()))
     }
 
 
@@ -881,7 +905,7 @@ pub fn bytes_from_strings(strings: &[&str]) -> Vec<u8> {
 
 
 
-pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut Connection) -> Result<String, ServerError> {
+pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut Connection) -> Result<String, EzError> {
     let instruction = match instruction {
         Instruction::Download(table_name) => bytes_from_strings(&[&connection.user, "Downloading", &table_name.as_str(),"blank", ]),
         Instruction::Upload(table_name) => bytes_from_strings(&[&connection.user, "Uploading", &table_name.as_str(),"blank", ]), 
@@ -916,7 +940,7 @@ pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut C
     // // println!("encrypted instructions.len(): {}", encrypted_instructions.len());
     match connection.stream.write_all(&encrypted_data_block) {
         Ok(_) => println!("Wrote request as {} bytes", encrypted_data_block.len()),
-        Err(e) => {return Err(ServerError::Io(e.kind()));},
+        Err(e) => {return Err(EzError::Io(e.kind()));},
     };
     connection.stream.flush()?;
     
@@ -926,8 +950,7 @@ pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut C
     println!("INSTRUCTION_BUFFER: {:x?}", buffer);
     println!("About to parse response from server");
     let response = bytes_to_str(&buffer)?;
-    println!("reponse: {}", response);
-    println!("response: {}", response);
+    println!("repsonse: {}", response);
 
     Ok(response.to_owned())
 
@@ -937,16 +960,16 @@ pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut C
 
 /// Helper function that parses a response from instruction_send_and_confirm().
 #[inline]
-pub fn parse_response(response: &str, username: &str, table_name: &str) -> Result<(), ServerError> {
+pub fn parse_response(response: &str, username: &str, table_name: &str) -> Result<(), EzError> {
 
     if response == "OK" {
         Ok(())
     } else if response == "IU" {
-        Err(ServerError::ParseResponse(format!("Username: {}, is invalid", username)))
+        Err(EzError::ParseResponse(format!("Username: {}, is invalid", username)))
     } else if response == "IP" {
-        Err(ServerError::ParseResponse("Password is invalid".to_owned()))
+        Err(EzError::ParseResponse("Password is invalid".to_owned()))
     } else if response == ("NT") {
-        Err(ServerError::ParseResponse(format!("No such table as {}", table_name)))
+        Err(EzError::ParseResponse(format!("No such table as {}", table_name)))
     } else {
         panic!("Need to handle error: {}", response);
     }
@@ -956,7 +979,7 @@ pub fn parse_response(response: &str, username: &str, table_name: &str) -> Resul
 /// This is the function primarily responsible for transmitting data.
 /// It compresses, encrypts, sends, and confirms receipt of the data.
 /// Used by both client and server.
-pub fn data_send_and_confirm(connection: &mut Connection, data: &[u8]) -> Result<String, ServerError> {
+pub fn data_send_and_confirm(connection: &mut Connection, data: &[u8]) -> Result<String, EzError> {
 
     // // println!("data: {:x?}", data);
 
@@ -993,7 +1016,7 @@ pub fn data_send_and_confirm(connection: &mut Connection, data: &[u8]) -> Result
 /// This is the function primarily responsible for receiving data.
 /// It receives, decompresses, decrypts, and confirms receipt of the data.
 /// Used by both client and server.
-pub fn receive_data(connection: &mut Connection) -> Result<Vec<u8>, ServerError> {
+pub fn receive_data(connection: &mut Connection) -> Result<Vec<u8>, EzError> {
     
     let mut size_buffer: [u8; 8] = [0; 8];
     connection.stream.read_exact(&mut size_buffer)?;
@@ -1001,7 +1024,7 @@ pub fn receive_data(connection: &mut Connection) -> Result<Vec<u8>, ServerError>
 
     let data_len = usize::from_le_bytes(size_buffer);
     if data_len > MAX_DATA_LEN {
-        return Err(ServerError::OversizedData)
+        return Err(EzError::OversizedData)
     }
     
     let mut data = Vec::with_capacity(data_len);
@@ -1012,7 +1035,7 @@ pub fn receive_data(connection: &mut Connection) -> Result<Vec<u8>, ServerError>
         let to_read = std::cmp::min(DATA_BUFFER, data_len - total_read);
         let bytes_received = connection.stream.read(&mut buffer[..to_read])?;
         if bytes_received == 0 {
-            return Err(ServerError::Confirmation("Read failure".to_owned()));
+            return Err(EzError::Confirmation("Read failure".to_owned()));
         }
         data.extend_from_slice(&buffer[..bytes_received]);
         total_read += bytes_received;

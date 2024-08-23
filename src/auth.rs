@@ -7,7 +7,7 @@ use std::{
 use ezcbor::cbor::{self, byteslice_from_cbor, Cbor};
 // use serde::{Deserialize, Serialize};
 
-use crate::{db_structure::KeyString, ezql::Query, networking_utilities::{blake3_hash, encode_hex}};
+use crate::{db_structure::KeyString, ezql::Query, utilities::{blake3_hash, encode_hex}};
 
 /// Defines a permission a user has to interact with a given table
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

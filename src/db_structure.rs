@@ -6,7 +6,7 @@ use std::{
 
 use ezcbor::cbor::{byteslice_from_cbor, byteslice_to_cbor, expected_data_item, Cbor, CborError, DataItem};
 
-use crate::{ezql::Inserts, networking_utilities::*};
+use crate::{ezql::Inserts, utilities::*};
 
 use crate::PATH_SEP;
 

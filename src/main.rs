@@ -3,9 +3,9 @@
 
 
 use EZDB::server_networking;
-use EZDB::networking_utilities;
+use EZDB::utilities;
 
-fn main() -> Result<(), networking_utilities::ServerError> {
+fn main() -> Result<(), utilities::EzError> {
 
     let args = std::env::args();
 

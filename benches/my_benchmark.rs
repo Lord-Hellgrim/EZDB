@@ -9,7 +9,7 @@ use EZDB::db_structure::*;
 use EZDB::ezql::*;
 use EZDB::ezql::parse_EZQL;
 
-use EZDB::networking_utilities::*;
+use EZDB::utilities::*;
 use EZDB::PATH_SEP;
 
 use ezcbor::cbor::Cbor;

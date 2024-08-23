@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::io::{Write, Read};
-use std::net::{TcpListener};
+use std::net::TcpListener;
 use std::sync::{Arc, RwLock};
 use std::str::{self};
 use std::time::Duration;
@@ -13,7 +13,7 @@ use crate::aes_temp_crypto::decrypt_aes256;
 use crate::auth::{user_has_permission, AuthenticationError, Permission, User};
 use crate::disk_utilities::{BufferPool, MAX_BUFFERPOOL_SIZE};
 use crate::logging::Logger;
-use crate::networking_utilities::*;
+use crate::utilities::{bytes_to_str, establish_connection, Connection, EzError, Instruction, InstructionError, INSTRUCTION_BUFFER};
 use crate::db_structure::KeyString;
 use crate::handlers::*;
 use crate::PATH_SEP;
@@ -43,7 +43,7 @@ pub struct Database {
 }
 
 impl Database {
-    pub fn init() -> Result<Database, ServerError> {
+    pub fn init() -> Result<Database, EzError> {
 
         let buffer_pool = BufferPool::empty(std::sync::atomic::AtomicU64::new(MAX_BUFFERPOOL_SIZE));
         buffer_pool.init_tables(&format!("EZconfig{PATH_SEP}raw_tables"))?;
@@ -77,7 +77,7 @@ impl Database {
 /// The main loop of the server. Checks for incoming connections, parses their instructions, and handles them
 /// Also writes tables to disk in a super primitive way. Basically a separate thread writes all the tables to disk
 /// every 10 seconds. This will be improved but I would appreciate some advice here.
-pub fn run_server(address: &str) -> Result<(), ServerError> {
+pub fn run_server(address: &str) -> Result<(), EzError> {
     
     // #################################### STARTUP SEQUENCE #############################################
     println!("Starting server...\n###########################");
@@ -87,7 +87,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
     println!("Binding to address: {address}");
     let l = match TcpListener::bind(address) {
         Ok(value) => value,
-        Err(e) => {return Err(ServerError::Io(e.kind()));},
+        Err(e) => {return Err(EzError::Io(e.kind()));},
     };
 
     let server = Arc::new(Server {
@@ -116,7 +116,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
 
     let writer_thread_db_ref = database.clone();
     
-    let _full_scope: Result<(), ServerError> = std::thread::scope(|outer_scope| {
+    let _full_scope: Result<(), EzError> = std::thread::scope(|outer_scope| {
         
         let _background_thread = 
         outer_scope.spawn(move || {
@@ -133,8 +133,8 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                     }
                     
                 }
-                writer_thread_db_ref.buffer_pool.table_delete_list.write().unwrap().clear();
                 println!("{:?}", writer_thread_db_ref.buffer_pool.table_delete_list.read().unwrap());
+                writer_thread_db_ref.buffer_pool.table_delete_list.write().unwrap().clear();
 
 
                 for key in writer_thread_db_ref.buffer_pool.value_delete_list.read().unwrap().iter() {
@@ -179,7 +179,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
             // Reading instructions
             let (stream, client_address) = match server.listener.accept() {
                 Ok((n,m)) => (n, m),
-                Err(e) => {return Err(ServerError::Io(e.kind()));},
+                Err(e) => {return Err(EzError::Io(e.kind()));},
             };
             println!("Accepted connection from: {}", client_address);
             
@@ -207,7 +207,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                         Ok(n) => instruction_size = n,
                         Err(e) => {
                             println!("There was an io error during a large read.\nError:\t{e}");
-                            return Err(ServerError::Io(e.kind()));
+                            return Err(EzError::Io(e.kind()));
                         },
                     };
                 }
@@ -218,7 +218,7 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
                 match parse_instruction(
                     instructions, 
                     db_ref.clone(),
-                    &connection.aes_key
+                    &mut connection
                 ) {
                     Ok(i) => match i {
                         
@@ -422,14 +422,14 @@ pub fn run_server(address: &str) -> Result<(), ServerError> {
 pub fn parse_instruction(
     instructions: &[u8], 
     database: Arc<Database>,
-    aes_key: &[u8]
-) -> Result<Instruction, ServerError> {
+    connection: &mut Connection,
+) -> Result<Instruction, EzError> {
 
     println!("Decrypting instructions");
     let ciphertext = &instructions[0..instructions.len()-12];
     let nonce = &instructions[instructions.len()-12..];
 
-    let plaintext = decrypt_aes256(ciphertext, aes_key, nonce)?;
+    let plaintext = decrypt_aes256(ciphertext, &connection.aes_key, nonce)?;
 
     let instruction = bytes_to_str(&plaintext)?;
     println!("instruction: {}", instruction);
@@ -452,16 +452,16 @@ pub fn parse_instruction(
     } else {
         query = match String::from_utf8(Vec::from(&plaintext[192..])) {
             Ok(x) => x,
-            Err(e) => return Err(ServerError::Utf8(e.utf8_error())),
+            Err(e) => return Err(EzError::Utf8(e.utf8_error())),
         };
     }
 
     if table_name.as_str() == "All" {
-        return Err(ServerError::Instruction(InstructionError::InvalidTable("Table cannot be called 'All'".to_owned())));
+        return Err(EzError::Instruction(InstructionError::InvalidTable("Table cannot be called 'All'".to_owned())));
     }
 
     println!("parsing 4...");
-    match action.as_str() {
+    let confirmed = match action.as_str() {
         "Querying" => {
             Ok(Instruction::Query(query.to_owned()))
             
@@ -470,7 +470,7 @@ pub fn parse_instruction(
             if user_has_permission(table_name.as_str(), Permission::Upload, username.as_str(), database.users.clone()) {
                 Ok(Instruction::Upload(table_name))
             } else {
-                Err(ServerError::Authentication(AuthenticationError::Permission))
+                Err(EzError::Authentication(AuthenticationError::Permission))
             }
         } 
         "Downloading" => {
@@ -480,7 +480,7 @@ pub fn parse_instruction(
             {
                 Ok(Instruction::Download(table_name))
             } else {
-                Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_string())))
+                Err(EzError::Instruction(InstructionError::InvalidTable(table_name.to_string())))
             }
         },
         "Updating" => {
@@ -490,7 +490,7 @@ pub fn parse_instruction(
             { 
                 Ok(Instruction::Update(table_name))
             } else {
-                Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_string())))
+                Err(EzError::Instruction(InstructionError::InvalidTable(table_name.to_string())))
             }
         },
         "Deleting" => {
@@ -500,7 +500,7 @@ pub fn parse_instruction(
             {
                 Ok(Instruction::Delete(table_name))
             } else {
-                Err(ServerError::Instruction(InstructionError::InvalidTable(table_name.to_string())))
+                Err(EzError::Instruction(InstructionError::InvalidTable(table_name.to_string())))
             }
         }
         "KvUpload" => {
@@ -508,7 +508,7 @@ pub fn parse_instruction(
             && 
             user_has_permission(table_name.as_str(), Permission::Upload, username.as_str(), database.users.clone())
             {
-                Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' already exists. Use 'update' instead", table_name))))
+                Err(EzError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' already exists. Use 'update' instead", table_name))))
             } else {
                 Ok(Instruction::KvUpload(table_name))
             }
@@ -520,7 +520,7 @@ pub fn parse_instruction(
             {
                 Ok(Instruction::KvUpdate(table_name))
             } else {
-                Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' does not exist. Use 'upload' instead", table_name))))
+                Err(EzError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' does not exist. Use 'upload' instead", table_name))))
             }
         },
         "KvDelete" => {
@@ -530,7 +530,7 @@ pub fn parse_instruction(
             {
                 Ok(Instruction::KvDelete(table_name))
             } else {
-                Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' does not exist. Use 'upload' instead", table_name))))
+                Err(EzError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' does not exist. Use 'upload' instead", table_name))))
             }
         },
         "KvDownload" => {
@@ -540,32 +540,42 @@ pub fn parse_instruction(
             {
                 Ok(Instruction::KvDownload(table_name))
             } else {
-                Err(ServerError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' does not exist. Use 'upload' instead", table_name))))
+                Err(EzError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' does not exist. Use 'upload' instead", table_name))))
             }
         },
         "MetaListTables" => {
             if user_has_permission(table_name.as_str(), Permission::Read, username.as_str(), database.users.clone()) {
                 Ok(Instruction::MetaListTables)
             } else {
-                Err(ServerError::Authentication(AuthenticationError::Permission))
+                Err(EzError::Authentication(AuthenticationError::Permission))
             }
         },
         "MetaListKeyValues" => {
             if user_has_permission(table_name.as_str(), Permission::Read, username.as_str(), database.users.clone()) {
                 Ok(Instruction::MetaListKeyValues)
             } else {
-                Err(ServerError::Authentication(AuthenticationError::Permission))
+                Err(EzError::Authentication(AuthenticationError::Permission))
             }
         },
         "MetaNewUser" => {
             if user_has_permission(table_name.as_str(), Permission::Write, username.as_str(), database.users.clone()) {
                 Ok(Instruction::NewUser(user_bytes))
             } else {
-                Err(ServerError::Authentication(AuthenticationError::Permission))
+                Err(EzError::Authentication(AuthenticationError::Permission))
             }
         }
-        _ => Err(ServerError::Instruction(InstructionError::Invalid(action.to_string()))),
+        _ => Err(EzError::Instruction(InstructionError::Invalid(action.to_string()))),
+    };
+
+    if confirmed.is_ok() {
+        match connection.stream.write("OK".as_bytes()) {
+            Ok(n) => println!("Wrote {n} bytes"),
+            Err(e) => {return Err(EzError::Io(e.kind()));},
+        };
+        connection.stream.flush()?;
     }
+
+    confirmed
 }
 
 

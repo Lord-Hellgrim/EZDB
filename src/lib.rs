@@ -19,6 +19,6 @@ pub mod disk_utilities;
 pub mod ezql;
 pub mod handlers;
 pub mod logging;
-pub mod networking_utilities;
+pub mod utilities;
 pub mod server_networking;
 pub mod bloom_filter;

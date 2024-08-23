@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fmt::Display, str::FromStr, sync::Arc};
 
-use crate::{db_structure::{remove_indices, DbColumn, EZTable, KeyString, StrictError}, networking_utilities::{mean_f32_slice, mean_i32_slice, median_f32_slice, median_i32_slice, mode_i32_slice, mode_string_slice, print_sep_list, stdev_f32_slice, stdev_i32_slice, sum_f32_slice, sum_i32_slice, ServerError}, server_networking::Database};
+use crate::{db_structure::{remove_indices, DbColumn, EZTable, KeyString, StrictError}, utilities::{mean_f32_slice, mean_i32_slice, median_f32_slice, median_i32_slice, mode_i32_slice, mode_string_slice, print_sep_list, stdev_f32_slice, stdev_i32_slice, sum_f32_slice, sum_i32_slice, EzError}, server_networking::Database};
 
 use crate::PATH_SEP;
 
@@ -997,7 +997,7 @@ pub fn parse_contained_token(s: &str, container_open: char, container_close: cha
 }
 
 #[allow(non_snake_case)]
-pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
+pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Result<Option<EZTable>, EzError> {
 
     let mut result_table = None;
     for query in queries.into_iter() {
@@ -1108,7 +1108,7 @@ pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Res
 }
 
 
-pub fn execute_delete_query(query: Query, table: &mut EZTable) -> Result<Option<EZTable>, ServerError> {
+pub fn execute_delete_query(query: Query, table: &mut EZTable) -> Result<Option<EZTable>, EzError> {
     
     match query {
         Query::DELETE { primary_keys, table_name: _, conditions } => {
@@ -1119,12 +1119,12 @@ pub fn execute_delete_query(query: Query, table: &mut EZTable) -> Result<Option<
                 None
             )
         },
-        other_query => return Err(ServerError::Query(format!("Wrong type of query passed to execute_delete_query() function.\nReceived query: {}", other_query))),
+        other_query => return Err(EzError::Query(format!("Wrong type of query passed to execute_delete_query() function.\nReceived query: {}", other_query))),
     }
 
 }
 
-pub fn execute_left_join_query(query: Query, left_table: &EZTable, right_table: &EZTable) -> Result<Option<EZTable>, ServerError> {
+pub fn execute_left_join_query(query: Query, left_table: &EZTable, right_table: &EZTable) -> Result<Option<EZTable>, EzError> {
     
     match query {
         Query::LEFT_JOIN { left_table_name: _, right_table_name: _, match_columns, primary_keys } => {
@@ -1135,11 +1135,11 @@ pub fn execute_left_join_query(query: Query, left_table: &EZTable, right_table: 
         
             Ok(Some(filtered_table))
         },
-        other_query => return Err(ServerError::Query(format!("Wrong type of query passed to execute_left_join_query() function.\nReceived query: {}", other_query))),
+        other_query => return Err(EzError::Query(format!("Wrong type of query passed to execute_left_join_query() function.\nReceived query: {}", other_query))),
     }    
 }
 
-pub fn execute_update_query(query: Query, table: &mut EZTable) -> Result<Option<EZTable>, ServerError> {
+pub fn execute_update_query(query: Query, table: &mut EZTable) -> Result<Option<EZTable>, EzError> {
     
     match query {
         Query::UPDATE { table_name: _, primary_keys, conditions, updates } => {
@@ -1148,7 +1148,7 @@ pub fn execute_update_query(query: Query, table: &mut EZTable) -> Result<Option<
             for keeper in &keepers {
                 for update in &updates{
                     if !table.columns.contains_key(&update.attribute) {
-                        return Err(ServerError::Query(format!("Table does not contain column {}", update.attribute)))
+                        return Err(EzError::Query(format!("Table does not contain column {}", update.attribute)))
                     }
                     match update.operator {
                         UpdateOp::Assign => {
@@ -1162,14 +1162,14 @@ pub fn execute_update_query(query: Query, table: &mut EZTable) -> Result<Option<
                             match table.columns.get_mut(&update.attribute).unwrap() {
                                 DbColumn::Ints(ref mut column) => column[*keeper] += update.value.to_i32(),
                                 DbColumn::Floats(ref mut column) => column[*keeper] += update.value.to_f32(),
-                                DbColumn::Texts(ref mut _column) => return Err(ServerError::Query("'+=' operator cannot be performed on text data".to_owned())),
+                                DbColumn::Texts(ref mut _column) => return Err(EzError::Query("'+=' operator cannot be performed on text data".to_owned())),
                             }
                         },
                         UpdateOp::MinusEquals => {
                             match table.columns.get_mut(&update.attribute).unwrap() {
                                 DbColumn::Ints(ref mut column) => column[*keeper] -= update.value.to_i32(),
                                 DbColumn::Floats(ref mut column) => column[*keeper] -= update.value.to_f32(),
-                                DbColumn::Texts(ref mut _column) => return Err(ServerError::Query("'-=' operator cannot be performed on text data".to_owned())),
+                                DbColumn::Texts(ref mut _column) => return Err(EzError::Query("'-=' operator cannot be performed on text data".to_owned())),
                             }
                         }
                         UpdateOp::TimesEquals => {
@@ -1181,15 +1181,15 @@ pub fn execute_update_query(query: Query, table: &mut EZTable) -> Result<Option<
                         },
                         UpdateOp::Append => {
                             match table.columns.get_mut(&update.attribute).unwrap() {
-                                DbColumn::Ints(ref mut _column) => return Err(ServerError::Query("'append' operator can only be performed on text data".to_owned())),
-                                DbColumn::Floats(ref mut _column) => return Err(ServerError::Query("'append' operator can only be performed on text data".to_owned())),
+                                DbColumn::Ints(ref mut _column) => return Err(EzError::Query("'append' operator can only be performed on text data".to_owned())),
+                                DbColumn::Floats(ref mut _column) => return Err(EzError::Query("'append' operator can only be performed on text data".to_owned())),
                                 DbColumn::Texts(ref mut column) => column[*keeper].push(update.value.as_str())?,
                             }
                         },
                         UpdateOp::Prepend => {
                             match table.columns.get_mut(&update.attribute).unwrap() {
-                                DbColumn::Ints(ref mut _column) => return Err(ServerError::Query("'prepend' operator can only be performed on text data".to_owned())),
-                                DbColumn::Floats(ref mut _column) => return Err(ServerError::Query("'prepend' operator can only be performed on text data".to_owned())),
+                                DbColumn::Ints(ref mut _column) => return Err(EzError::Query("'prepend' operator can only be performed on text data".to_owned())),
+                                DbColumn::Floats(ref mut _column) => return Err(EzError::Query("'prepend' operator can only be performed on text data".to_owned())),
                                 DbColumn::Texts(ref mut column) => {
                                     let mut new = update.value;
                                     new.push(column[*keeper].as_str())?;
@@ -1205,13 +1205,13 @@ pub fn execute_update_query(query: Query, table: &mut EZTable) -> Result<Option<
                 None    
             )
         },
-        other_query => return Err(ServerError::Query(format!("Wrong type of query passed to execute_update_query() function.\nReceived query: {}", other_query))),
+        other_query => return Err(EzError::Query(format!("Wrong type of query passed to execute_update_query() function.\nReceived query: {}", other_query))),
     }
 
     
 }
 
-pub fn execute_insert_query(query: Query, table: &mut EZTable) -> Result<Option<EZTable>, ServerError> {
+pub fn execute_insert_query(query: Query, table: &mut EZTable) -> Result<Option<EZTable>, EzError> {
 
     match query {
         Query::INSERT { table_name: _, inserts } => {
@@ -1221,12 +1221,12 @@ pub fn execute_insert_query(query: Query, table: &mut EZTable) -> Result<Option<
                 None
             )
         },
-        other_query => return Err(ServerError::Query(format!("Wrong type of query passed to execute_insert_query() function.\nReceived query: {}", other_query))),
+        other_query => return Err(EzError::Query(format!("Wrong type of query passed to execute_insert_query() function.\nReceived query: {}", other_query))),
 
     }
 }
 
-pub fn execute_select_query(query: Query, table: &EZTable) -> Result<Option<EZTable>, ServerError> {
+pub fn execute_select_query(query: Query, table: &EZTable) -> Result<Option<EZTable>, EzError> {
 
     match query {
         Query::SELECT { table_name: _, primary_keys, columns, conditions } => {
@@ -1240,11 +1240,11 @@ pub fn execute_select_query(query: Query, table: &EZTable) -> Result<Option<EZTa
                     )
             )
         },
-        other_query => return Err(ServerError::Query(format!("Wrong type of query passed to execute_select_query() function.\nReceived query: {}", other_query))),
+        other_query => return Err(EzError::Query(format!("Wrong type of query passed to execute_select_query() function.\nReceived query: {}", other_query))),
     }
 }
 
-pub fn execute_summary_query(query: Query, table: &EZTable) -> Result<Option<EZTable>, ServerError> {
+pub fn execute_summary_query(query: Query, table: &EZTable) -> Result<Option<EZTable>, EzError> {
 
     match query {
         Query::SUMMARY { table_name: _, columns } => {
@@ -1255,7 +1255,7 @@ pub fn execute_summary_query(query: Query, table: &EZTable) -> Result<Option<EZT
                     Statistic::SUM(column) => {
                         let requested_column = match table.columns.get(&column) {
                             Some(c) => c,
-                            None => return Err(ServerError::Query(format!("No column named {} in table {}", column, table.name)))
+                            None => return Err(EzError::Query(format!("No column named {} in table {}", column, table.name)))
                         };
                         match requested_column {
                             DbColumn::Floats(col) => result.add_column(KeyString::from(format!("SUM_{}", column).as_str()), DbColumn::Floats(vec![sum_f32_slice(col)])),
@@ -1266,7 +1266,7 @@ pub fn execute_summary_query(query: Query, table: &EZTable) -> Result<Option<EZT
                     Statistic::MEAN(column) => {
                         let requested_column = match table.columns.get(&column) {
                             Some(c) => c,
-                            None => return Err(ServerError::Query(format!("No column named {} in table {}", column, table.name)))
+                            None => return Err(EzError::Query(format!("No column named {} in table {}", column, table.name)))
                         };
                         match requested_column {
                             DbColumn::Floats(col) => result.add_column(KeyString::from(format!("MEAN_{}", column).as_str()), DbColumn::Floats(vec![mean_f32_slice(col)])),
@@ -1277,7 +1277,7 @@ pub fn execute_summary_query(query: Query, table: &EZTable) -> Result<Option<EZT
                     Statistic::MEDIAN(column) => {
                         let requested_column = match table.columns.get(&column) {
                             Some(c) => c,
-                            None => return Err(ServerError::Query(format!("No column named {} in table {}", column, table.name)))
+                            None => return Err(EzError::Query(format!("No column named {} in table {}", column, table.name)))
                         };
                         match requested_column {
                             DbColumn::Floats(col) => result.add_column(KeyString::from(format!("MEDIAN_{}", column).as_str()), DbColumn::Floats(vec![median_f32_slice(col)])),
@@ -1288,7 +1288,7 @@ pub fn execute_summary_query(query: Query, table: &EZTable) -> Result<Option<EZT
                     Statistic::MODE(column) => {
                         let requested_column = match table.columns.get(&column) {
                             Some(c) => c,
-                            None => return Err(ServerError::Query(format!("No column named {} in table {}", column, table.name)))
+                            None => return Err(EzError::Query(format!("No column named {} in table {}", column, table.name)))
                         };
                         match requested_column {
                             DbColumn::Floats(_col) => result.add_column(KeyString::from(format!("MODE_{}", column).as_str()), DbColumn::Texts(vec![KeyString::from("Can't mode a float slice")])),
@@ -1299,7 +1299,7 @@ pub fn execute_summary_query(query: Query, table: &EZTable) -> Result<Option<EZT
                     Statistic::STDEV(column) => {
                         let requested_column = match table.columns.get(&column) {
                             Some(c) => c,
-                            None => return Err(ServerError::Query(format!("No column named {} in table {}", column, table.name)))
+                            None => return Err(EzError::Query(format!("No column named {} in table {}", column, table.name)))
                         };
                         match requested_column {
                             DbColumn::Floats(col) => result.add_column(KeyString::from(format!("STDEV_{}", column).as_str()), DbColumn::Floats(vec![stdev_f32_slice(col)])),
@@ -1314,35 +1314,35 @@ pub fn execute_summary_query(query: Query, table: &EZTable) -> Result<Option<EZT
 
             Ok(Some(result))
         },
-        other_query => return Err(ServerError::Query(format!("Wrong type of query passed to execute_select_query() function.\nReceived query: {}", other_query))),
+        other_query => return Err(EzError::Query(format!("Wrong type of query passed to execute_select_query() function.\nReceived query: {}", other_query))),
     }
 
     
 }
 
-pub fn execute_inner_join_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
+pub fn execute_inner_join_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, EzError> {
     
     // let tables = database.buffer_pool.tables.read().unwrap();
     // let table = tables.get(&query.table).unwrap().read().unwrap();
     // let keepers = filter_keepers(&query, &table)?;
 
-    Err(ServerError::Unimplemented("inner joins are not yet implemented".to_owned()))
+    Err(EzError::Unimplemented("inner joins are not yet implemented".to_owned()))
 }
 
-pub fn execute_right_join_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
+pub fn execute_right_join_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, EzError> {
     // let tables = database.buffer_pool.tables.read().unwrap();
     // let table = tables.get(&query.table).unwrap().read().unwrap();
     // let keepers = filter_keepers(&query, &table)?;
 
-    Err(ServerError::Unimplemented("right joins are not yet implemented".to_owned()))
+    Err(EzError::Unimplemented("right joins are not yet implemented".to_owned()))
 }
 
-pub fn execute_full_join_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, ServerError> {
+pub fn execute_full_join_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, EzError> {
     // let tables = database.buffer_pool.tables.read().unwrap();
     // let table = tables.get(&query.table).unwrap().read().unwrap();
     // let keepers = filter_keepers(&query, &table)?;
 
-    Err(ServerError::Unimplemented("full joins are not yet implemented".to_owned()))
+    Err(EzError::Unimplemented("full joins are not yet implemented".to_owned()))
 }
 
 pub fn keys_to_indexes(table: &EZTable, keys: &RangeOrListOrAll) -> Result<Vec<usize>, StrictError> {
@@ -1420,7 +1420,7 @@ pub fn keys_to_indexes(table: &EZTable, keys: &RangeOrListOrAll) -> Result<Vec<u
 }
 
 
-pub fn filter_keepers(conditions: &Vec<OpOrCond>, primary_keys: &RangeOrListOrAll, table: &EZTable) -> Result<Vec<usize>, ServerError> {
+pub fn filter_keepers(conditions: &Vec<OpOrCond>, primary_keys: &RangeOrListOrAll, table: &EZTable) -> Result<Vec<usize>, EzError> {
     let indexes = keys_to_indexes(table, primary_keys)?;
     
     if conditions.is_empty() {
@@ -1433,7 +1433,7 @@ pub fn filter_keepers(conditions: &Vec<OpOrCond>, primary_keys: &RangeOrListOrAl
             OpOrCond::Op(op) => current_op = *op,
             OpOrCond::Cond(cond) => {
                 if !table.columns.contains_key(&cond.attribute) {
-                    return Err(ServerError::Query(format!("table does not contain column {}", cond.attribute)))
+                    return Err(EzError::Query(format!("table does not contain column {}", cond.attribute)))
                 }
                 let column = &table.columns[&cond.attribute];
                 if current_op == Operator::OR {
@@ -1470,19 +1470,19 @@ pub fn filter_keepers(conditions: &Vec<OpOrCond>, primary_keys: &RangeOrListOrAl
                             Test::Starts(bar) => {
                                 match column {
                                     DbColumn::Texts(col) => if col[*index].as_str().starts_with(bar.as_str()) {keepers.push(*index)},
-                                    _ => return Err(ServerError::Query("Can only filter by 'starts_with' on text values".to_owned())),
+                                    _ => return Err(EzError::Query("Can only filter by 'starts_with' on text values".to_owned())),
                                 }
                             },
                             Test::Ends(bar) => {
                                 match column {
                                     DbColumn::Texts(col) => if col[*index].as_str().ends_with(bar.as_str()) {keepers.push(*index)},
-                                    _ => return Err(ServerError::Query("Can only filter by 'ends_with' on text values".to_owned())),
+                                    _ => return Err(EzError::Query("Can only filter by 'ends_with' on text values".to_owned())),
                                 }
                             },
                             Test::Contains(bar) => {
                                 match column {
                                     DbColumn::Texts(col) => if col[*index].as_str().contains(bar.as_str()) {keepers.push(*index)},
-                                    _ => return Err(ServerError::Query("Can only filter by 'contains' on text values".to_owned())),
+                                    _ => return Err(EzError::Query("Can only filter by 'contains' on text values".to_owned())),
                                 }
                             },
                         }
@@ -1522,19 +1522,19 @@ pub fn filter_keepers(conditions: &Vec<OpOrCond>, primary_keys: &RangeOrListOrAl
                             Test::Starts(bar) => {
                                 match column {
                                     DbColumn::Texts(col) => if col[*keeper].as_str().starts_with(bar.as_str()) {losers.push(*keeper)},
-                                    _ => return Err(ServerError::Query("Can only filter by 'starts_with' on text values".to_owned())),
+                                    _ => return Err(EzError::Query("Can only filter by 'starts_with' on text values".to_owned())),
                                 }
                             },
                             Test::Ends(bar) => {
                                 match column {
                                     DbColumn::Texts(col) => if col[*keeper].as_str().ends_with(bar.as_str()) {losers.push(*keeper)},
-                                    _ => return Err(ServerError::Query("Can only filter by 'ends_with' on text values".to_owned())),
+                                    _ => return Err(EzError::Query("Can only filter by 'ends_with' on text values".to_owned())),
                                 }
                             },
                             Test::Contains(bar) => {
                                 match column {
                                     DbColumn::Texts(col) => if col[*keeper].as_str().contains(bar.as_str()) {losers.push(*keeper)},
-                                    _ => return Err(ServerError::Query("Can only filter by 'contains' on text values".to_owned())),
+                                    _ => return Err(EzError::Query("Can only filter by 'contains' on text values".to_owned())),
                                 }
                             },
                         }

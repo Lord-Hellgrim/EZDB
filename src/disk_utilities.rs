@@ -9,7 +9,7 @@ use std::sync::{Arc, RwLock, RwLockReadGuard};
 use aes_gcm::Key;
 
 use crate::db_structure::{write_subtable_to_raw_binary, DbType, DbColumn, HeaderItem, KeyString, Metadata, StrictError, Value};
-use crate::networking_utilities::{f32_from_le_slice, i32_from_le_slice, ServerError};
+use crate::utilities::{f32_from_le_slice, i32_from_le_slice, EzError};
 use crate::{db_structure::EZTable, server_networking::CONFIG_FOLDER};
 use crate::PATH_SEP;
 
@@ -30,7 +30,7 @@ pub struct BufferPool {
 }
 
 impl BufferPool {
-    pub fn init_tables(&self, path: &str) -> Result<(), ServerError> {
+    pub fn init_tables(&self, path: &str) -> Result<(), EzError> {
 
         let data_dir = read_dir(path)?;
 
@@ -54,7 +54,7 @@ impl BufferPool {
         Ok(())
     }
 
-    pub fn init_values(&self, path: &str) -> Result<(), ServerError> {
+    pub fn init_values(&self, path: &str) -> Result<(), EzError> {
         
         let data_dir = read_dir(path)?;
 
@@ -112,10 +112,10 @@ impl BufferPool {
         self.max_size.load(std::sync::atomic::Ordering::Relaxed)
     }
 
-    pub fn add_table(&self, table: EZTable) -> Result<(), ServerError> {
+    pub fn add_table(&self, table: EZTable) -> Result<(), EzError> {
 
         if self.occupied_buffer() + table.metadata.size_of_table() as u64 > self.max_size() {
-            return Err(ServerError::NoMoreBufferSpace(table.metadata.size_of_table()))
+            return Err(EzError::NoMoreBufferSpace(table.metadata.size_of_table()))
         }
 
         self.tables.write().unwrap().insert(table.name, RwLock::new(table));
@@ -123,9 +123,9 @@ impl BufferPool {
         Ok(())
     }
 
-    pub fn add_value(&self, value: Value) -> Result<(), ServerError> {
+    pub fn add_value(&self, value: Value) -> Result<(), EzError> {
         if self.occupied_buffer() + value.body.len() as u64 > self.max_size() {
-            return Err(ServerError::NoMoreBufferSpace(value.body.len()))
+            return Err(EzError::NoMoreBufferSpace(value.body.len()))
         }
 
         self.values.write().unwrap().insert(value.name, RwLock::new(value));

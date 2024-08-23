@@ -3,7 +3,11 @@ use std::{collections::BTreeMap, fs::File, io::Write, sync::{atomic::Ordering, A
 use aes_gcm::Key;
 use ezcbor::cbor::decode_cbor;
 
-use crate::{auth::{check_permission, User}, db_structure::{EZTable, KeyString, Value}, ezql::{execute_EZQL_queries, parse_serial_query}, networking_utilities::*, server_networking::Database};
+use crate::auth::{check_permission, User}; 
+use crate::db_structure::{EZTable, KeyString, Value};
+use crate::ezql::{execute_EZQL_queries, parse_serial_query}; 
+use crate::utilities::{Connection, EzError, data_send_and_confirm, get_current_time, receive_data, bytes_to_str, };
+use crate::server_networking::Database;
 
 use crate::PATH_SEP;
 
@@ -14,11 +18,7 @@ pub fn handle_download_request(
     name: &str, 
     database: Arc<Database>,
 
-) -> Result<(), ServerError> {
-    match connection.stream.write("OK".as_bytes()) {
-        Ok(n) => println!("Wrote {n} bytes"),
-        Err(e) => {return Err(ServerError::Io(e.kind()));},
-    };
+) -> Result<(), EzError> {
 
     let requested_csv: Vec<u8>;
     {
@@ -43,7 +43,7 @@ pub fn handle_download_request(
         Ok(())
         
     } else {
-        Err(ServerError::Confirmation(response))
+        Err(EzError::Confirmation(response))
     }
 
 }
@@ -54,14 +54,7 @@ pub fn handle_upload_request(
     database: Arc<Database>,
     name: &str,
 
-) -> Result<String, ServerError> {
-
-    match connection.stream.write("OK".as_bytes()) {
-        Ok(n) => println!("Wrote OK as {n} bytes"),
-        Err(e) => {return Err(ServerError::Io(e.kind()));},
-    };
-    connection.stream.flush()?;
-
+) -> Result<String, EzError> {
 
     let csv = receive_data(connection)?;
 
@@ -74,13 +67,13 @@ pub fn handle_upload_request(
                 Ok(_) => {
                     println!("Confirmed correctness with client");
                 },
-                Err(e) => {return Err(ServerError::Io(e.kind()));},
+                Err(e) => {return Err(EzError::Io(e.kind()));},
             };
            table
         },
         Err(e) => {
             connection.stream.write_all(e.to_string().as_bytes())?;
-            return Err(ServerError::Strict(e))
+            return Err(EzError::Strict(e))
         },
     };
     {
@@ -101,14 +94,7 @@ pub fn handle_update_request(
     connection: &mut Connection, 
     name: &str, 
     database: Arc<Database>,
-) -> Result<String, ServerError> {
-    
-    match connection.stream.write("OK".as_bytes()) {
-        Ok(n) => println!("Wrote {n} bytes"),
-        Err(e) => {return Err(ServerError::Io(e.kind()));},
-    };
-    connection.stream.flush()?;
-
+) -> Result<String, EzError> {
 
     let csv = receive_data(connection)?;
     let csv = bytes_to_str(&csv)?;
@@ -127,7 +113,7 @@ pub fn handle_update_request(
         },
         Err(e) => {
             connection.stream.write_all(e.to_string().as_bytes())?;
-            return Err(ServerError::Strict(e));
+            return Err(EzError::Strict(e));
         },
     };
 
@@ -139,13 +125,7 @@ pub fn handle_query_request(
     connection: &mut Connection, 
     query: &str, 
     database: Arc<Database>
-) -> Result<String, ServerError> {
-    match connection.stream.write("OK".as_bytes()) {
-        Ok(n) => println!("Wrote {n} bytes"),
-        Err(e) => {return Err(ServerError::Io(e.kind()));},
-    };
-    connection.stream.flush()?;
-
+) -> Result<String, EzError> {
     // PARSE INSTRUCTION
 
     let queries = parse_serial_query(query)?;
@@ -164,7 +144,7 @@ pub fn handle_query_request(
     if response == "OK" {
         Ok("OK".to_owned())
     } else {
-        Err(ServerError::Confirmation(response))
+        Err(EzError::Confirmation(response))
     }
 }
 
@@ -173,12 +153,7 @@ pub fn handle_delete_request(
     connection: &mut Connection, 
     name: &str,
     database: Arc<Database>,
-) -> Result<(), ServerError> {
-    match connection.stream.write("OK".as_bytes()) {
-        Ok(n) => println!("Wrote {n} bytes"),
-        Err(e) => {return Err(ServerError::Io(e.kind()));},
-    };
-    connection.stream.flush()?;
+) -> Result<(), EzError> {
     
     let mut mutex_binding = database.buffer_pool.tables.write().unwrap();
     mutex_binding.remove(&KeyString::from(name)).expect("Instruction parser should have verified table");
@@ -195,7 +170,7 @@ pub fn handle_new_user_request(
     connection: &mut Connection, 
     user_string: &[u8], 
     database: Arc<Database>,
-) -> Result<(), ServerError> {
+) -> Result<(), EzError> {
     
     
     let user: User = decode_cbor(user_string).unwrap();
@@ -214,13 +189,7 @@ pub fn handle_kv_upload(
     connection: &mut Connection, 
     key: &str, 
     database: Arc<Database>,
-) -> Result<(), ServerError> {
-
-    match connection.stream.write("OK".as_bytes()) {
-        Ok(n) => println!("Wrote OK as {n} bytes"),
-        Err(e) => {return Err(ServerError::Io(e.kind()));},
-    };
-    connection.stream.flush()?;
+) -> Result<(), EzError> {
 
     println!("about to receive data");
     
@@ -256,14 +225,7 @@ pub fn handle_kv_update(
     connection: &mut Connection, 
     key: &str, 
     database: Arc<Database>,
-) -> Result<(), ServerError> {
-
-    match connection.stream.write("OK".as_bytes()) {
-        Ok(n) => println!("Wrote OK as {n} bytes"),
-        Err(e) => {return Err(ServerError::Io(e.kind()));},
-    };
-    connection.stream.flush()?;
-
+) -> Result<(), EzError> {
     
     let value = receive_data(connection)?;
     let value = Value::new(key, &connection.user, &value);
@@ -293,13 +255,8 @@ pub fn handle_kv_delete(
     connection: &mut Connection, 
     name: &str,
     database: Arc<Database>,
-) -> Result<(), ServerError> {
-    match connection.stream.write("OK".as_bytes()) {
-        Ok(n) => println!("Wrote {n} bytes"),
-        Err(e) => {return Err(ServerError::Io(e.kind()));},
-    };
-    connection.stream.flush()?;
-    
+) -> Result<(), EzError> {
+
     let mut mutex_binding = database.buffer_pool.values.write().unwrap();
     mutex_binding.remove(&KeyString::from(name)).expect("Instruction parser should have verified value");
 
@@ -318,14 +275,7 @@ pub fn handle_kv_download(
     connection: &mut Connection, 
     name: &str, 
     database: Arc<Database>,
-) -> Result<(), ServerError> {
-
-    match connection.stream.write("OK".as_bytes()) {
-        Ok(n) => println!("Wrote {n} bytes"),
-        Err(e) => {return Err(ServerError::Io(e.kind()));},
-    };
-    connection.stream.flush()?;
-
+) -> Result<(), EzError> {
 
     let read_binding = database.buffer_pool.values.read().unwrap();
     let requested_value = read_binding.get(&KeyString::from(name)).expect("Instruction parser should have verified table").read().unwrap();
@@ -336,7 +286,6 @@ pub fn handle_kv_download(
 
     if response == "OK" {
         {
-
             println!("handle_kv_download: about to lock values for metadata update");
             
             let values = database.buffer_pool.values
@@ -360,7 +309,7 @@ pub fn handle_kv_download(
         
         Ok(())
     } else {
-        Err(ServerError::Confirmation(response))
+        Err(EzError::Confirmation(response))
     }
 
 }
@@ -369,13 +318,7 @@ pub fn handle_kv_download(
 pub fn handle_meta_list_tables(
     connection: &mut Connection, 
     database: Arc<Database>,
-) -> Result<(), ServerError> {
-
-    match connection.stream.write("OK".as_bytes()) {
-        Ok(n) => println!("Wrote {n} bytes"),
-        Err(e) => {return Err(ServerError::Io(e.kind()));},
-    };
-    connection.stream.flush()?;
+) -> Result<(), EzError> {
 
     let mut tables = BTreeMap::new();
     for (table_name, table) in database.buffer_pool.tables.read().unwrap().iter() {
@@ -399,7 +342,7 @@ pub fn handle_meta_list_tables(
     if response == "OK" {
         Ok(())
     } else {
-        Err(ServerError::Confirmation(response))
+        Err(EzError::Confirmation(response))
     }
 
 }
@@ -408,14 +351,8 @@ pub fn handle_meta_list_tables(
 pub fn handle_meta_list_key_values(
     connection: &mut Connection, 
     database: Arc<Database>,
-) -> Result<(), ServerError> {
-
-    match connection.stream.write("OK".as_bytes()) {
-        Ok(n) => println!("Wrote {n} bytes"),
-        Err(e) => {return Err(ServerError::Io(e.kind()));},
-    };
-    connection.stream.flush()?;
-
+) -> Result<(), EzError> {
+    
     let mut values = Vec::new();
     for value_name in database.buffer_pool.values.read().unwrap().keys() {
         values.push(value_name.clone());
@@ -437,7 +374,7 @@ pub fn handle_meta_list_key_values(
     if response == "OK" {
         Ok(())
     } else {
-        Err(ServerError::Confirmation(response))
+        Err(EzError::Confirmation(response))
     }
 
 }
