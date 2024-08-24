@@ -4,7 +4,7 @@ use aes_gcm::Key;
 use ezcbor::cbor::decode_cbor;
 
 use crate::auth::{check_permission, User}; 
-use crate::db_structure::{EZTable, KeyString, Value};
+use crate::db_structure::{ColumnTable, KeyString, Value};
 use crate::ezql::{execute_EZQL_queries, parse_serial_query}; 
 use crate::utilities::{Connection, EzError, data_send_and_confirm, get_current_time, receive_data, bytes_to_str, };
 use crate::server_networking::Database;
@@ -60,7 +60,7 @@ pub fn handle_upload_request(
 
     // Here we create a ColumnTable from the csv and supplied name
     println!("About to check for strictness");
-    let table = match EZTable::from_csv_string(bytes_to_str(&csv)?, name, &connection.user) {
+    let table = match ColumnTable::from_csv_string(bytes_to_str(&csv)?, name, &connection.user) {
         Ok(table) => {
             println!("About to write: {:x?}", "OK".as_bytes());
             match connection.stream.write_all("OK".as_bytes()) {
@@ -99,7 +99,7 @@ pub fn handle_update_request(
     let csv = receive_data(connection)?;
     let csv = bytes_to_str(&csv)?;
 
-    match EZTable::from_csv_string(csv, "insert", "system") {
+    match ColumnTable::from_csv_string(csv, "insert", "system") {
         Ok(table) => {
             let read_binding = database.buffer_pool.tables.read().unwrap();
             read_binding

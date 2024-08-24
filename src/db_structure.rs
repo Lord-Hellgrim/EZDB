@@ -640,14 +640,14 @@ impl Cbor for TableKey {
 
 /// This is the main data structure of EZDB. It represents a table as a list of columns.
 #[derive(Clone, Debug, PartialOrd)]
-pub struct EZTable {
+pub struct ColumnTable {
     pub metadata: Metadata,
     pub name: KeyString,
     pub header: Vec<HeaderItem>,
     pub columns: BTreeMap<KeyString, DbColumn>,
 }
 
-impl Cbor for EZTable {
+impl Cbor for ColumnTable {
     fn to_cbor_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&self.metadata.to_cbor_bytes());
@@ -679,7 +679,7 @@ impl Cbor for EZTable {
     }
 }
 
-impl PartialEq for EZTable {
+impl PartialEq for ColumnTable {
     fn eq(&self, other: &Self) -> bool {
         self.header == other.header && self.columns == other.columns
     }
@@ -687,7 +687,7 @@ impl PartialEq for EZTable {
 
 
 /// Prints the ColumnTable as a csv (separated by semicolons ;)
-impl Display for EZTable {
+impl Display for ColumnTable {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut printer = String::new();
 
@@ -727,9 +727,9 @@ impl Display for EZTable {
     }
 }
 
-impl EZTable {
+impl ColumnTable {
 
-    pub fn blank(header: &Vec<HeaderItem>, name: KeyString, created_by: &str) -> EZTable {
+    pub fn blank(header: &Vec<HeaderItem>, name: KeyString, created_by: &str) -> ColumnTable {
 
         let mut columns = BTreeMap::new();
 
@@ -744,7 +744,7 @@ impl EZTable {
         let mut new_header = header.clone();
         new_header.sort_by_key(|n| n.name);
 
-        EZTable {
+        ColumnTable {
             metadata: Metadata::new(created_by),
             name: name,
             header: new_header,
@@ -758,7 +758,7 @@ impl EZTable {
         s: &str,
         table_name: &str,
         created_by: &str,
-    ) -> Result<EZTable, StrictError> {
+    ) -> Result<ColumnTable, StrictError> {
         /*
         EZ CSV FORMAT:
         Table names shall be no more that 254 characters.
@@ -947,7 +947,7 @@ impl EZTable {
 
         header.sort_by_key(|x| x.name);
 
-        let mut output = EZTable {
+        let mut output = ColumnTable {
             metadata: Metadata::from_table(created_by, &header, &result),
             name: KeyString::from(table_name),
             header: header,
@@ -959,7 +959,7 @@ impl EZTable {
 
     /// Helper function to update a ColumnTable with a csv
     pub fn update_from_csv(&mut self, input_csv: &str) -> Result<(), StrictError> {
-        let update_table = EZTable::from_csv_string(input_csv, "update", "system")?;
+        let update_table = ColumnTable::from_csv_string(input_csv, "update", "system")?;
 
         self.update(&update_table)?;
 
@@ -1065,7 +1065,7 @@ impl EZTable {
     }
 
     /// Updates a ColumnTable. Overwrites existing keys and adds new ones in proper order
-    pub fn update(&mut self, other_table: &EZTable) -> Result<(), StrictError> {
+    pub fn update(&mut self, other_table: &ColumnTable) -> Result<(), StrictError> {
 
         if other_table.len() == 0 {
             return Err(StrictError::Update("Can't update anything with an empty table".to_owned()))
@@ -1315,7 +1315,7 @@ impl EZTable {
         Ok(printer)
     }
 
-    pub fn subtable_from_indexes(&self, indexes: &[usize], new_name: &KeyString) -> EZTable {
+    pub fn subtable_from_indexes(&self, indexes: &[usize], new_name: &KeyString) -> ColumnTable {
         let mut result_columns = BTreeMap::new();
 
         for (key, column) in self.columns.iter() {
@@ -1347,7 +1347,7 @@ impl EZTable {
             }
         }
 
-        EZTable {
+        ColumnTable {
             metadata: Metadata::new("QUERY"),
             name: *new_name,
             header: self.header.clone(),
@@ -1355,7 +1355,7 @@ impl EZTable {
         }
     }
 
-    pub fn subtable_from_columns(&self, columns: &[KeyString], new_name: &str) -> Result<EZTable, StrictError> {
+    pub fn subtable_from_columns(&self, columns: &[KeyString], new_name: &str) -> Result<ColumnTable, StrictError> {
         let mut new_table_inner = BTreeMap::new();
         let mut new_table_header = Vec::new();
 
@@ -1365,7 +1365,7 @@ impl EZTable {
 
         if columns[0].as_str() == "*" || columns[0].as_str() == "*" {
             return Ok(
-                EZTable {
+                ColumnTable {
                     metadata: Metadata::from_table("query", &self.header, &self.columns),
                     name: KeyString::from(new_name),
                     header: self.header.clone(),
@@ -1390,7 +1390,7 @@ impl EZTable {
         }
 
         Ok(
-            EZTable {
+            ColumnTable {
                 metadata: Metadata::from_table("query", &new_table_header, &new_table_inner),
                 name: KeyString::from(new_name),
                 header: new_table_header,
@@ -1484,12 +1484,12 @@ impl EZTable {
         self.query_list(Vec::from([query]))
     }
 
-    pub fn copy_lines(&self, target: &mut EZTable, line_keys: &DbColumn) -> Result<(), StrictError> {
+    pub fn copy_lines(&self, target: &mut ColumnTable, line_keys: &DbColumn) -> Result<(), StrictError> {
         if target.header != self.header {
             return Err(StrictError::Query("Target table header does not match source table header.".to_owned()));
         }
 
-        let mut temp_table = EZTable {
+        let mut temp_table = ColumnTable {
             metadata: Metadata::new("none"),
             name: KeyString::from("none"),
             header: target.header.clone(),
@@ -1584,7 +1584,7 @@ impl EZTable {
         Ok(())
     }
 
-    pub fn create_subtable_from_index_range(&self, start: usize, mut stop: usize) -> EZTable {
+    pub fn create_subtable_from_index_range(&self, start: usize, mut stop: usize) -> ColumnTable {
 
         if stop >= self.len() {
             stop = self.len();
@@ -1607,7 +1607,7 @@ impl EZTable {
             }
         }
         
-        EZTable {
+        ColumnTable {
             name: KeyString::from("subtable"),
             header: self.header.clone(),
             metadata: self.metadata.clone(),
@@ -1867,7 +1867,7 @@ impl EZTable {
     }
 
 
-    pub fn alt_left_join(&mut self, right_table: &EZTable, predicate_column: &KeyString) -> Result<(), StrictError> {
+    pub fn alt_left_join(&mut self, right_table: &ColumnTable, predicate_column: &KeyString) -> Result<(), StrictError> {
 
         match self.columns.keys().find(|x| **x == *predicate_column) {
             Some(_) => (),
@@ -1941,7 +1941,7 @@ impl EZTable {
     }
 
 
-    pub fn left_join(&mut self, right_table: &EZTable, predicate_column: &KeyString) -> Result<(), StrictError> {
+    pub fn left_join(&mut self, right_table: &ColumnTable, predicate_column: &KeyString) -> Result<(), StrictError> {
 
         match self.columns.keys().find(|x| **x == *predicate_column) {
             Some(_) => (),
@@ -2028,37 +2028,37 @@ impl EZTable {
     }
 
 
-    /// Writes this table to disk as a csv.
-    pub fn save_to_disk_csv(&self, path: &str) -> Result<(), StrictError> {
-        let file_name = &self.name;
+    // /// Writes this table to disk as a csv.
+    // pub fn save_to_disk_csv(&self, path: &str) -> Result<(), StrictError> {
+    //     let file_name = &self.name;
 
-        let metadata = &self.metadata.to_string();
+    //     let metadata = &self.metadata.to_string();
 
-        let table = &self.to_string();
+    //     let table = &self.to_string();
 
-        let mut table_file =
-            match std::fs::File::create(format!("{}raw_tables/{}", path, file_name)) {
-                Ok(f) => f,
-                Err(e) => return Err(StrictError::Io(e)),
-            };
+    //     let mut table_file =
+    //         match std::fs::File::create(format!("{}raw_tables/{}", path, file_name)) {
+    //             Ok(f) => f,
+    //             Err(e) => return Err(StrictError::Io(e)),
+    //         };
 
-        let mut meta_file =
-            match std::fs::File::create(format!("{}raw_tables-metadata/{}", path, file_name)) {
-                Ok(f) => f,
-                Err(e) => return Err(StrictError::Io(e)),
-            };
+    //     let mut meta_file =
+    //         match std::fs::File::create(format!("{}raw_tables-metadata/{}", path, file_name)) {
+    //             Ok(f) => f,
+    //             Err(e) => return Err(StrictError::Io(e)),
+    //         };
 
-        match table_file.write_all(table.as_bytes()) {
-            Ok(_) => (),
-            Err(e) => println!("Error while writing to disk. Error was:\n{}", e),
-        };
-        match meta_file.write_all(metadata.as_bytes()) {
-            Ok(_) => (),
-            Err(e) => println!("Error while writing to disk. Error was:\n{}", e),
-        };
+    //     match table_file.write_all(table.as_bytes()) {
+    //         Ok(_) => (),
+    //         Err(e) => println!("Error while writing to disk. Error was:\n{}", e),
+    //     };
+    //     match meta_file.write_all(metadata.as_bytes()) {
+    //         Ok(_) => (),
+    //         Err(e) => println!("Error while writing to disk. Error was:\n{}", e),
+    //     };
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     /// Writes to EZ binary format
     pub fn write_to_binary(&self) -> Vec<u8> {
@@ -2117,7 +2117,7 @@ impl EZTable {
 
 
     /// Reads an EZ binary formatted file to a ColumnTable, checking for strictness.
-    pub fn from_binary(name: &str, binary: &[u8]) -> Result<EZTable, StrictError> {
+    pub fn from_binary(name: &str, binary: &[u8]) -> Result<ColumnTable, StrictError> {
         let mut binter = binary.iter();
         let first_newline = binter.position(|n| *n == b'\n').expect(&format!("Reading the first newline should never fail unless the data is corrupted. The file that was being read is {name}"));
         let bin_header = &binary[0..first_newline];
@@ -2224,7 +2224,7 @@ impl EZTable {
 
         header.sort_by_key(|x| x.name);
 
-        let new_table = EZTable {
+        let new_table = ColumnTable {
             metadata,
             name: KeyString::from(name),
             header: header,
@@ -2237,7 +2237,18 @@ impl EZTable {
     
 }
 
-pub fn write_subtable_to_raw_binary(subtable: EZTable) -> Vec<u8> {
+
+pub struct DbRow<'a> {
+    inner: &'a [u8],
+}
+
+
+pub struct RowTable {
+    arena: bumpalo::Bump
+}
+
+
+pub fn write_subtable_to_raw_binary(subtable: ColumnTable) -> Vec<u8> {
     let mut total_bytes = 0;
 
         let length = subtable.len();
@@ -2254,26 +2265,6 @@ pub fn write_subtable_to_raw_binary(subtable: EZTable) -> Vec<u8> {
 
         let mut output: Vec<u8> = Vec::with_capacity(total_bytes);
 
-        // for item in &self.header {
-        //     let kind = match item.kind {
-        //         DbType::Int => b'i',
-        //         DbType::Float => b'f',
-        //         DbType::Text => b't',
-        //     };
-        //     output.push(kind);
-        //     let name = item.name.as_bytes();
-        //     output.extend_from_slice(name);
-        //     match &item.key {
-        //         TableKey::Primary => output.push(b'P'),
-        //         TableKey::None => output.push(b'N'),
-        //         TableKey::Foreign => output.push(b'F'),
-        //     }
-        //     output.push(b';');
-        // }
-        // output.pop();
-        // output.push(b'\n');
-        // output.extend_from_slice(&(self.len() as u32).to_le_bytes());
-
         for column in subtable.columns.values() {
             match &column {
                 DbColumn::Floats(col) => {
@@ -2283,7 +2274,6 @@ pub fn write_subtable_to_raw_binary(subtable: EZTable) -> Vec<u8> {
                 }
                 &DbColumn::Ints(col) => {
                     for item in col {
-                        // println!("item: {}", item);
                         output.extend_from_slice(&item.to_le_bytes());
                     }
                 }
@@ -2298,7 +2288,7 @@ pub fn write_subtable_to_raw_binary(subtable: EZTable) -> Vec<u8> {
 }
 
 
-pub fn subtable_from_keys(table: &EZTable, mut keys: Vec<KeyString>) -> Result<EZTable, StrictError> {
+pub fn subtable_from_keys(table: &ColumnTable, mut keys: Vec<KeyString>) -> Result<ColumnTable, StrictError> {
 
     let mut indexes = Vec::new();
     match table.get_primary_key_type() {
@@ -2340,7 +2330,7 @@ pub fn subtable_from_keys(table: &EZTable, mut keys: Vec<KeyString>) -> Result<E
     )
 }
 
-pub fn table_from_inserts(inserts: &Inserts, table_name: &str, template_table: &EZTable) -> Result<EZTable, StrictError> {
+pub fn table_from_inserts(inserts: &Inserts, table_name: &str, template_table: &ColumnTable) -> Result<ColumnTable, StrictError> {
     let mut new_header = Vec::new();
 
         for item in &inserts.value_columns {
@@ -2356,7 +2346,7 @@ pub fn table_from_inserts(inserts: &Inserts, table_name: &str, template_table: &
         csv.push('\n');
         csv.push_str(&inserts.new_values);
 
-        let input_table = EZTable::from_csv_string(&csv, table_name, "inserts")?;
+        let input_table = ColumnTable::from_csv_string(&csv, table_name, "inserts")?;
         if template_table.header != input_table.header {
             Err(StrictError::Query("Input table header does not match target table header".to_owned()))
         } else {
@@ -2576,7 +2566,7 @@ mod tests {
     #[test]
     fn test_columntable_from_to_string() {
         let input = "1vnr,i-P;2heiti,t-N;3magn,i-N\n113035;undirlegg;200\n113050;annad undirlegg;500";
-        let t = EZTable::from_csv_string(input, "test", "test").unwrap();
+        let t = ColumnTable::from_csv_string(input, "test", "test").unwrap();
         // println!("t: {}", t.to_string());
         assert_eq!(input, t.to_string());
     }
@@ -2615,10 +2605,10 @@ mod tests {
         printer3.push_str(&printer22);
         // // println!("{}", printer3);
 
-        let mut a = EZTable::from_csv_string(&printer, "a", "test").unwrap();
-        let b = EZTable::from_csv_string(&printer2, "b", "test").unwrap();
+        let mut a = ColumnTable::from_csv_string(&printer, "a", "test").unwrap();
+        let b = ColumnTable::from_csv_string(&printer2, "b", "test").unwrap();
         a.update(&b).unwrap();
-        let c = EZTable::from_csv_string(&printer3, "c", "test").unwrap();
+        let c = ColumnTable::from_csv_string(&printer3, "c", "test").unwrap();
 
         assert_eq!(a.to_string(), c.to_string());
     }
@@ -2638,9 +2628,9 @@ mod tests {
         ))
         .unwrap();
 
-        let mut a = EZTable::from_csv_string(&unsorted1, "a", "test").unwrap();
-        let b = EZTable::from_csv_string(&unsorted2, "b", "test").unwrap();
-        let c = EZTable::from_csv_string(&sorted_combined, "c", "test").unwrap();
+        let mut a = ColumnTable::from_csv_string(&unsorted1, "a", "test").unwrap();
+        let b = ColumnTable::from_csv_string(&unsorted2, "b", "test").unwrap();
+        let c = ColumnTable::from_csv_string(&sorted_combined, "c", "test").unwrap();
         a.update(&b).unwrap();
         let mut file = std::fs::File::create("combined.csv").unwrap();
         file.write_all(a.to_string().as_bytes());
@@ -2667,7 +2657,7 @@ mod tests {
     #[test]
     fn test_columntable_query_list() {
         let input = "vnr,i-P;heiti,t-N;magn,i-N\n113035;undirlegg;200\n113050;annad undirlegg;500";
-        let t = EZTable::from_csv_string(input, "test", "test").unwrap();
+        let t = ColumnTable::from_csv_string(input, "test", "test").unwrap();
         // println!("t: {}", t.to_string());
         let x = t.query_list(Vec::from(["113035"])).unwrap();
         assert_eq!(x, "undirlegg;200;113035");
@@ -2676,7 +2666,7 @@ mod tests {
     #[test]
     fn test_columntable_query_single() {
         let input = "vnr,i-P;heiti,t-N;magn,i-N\n113035;undirlegg;200\n113050;annad undirlegg;500";
-        let t = EZTable::from_csv_string(input, "test", "test").unwrap();
+        let t = ColumnTable::from_csv_string(input, "test", "test").unwrap();
         // println!("t: {}", t.to_string());
         let x = t.query("113035").unwrap();
         assert_eq!(x, "undirlegg;200;113035");
@@ -2685,7 +2675,7 @@ mod tests {
     #[test]
     fn test_columntable_query_range() {
         let input = "vnr,i-P;heiti,t-N;magn,i-N\n113035;undirlegg;200\n113050;annad undirlegg;500\n18572054;flísalím;42\n113446;harlech;250";
-        let t = EZTable::from_csv_string(input, "test", "test").unwrap();
+        let t = ColumnTable::from_csv_string(input, "test", "test").unwrap();
         let x = t.query_range(("113035", "113060")).unwrap();
 
         assert_eq!(x, "undirlegg;200;113035\nannad undirlegg;500;113050")
@@ -2698,9 +2688,9 @@ mod tests {
             "test_files{PATH_SEP}test_csv_from_google_sheets_combined_sorted.csv"
         ))
         .unwrap();
-        let t = EZTable::from_csv_string(&input, "test", "test").unwrap();
+        let t = ColumnTable::from_csv_string(&input, "test", "test").unwrap();
         let bin_t = t.write_to_binary();
-        let trans_t = EZTable::from_binary("test", &bin_t).unwrap();
+        let trans_t = ColumnTable::from_binary("test", &bin_t).unwrap();
         assert_eq!(t, trans_t);
     }
 
@@ -2716,9 +2706,9 @@ mod tests {
             "test_files{PATH_SEP}test_csv_from_google_sheets_combined_sorted_test_range.csv"
         ))
         .unwrap();
-        let mut t = EZTable::from_csv_string(&input, "test", "test").unwrap();
+        let mut t = ColumnTable::from_csv_string(&input, "test", "test").unwrap();
 
-        let test_t = EZTable::from_csv_string(&test_input, "test", "test").unwrap();
+        let test_t = ColumnTable::from_csv_string(&test_input, "test", "test").unwrap();
         // println!("{}", t);
         t.delete_range(("262", "673"));
         // println!("{}", t);
@@ -2735,9 +2725,9 @@ mod tests {
             "test_files{PATH_SEP}test_csv_from_google_sheets_combined_sorted_test_range.csv"
         ))
         .unwrap();
-        let mut t = EZTable::from_csv_string(&input, "test", "test").unwrap();
+        let mut t = ColumnTable::from_csv_string(&input, "test", "test").unwrap();
 
-        let test_t = EZTable::from_csv_string(&test_input, "test", "test").unwrap();
+        let test_t = ColumnTable::from_csv_string(&test_input, "test", "test").unwrap();
         // println!("{}", t);
         t.delete_list(vec!["262", "264", "353", "544", "656"]);
         // println!("{}", t);
@@ -2751,14 +2741,14 @@ mod tests {
         ))
         .unwrap();
 
-        let table = EZTable::from_csv_string(&input_string, "source", "test").unwrap();
+        let table = ColumnTable::from_csv_string(&input_string, "source", "test").unwrap();
 
         let input_string = std::fs::read_to_string(format!(
             "test_files{PATH_SEP}test_csv_from_google_sheets_sorted.csv"
         ))
         .unwrap();
 
-        let mut target = EZTable::from_csv_string(&input_string, "target", "test").unwrap();
+        let mut target = ColumnTable::from_csv_string(&input_string, "target", "test").unwrap();
 
         let line_keys = DbColumn::Ints(vec![
             178,
@@ -2776,7 +2766,7 @@ mod tests {
     #[test]
     fn test_subtable_from_index_range() {
         let table_string = std::fs::read_to_string(&format!("test_files{PATH_SEP}test_csv_from_google_sheets_combined_sorted.csv")).unwrap();
-        let table = EZTable::from_csv_string(&table_string, "basic_test", "test").unwrap();
+        let table = ColumnTable::from_csv_string(&table_string, "basic_test", "test").unwrap();
         let subtable = table.create_subtable_from_index_range(0, 7515);
         println!("{}", subtable);
     }
@@ -2786,8 +2776,8 @@ mod tests {
         let left_string = std::fs::read_to_string(format!("test_files{PATH_SEP}employees.csv")).unwrap();
         let right_string = std::fs::read_to_string(format!("test_files{PATH_SEP}departments.csv")).unwrap();
 
-        let mut left_table = EZTable::from_csv_string(&left_string, "employees", "test").unwrap();
-        let right_table = EZTable::from_csv_string(&right_string, "departments", "test").unwrap();
+        let mut left_table = ColumnTable::from_csv_string(&left_string, "employees", "test").unwrap();
+        let right_table = ColumnTable::from_csv_string(&right_string, "departments", "test").unwrap();
         println!("{}", left_table);
         println!("{}", right_table);
         left_table.left_join(&right_table, &KeyString::from("department"));
@@ -2798,11 +2788,11 @@ mod tests {
     #[test]
     fn test_cbor_eztable() {
         let csv = std::fs::read_to_string(format!("test_files{PATH_SEP}departments.csv")).unwrap();
-        let table = EZTable::from_csv_string(&csv, "cbor test", "test").unwrap();
+        let table = ColumnTable::from_csv_string(&csv, "cbor test", "test").unwrap();
         println!("table:\n{}", table);
         let bytes = table.to_cbor_bytes();
         println!("{:x?}", bytes);
-        let decoded_table = decode_cbor::<EZTable>(&bytes).unwrap();
+        let decoded_table = decode_cbor::<ColumnTable>(&bytes).unwrap();
         assert_eq!(table, decoded_table);
     }
 

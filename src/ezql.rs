@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fmt::Display, str::FromStr, sync::Arc};
 
-use crate::{db_structure::{remove_indices, DbColumn, EZTable, KeyString, StrictError}, utilities::{mean_f32_slice, mean_i32_slice, median_f32_slice, median_i32_slice, mode_i32_slice, mode_string_slice, print_sep_list, stdev_f32_slice, stdev_i32_slice, sum_f32_slice, sum_i32_slice, EzError}, server_networking::Database};
+use crate::{db_structure::{remove_indices, DbColumn, ColumnTable, KeyString, StrictError}, utilities::{mean_f32_slice, mean_i32_slice, median_f32_slice, median_i32_slice, mode_i32_slice, mode_string_slice, print_sep_list, stdev_f32_slice, stdev_i32_slice, sum_f32_slice, sum_i32_slice, EzError}, server_networking::Database};
 
 use crate::PATH_SEP;
 
@@ -997,7 +997,7 @@ pub fn parse_contained_token(s: &str, container_open: char, container_close: cha
 }
 
 #[allow(non_snake_case)]
-pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Result<Option<EZTable>, EzError> {
+pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Result<Option<ColumnTable>, EzError> {
 
     let mut result_table = None;
     for query in queries.into_iter() {
@@ -1108,7 +1108,7 @@ pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Res
 }
 
 
-pub fn execute_delete_query(query: Query, table: &mut EZTable) -> Result<Option<EZTable>, EzError> {
+pub fn execute_delete_query(query: Query, table: &mut ColumnTable) -> Result<Option<ColumnTable>, EzError> {
     
     match query {
         Query::DELETE { primary_keys, table_name: _, conditions } => {
@@ -1124,7 +1124,7 @@ pub fn execute_delete_query(query: Query, table: &mut EZTable) -> Result<Option<
 
 }
 
-pub fn execute_left_join_query(query: Query, left_table: &EZTable, right_table: &EZTable) -> Result<Option<EZTable>, EzError> {
+pub fn execute_left_join_query(query: Query, left_table: &ColumnTable, right_table: &ColumnTable) -> Result<Option<ColumnTable>, EzError> {
     
     match query {
         Query::LEFT_JOIN { left_table_name: _, right_table_name: _, match_columns, primary_keys } => {
@@ -1139,7 +1139,7 @@ pub fn execute_left_join_query(query: Query, left_table: &EZTable, right_table: 
     }    
 }
 
-pub fn execute_update_query(query: Query, table: &mut EZTable) -> Result<Option<EZTable>, EzError> {
+pub fn execute_update_query(query: Query, table: &mut ColumnTable) -> Result<Option<ColumnTable>, EzError> {
     
     match query {
         Query::UPDATE { table_name: _, primary_keys, conditions, updates } => {
@@ -1211,7 +1211,7 @@ pub fn execute_update_query(query: Query, table: &mut EZTable) -> Result<Option<
     
 }
 
-pub fn execute_insert_query(query: Query, table: &mut EZTable) -> Result<Option<EZTable>, EzError> {
+pub fn execute_insert_query(query: Query, table: &mut ColumnTable) -> Result<Option<ColumnTable>, EzError> {
 
     match query {
         Query::INSERT { table_name: _, inserts } => {
@@ -1226,7 +1226,7 @@ pub fn execute_insert_query(query: Query, table: &mut EZTable) -> Result<Option<
     }
 }
 
-pub fn execute_select_query(query: Query, table: &EZTable) -> Result<Option<EZTable>, EzError> {
+pub fn execute_select_query(query: Query, table: &ColumnTable) -> Result<Option<ColumnTable>, EzError> {
 
     match query {
         Query::SELECT { table_name: _, primary_keys, columns, conditions } => {
@@ -1244,11 +1244,11 @@ pub fn execute_select_query(query: Query, table: &EZTable) -> Result<Option<EZTa
     }
 }
 
-pub fn execute_summary_query(query: Query, table: &EZTable) -> Result<Option<EZTable>, EzError> {
+pub fn execute_summary_query(query: Query, table: &ColumnTable) -> Result<Option<ColumnTable>, EzError> {
 
     match query {
         Query::SUMMARY { table_name: _, columns } => {
-            let mut result = EZTable::blank(&Vec::new(), KeyString::from("RESULT"), "QUERY");
+            let mut result = ColumnTable::blank(&Vec::new(), KeyString::from("RESULT"), "QUERY");
 
             for stat in columns {
                 let _ = match stat {
@@ -1320,7 +1320,7 @@ pub fn execute_summary_query(query: Query, table: &EZTable) -> Result<Option<EZT
     
 }
 
-pub fn execute_inner_join_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, EzError> {
+pub fn execute_inner_join_query(query: Query, database: Arc<Database>) -> Result<Option<ColumnTable>, EzError> {
     
     // let tables = database.buffer_pool.tables.read().unwrap();
     // let table = tables.get(&query.table).unwrap().read().unwrap();
@@ -1329,7 +1329,7 @@ pub fn execute_inner_join_query(query: Query, database: Arc<Database>) -> Result
     Err(EzError::Unimplemented("inner joins are not yet implemented".to_owned()))
 }
 
-pub fn execute_right_join_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, EzError> {
+pub fn execute_right_join_query(query: Query, database: Arc<Database>) -> Result<Option<ColumnTable>, EzError> {
     // let tables = database.buffer_pool.tables.read().unwrap();
     // let table = tables.get(&query.table).unwrap().read().unwrap();
     // let keepers = filter_keepers(&query, &table)?;
@@ -1337,7 +1337,7 @@ pub fn execute_right_join_query(query: Query, database: Arc<Database>) -> Result
     Err(EzError::Unimplemented("right joins are not yet implemented".to_owned()))
 }
 
-pub fn execute_full_join_query(query: Query, database: Arc<Database>) -> Result<Option<EZTable>, EzError> {
+pub fn execute_full_join_query(query: Query, database: Arc<Database>) -> Result<Option<ColumnTable>, EzError> {
     // let tables = database.buffer_pool.tables.read().unwrap();
     // let table = tables.get(&query.table).unwrap().read().unwrap();
     // let keepers = filter_keepers(&query, &table)?;
@@ -1345,7 +1345,7 @@ pub fn execute_full_join_query(query: Query, database: Arc<Database>) -> Result<
     Err(EzError::Unimplemented("full joins are not yet implemented".to_owned()))
 }
 
-pub fn keys_to_indexes(table: &EZTable, keys: &RangeOrListOrAll) -> Result<Vec<usize>, StrictError> {
+pub fn keys_to_indexes(table: &ColumnTable, keys: &RangeOrListOrAll) -> Result<Vec<usize>, StrictError> {
     let mut indexes = Vec::new();
 
     match keys {
@@ -1420,7 +1420,7 @@ pub fn keys_to_indexes(table: &EZTable, keys: &RangeOrListOrAll) -> Result<Vec<u
 }
 
 
-pub fn filter_keepers(conditions: &Vec<OpOrCond>, primary_keys: &RangeOrListOrAll, table: &EZTable) -> Result<Vec<usize>, EzError> {
+pub fn filter_keepers(conditions: &Vec<OpOrCond>, primary_keys: &RangeOrListOrAll, table: &ColumnTable) -> Result<Vec<usize>, EzError> {
     let indexes = keys_to_indexes(table, primary_keys)?;
     
     if conditions.is_empty() {
@@ -1655,7 +1655,7 @@ mod tests {
     #[test]
     fn test_SELECT() {
         let table_string = std::fs::read_to_string(format!("test_files{PATH_SEP}good_csv.txt")).unwrap();
-        let table = EZTable::from_csv_string(&table_string, "good_csv", "test").unwrap();
+        let table = ColumnTable::from_csv_string(&table_string, "good_csv", "test").unwrap();
         let query = "SELECT(primary_keys: *, columns: *, table_name: good_csv, conditions: ())";
         let parsed = parse_serial_query(query).unwrap();
         let result = execute_select_query(parsed[0].clone(), &table).unwrap().unwrap();
@@ -1669,8 +1669,8 @@ mod tests {
         let left_string = std::fs::read_to_string(format!("test_files{PATH_SEP}employees.csv")).unwrap();
         let right_string = std::fs::read_to_string(format!("test_files{PATH_SEP}departments.csv")).unwrap();
 
-        let mut left_table = EZTable::from_csv_string(&left_string, "employees", "test").unwrap();
-        let right_table = EZTable::from_csv_string(&right_string, "departments", "test").unwrap();
+        let mut left_table = ColumnTable::from_csv_string(&left_string, "employees", "test").unwrap();
+        let right_table = ColumnTable::from_csv_string(&right_string, "departments", "test").unwrap();
 
         println!("{}", left_table);
         println!("{}", right_table);
@@ -1707,7 +1707,7 @@ mod tests {
         let query = "UPDATE(table_name: products, primary_keys: *, conditions: ((id starts_with 011)), updates: ((price += 100), (stock -= 100)))";
         let parsed = parse_EZQL(query).unwrap();
         let products = std::fs::read_to_string(format!("test_files{PATH_SEP}products.csv")).unwrap();
-        let mut table = EZTable::from_csv_string(&products, "products", "test").unwrap();
+        let mut table = ColumnTable::from_csv_string(&products, "products", "test").unwrap();
         println!("before:\n{}", table);
         println!();
         execute_update_query(parsed, &mut table).unwrap();
@@ -1726,7 +1726,7 @@ mod tests {
         let INSERT_query = "INSERT(table_name: test, value_columns: (vnr, heiti, magn, lager), new_values: ( (175, HAMMAR, 52, lag15), (173, HAMMAR, 51, lag20) ))";
         let parsed_insert_query = parse_EZQL(&INSERT_query).unwrap();
         let google_docs_csv = std::fs::read_to_string(format!("test_files{PATH_SEP}test_csv_from_google_sheets_combined_sorted.csv")).unwrap();
-        let mut t = EZTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
+        let mut t = ColumnTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
     
         execute_insert_query(parsed_insert_query, &mut t).unwrap();
 
@@ -1737,7 +1737,7 @@ mod tests {
     #[test]
     fn test_INSERT_Products_bug() {
         let products = std::fs::read_to_string(format!("test_files{PATH_SEP}Products.csv")).unwrap();
-        let mut products_table = EZTable::from_csv_string(&products, "Products", "test").unwrap();
+        let mut products_table = ColumnTable::from_csv_string(&products, "Products", "test").unwrap();
         println!("{}", products_table);
         let query = "INSERT(table_name: Products, value_columns: (id, name, description, price, picture), new_values: (1,coke,refreshing beverage,200,coke))";
         let parsed_query = parse_EZQL(query).unwrap();
@@ -1753,7 +1753,7 @@ mod tests {
         let query = "DELETE(table_name: products, primary_keys: *, conditions: ((price greater_than 3000) AND (stock less_than 1000)))";
         let parsed = parse_EZQL(query).unwrap();
         let products = std::fs::read_to_string(format!("test_files{PATH_SEP}products.csv")).unwrap();
-        let mut table = EZTable::from_csv_string(&products, "products", "test").unwrap();
+        let mut table = ColumnTable::from_csv_string(&products, "products", "test").unwrap();
         println!("before:\n{}", table);
         println!();
         execute_delete_query(parsed, &mut table).unwrap();

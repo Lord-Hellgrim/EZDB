@@ -81,14 +81,14 @@ mod tests {
 
     use rand::Rng;
 
-    use crate::{db_structure::EZTable, utilities::blake3_hash};
+    use crate::{db_structure::ColumnTable, utilities::blake3_hash};
 
     use super::*;
 
     #[test]
     fn test_brotli() {
         let table_string = std::fs::read_to_string(&format!("test_files{PATH_SEP}test_csv_from_google_sheets_combined_sorted.csv")).unwrap();
-        let table = EZTable::from_csv_string(&table_string, "basic_test", "test").unwrap();
+        let table = ColumnTable::from_csv_string(&table_string, "basic_test", "test").unwrap();
         let binary = table.write_to_binary();
         // let brotli_compressed_table = brotli_compress(&binary).unwrap();
         let miniz_compressed_table = miniz_compress(&binary).unwrap();
@@ -98,7 +98,7 @@ mod tests {
         // let brotli_decompressed = brotli_decompress(&brotli_compressed_table).unwrap();
         let miniz_decompressed = miniz_decompress(&miniz_compressed_table).unwrap();
         // let brotli_recovered_table = EZTable::from_binary("brotli", &brotli_decompressed).unwrap();
-        let miniz_recovered_table = EZTable::from_binary("miniz", &miniz_decompressed).unwrap();
+        let miniz_recovered_table = ColumnTable::from_binary("miniz", &miniz_decompressed).unwrap();
 
         // assert_eq!(table, brotli_recovered_table);
         assert_eq!(table, miniz_recovered_table);

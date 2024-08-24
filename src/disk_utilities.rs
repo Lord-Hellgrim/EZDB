@@ -10,7 +10,7 @@ use aes_gcm::Key;
 
 use crate::db_structure::{write_subtable_to_raw_binary, DbType, DbColumn, HeaderItem, KeyString, Metadata, StrictError, Value};
 use crate::utilities::{f32_from_le_slice, i32_from_le_slice, EzError};
-use crate::{db_structure::EZTable, server_networking::CONFIG_FOLDER};
+use crate::{db_structure::ColumnTable, server_networking::CONFIG_FOLDER};
 use crate::PATH_SEP;
 
 pub const BIN_TABLE_DIR: &str = "Binary_tables";
@@ -20,7 +20,7 @@ pub const CHUNK_SIZE: usize = 1_000_000;                // 1mb
 
 pub struct BufferPool {
     max_size: AtomicU64,
-    pub tables: Arc<RwLock<BTreeMap<KeyString, RwLock<EZTable>>>>,
+    pub tables: Arc<RwLock<BTreeMap<KeyString, RwLock<ColumnTable>>>>,
     pub values: Arc<RwLock<BTreeMap<KeyString, RwLock<Value>>>>,
     pub table_naughty_list: Arc<RwLock<HashSet<KeyString>>>,
     pub value_naughty_list: Arc<RwLock<HashSet<KeyString>>>,
@@ -47,7 +47,7 @@ impl BufferPool {
             let mut binary = Vec::with_capacity(file_size as usize);
             table_file.read_to_end(&mut binary)?;
 
-            let table = EZTable::from_binary(&name, &binary)?;
+            let table = ColumnTable::from_binary(&name, &binary)?;
             self.add_table(table)?;
         }
 
@@ -112,7 +112,7 @@ impl BufferPool {
         self.max_size.load(std::sync::atomic::Ordering::Relaxed)
     }
 
-    pub fn add_table(&self, table: EZTable) -> Result<(), EzError> {
+    pub fn add_table(&self, table: ColumnTable) -> Result<(), EzError> {
 
         if self.occupied_buffer() + table.metadata.size_of_table() as u64 > self.max_size() {
             return Err(EzError::NoMoreBufferSpace(table.metadata.size_of_table()))

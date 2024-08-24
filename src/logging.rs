@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, fmt::Display, fs::{File, OpenOptions}, io::{Read, Seek, Write}, os::unix::fs::FileExt, sync::{atomic::{AtomicU64, Ordering}, Mutex}};
 
-use crate::{db_structure::{EZTable, KeyString}, ezql::Query, utilities::{blake3_hash, get_current_time, get_precise_time, print_sep_list, u64_from_le_slice, Instruction}, server_networking::Database};
+use crate::{db_structure::{ColumnTable, KeyString}, ezql::Query, utilities::{blake3_hash, get_current_time, get_precise_time, print_sep_list, u64_from_le_slice, Instruction}, server_networking::Database};
 
 use crate::PATH_SEP;
 
@@ -10,8 +10,8 @@ pub struct Entry {
     user: KeyString,
     client_address: KeyString,
     query: String,
-    before_snap: BTreeMap<KeyString, EZTable>,
-    after_snap: BTreeMap<KeyString, EZTable>,
+    before_snap: BTreeMap<KeyString, ColumnTable>,
+    after_snap: BTreeMap<KeyString, ColumnTable>,
     finished: bool,
 }
 
@@ -138,7 +138,7 @@ impl Entry {
                     i += 8;
                     let name = KeyString::try_from(&slice[i..i+64]).expect(&format!("if reading a log entry from the binary fails, then there is a bug or the data is corrupted: Failure occured at {} at {} and {}", file!(), line!(), column!()));
                     i += 64;
-                    let table = EZTable::from_binary(name.as_str(), &slice[i..i+table_size as usize]).expect(&format!("if reading a log entry from the binary fails, then there is a bug or the data is corrupted: Failure occured at {} at {} and {}", file!(), line!(), column!()));
+                    let table = ColumnTable::from_binary(name.as_str(), &slice[i..i+table_size as usize]).expect(&format!("if reading a log entry from the binary fails, then there is a bug or the data is corrupted: Failure occured at {} at {} and {}", file!(), line!(), column!()));
                     println!("table\n{}", table);
                     i += table_size as usize;
                     before_snap.insert(name, table);
@@ -148,7 +148,7 @@ impl Entry {
                     i += 8;
                     let name = KeyString::try_from(&slice[i..i+64]).expect(&format!("if reading a log entry from the binary fails, then there is a bug or the data is corrupted: Failure occured at {} at {} and {}", file!(), line!(), column!()));
                     i += 64;
-                    let table = EZTable::from_binary(name.as_str(), &slice[i..i+table_size as usize]).expect(&format!("if reading a log entry from the binary fails, then there is a bug or the data is corrupted: Failure occured at {} at {} and {}", file!(), line!(), column!()));
+                    let table = ColumnTable::from_binary(name.as_str(), &slice[i..i+table_size as usize]).expect(&format!("if reading a log entry from the binary fails, then there is a bug or the data is corrupted: Failure occured at {} at {} and {}", file!(), line!(), column!()));
                     i += table_size as usize;
                     after_snap.insert(name, table);
                 },
@@ -243,7 +243,7 @@ impl Logger {
         count
     }
 
-    pub fn update_before_log(&mut self, hash: u64, table: &EZTable) {
+    pub fn update_before_log(&mut self, hash: u64, table: &ColumnTable) {
         self.entries.entry(hash).and_modify(|e| { 
             if !e.finished {
                 e.before_snap.insert(table.name, table.clone()); 
@@ -251,7 +251,7 @@ impl Logger {
         });
     }
 
-    pub fn update_after_log(&mut self, hash: u64, table: &EZTable) {
+    pub fn update_after_log(&mut self, hash: u64, table: &ColumnTable) {
         self.entries.entry(hash).and_modify(|e| { 
             if !e.finished {
                 e.after_snap.insert(table.name, table.clone()); 
@@ -290,7 +290,7 @@ mod tests {
         let mut logger = Logger::init();
 
         let csv = std::fs::read_to_string(format!("test_files{PATH_SEP}good_csv.txt")).unwrap();
-        let mut table = EZTable::from_csv_string(&csv, "good_csv", "logger_test").unwrap();
+        let mut table = ColumnTable::from_csv_string(&csv, "good_csv", "logger_test").unwrap();
         // println!("before:\n{}", table);
         // vnr,i-P;heiti,t-N;magn,i-N
         // 0113000;undirlegg2;100

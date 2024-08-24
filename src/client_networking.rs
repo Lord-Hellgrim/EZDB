@@ -4,14 +4,14 @@ use std::str::{self};
 use ezcbor::cbor::Cbor;
 
 use crate::auth::{AuthenticationError, User};
-use crate::db_structure::{EZTable, KeyString};
+use crate::db_structure::{ColumnTable, KeyString};
 use crate::utilities::{EzError, instruction_send_and_confirm, Instruction, parse_response, receive_data, Connection, data_send_and_confirm, bytes_to_str};
 use crate::PATH_SEP;
 
 
 pub enum Response {
     Message(String),
-    Table(EZTable),
+    Table(ColumnTable),
 }
 
 /// downloads a table as a csv String from the EZDB server at the given address.
@@ -20,7 +20,7 @@ pub fn download_table(
     username: &str,
     password: &str,
     table_name: &str,
-) -> Result<EZTable, EzError> {
+) -> Result<ColumnTable, EzError> {
     let mut connection = Connection::connect(address, username, password)?;
 
     let response = instruction_send_and_confirm(
@@ -44,7 +44,7 @@ pub fn download_table(
     };
     connection.stream.flush()?;
 
-    let table = EZTable::from_binary(table_name, &data)?;
+    let table = ColumnTable::from_binary(table_name, &data)?;
 
     Ok(table)
 }
@@ -152,7 +152,7 @@ pub fn query_table(
 
     match String::from_utf8(data.clone()) {
         Ok(x) => Ok(Response::Message(x)),
-        Err(_) => match EZTable::from_binary("RESULT", &data) {
+        Err(_) => match ColumnTable::from_binary("RESULT", &data) {
             Ok(table) => Ok(Response::Table(table)),
             Err(e) => Err(e.into()),
         },
@@ -390,7 +390,7 @@ mod tests {
     #![allow(unused)]
     use std::{fs::remove_file, path::Path};
 
-    use crate::db_structure::EZTable;
+    use crate::db_structure::ColumnTable;
 
     use super::*;
 
@@ -465,7 +465,7 @@ mod tests {
         let password = "admin";
         let table = download_table(address, username, password, name).unwrap();
         println!("{:?}", table);
-        let good_table = EZTable::from_csv_string(
+        let good_table = ColumnTable::from_csv_string(
             &std::fs::read_to_string(format!("test_files{PATH_SEP}good_csv.txt")).unwrap(),
             "good_table",
             "test",

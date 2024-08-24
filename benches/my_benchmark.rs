@@ -48,7 +48,7 @@ fn my_benchmark(c: &mut Criterion) {
     
     let google_docs_csv = std::fs::read_to_string(format!("test_files{PATH_SEP}test_csv_from_google_sheets_combined_sorted.csv")).unwrap();
     
-    let t = EZTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
+    let t = ColumnTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
     
     group.bench_function("Write to raw binary", |b| b.iter(|| t.write_to_binary()));
     group.bench_function("Write to csv string", |b| b.iter(|| t.to_string()));
@@ -56,8 +56,8 @@ fn my_benchmark(c: &mut Criterion) {
     let bint_t = t.write_to_binary();
     let string_t = t.to_string();
     
-    group.bench_function("read from raw binary", |b| b.iter(|| EZTable::from_binary("bench", &bint_t)));
-    group.bench_function("read from csv string", |b| b.iter(|| EZTable::from_csv_string(&string_t, "bench2", "criterion")));
+    group.bench_function("read from raw binary", |b| b.iter(|| ColumnTable::from_binary("bench", &bint_t)));
+    group.bench_function("read from csv string", |b| b.iter(|| ColumnTable::from_csv_string(&string_t, "bench2", "criterion")));
 
     // header:
     // vnr,i-P;heiti,t-N;magn,i-N;lager,t-N
@@ -101,39 +101,39 @@ fn my_benchmark(c: &mut Criterion) {
     let parsed_MEDIAN_query =     parse_EZQL(&MEDIAN_query).unwrap();
     let parsed_LEFT_JOIN_query =     parse_EZQL(&LEFT_JOIN_query).unwrap();
 
-    let mut t = EZTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
+    let mut t = ColumnTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
     group.bench_function("execute INSERT query", |b| b.iter(|| {
         execute_insert_query(parsed_INSERT_query.clone(), &mut t).unwrap();
-        t = EZTable::from_binary("test", &bint_t).unwrap();
+        t = ColumnTable::from_binary("test", &bint_t).unwrap();
     }));
     group.bench_function("execute UPDATE query", |b| b.iter(|| {
         execute_update_query(parsed_UPDATE_query.clone(), &mut t).unwrap();
-        t = EZTable::from_binary("test", &bint_t).unwrap();
+        t = ColumnTable::from_binary("test", &bint_t).unwrap();
     }));
     group.bench_function("execute DELETE query", |b| b.iter(|| {
         execute_delete_query(parsed_DELETE_query.clone(), &mut t).unwrap();
-        t = EZTable::from_binary("test", &bint_t).unwrap();
+        t = ColumnTable::from_binary("test", &bint_t).unwrap();
     }));
     group.bench_function("execute SUM query"   , |b| b.iter(|| {
         execute_summary_query(parsed_SUM_query.clone(), &mut t).unwrap();
-        t = EZTable::from_binary("test", &bint_t).unwrap();
+        t = ColumnTable::from_binary("test", &bint_t).unwrap();
     }));
     group.bench_function("execute SELECT query", |b| b.iter(|| execute_select_query(parsed_SELECT_query.clone(), &mut t).unwrap()));
-    let mut t = EZTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
+    let mut t = ColumnTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
     group.bench_function("execute MEAN query"  , |b| b.iter(|| execute_summary_query(parsed_MEAN_query.clone(), &mut t).unwrap()));
-    let mut t = EZTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
+    let mut t = ColumnTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
     group.bench_function("execute MODE query"  , |b| b.iter(|| execute_summary_query(parsed_MODE_query.clone(), &mut t).unwrap()));
-    let mut t = EZTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
+    let mut t = ColumnTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
     group.bench_function("execute STDEV query" , |b| b.iter(|| execute_summary_query(parsed_STDEV_query.clone(), &mut t).unwrap()));
-    let mut t = EZTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
+    let mut t = ColumnTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
     group.bench_function("execute MEDIAN query", |b| b.iter(|| execute_summary_query(parsed_MEDIAN_query.clone(), &mut t).unwrap()));
-    let t = EZTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
+    let t = ColumnTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
     let insert_me_string = std::fs::read_to_string(format!("test_files{PATH_SEP}insert_me.csv")).unwrap();
-    let insert_me = EZTable::from_csv_string(&insert_me_string, "insert_me", "QUERY").unwrap();
+    let insert_me = ColumnTable::from_csv_string(&insert_me_string, "insert_me", "QUERY").unwrap();
     group.bench_function("execute LEFT_JOIN query", |b| b.iter(|| execute_left_join_query(parsed_LEFT_JOIN_query.clone(), &t, &insert_me).unwrap()));
 
     let table_string = std::fs::read_to_string(&format!("test_files{PATH_SEP}test_csv_from_google_sheets_combined_sorted.csv")).unwrap();
-    let table = EZTable::from_csv_string(&table_string, "basic_test", "test").unwrap();
+    let table = ColumnTable::from_csv_string(&table_string, "basic_test", "test").unwrap();
     let binary = table.write_to_binary();
 
     // group.bench_function("brotli compress", |b| b.iter(|| brotli_compress(&binary).unwrap()));
@@ -174,7 +174,7 @@ fn my_benchmark(c: &mut Criterion) {
 
 
     let table_string = std::fs::read_to_string(&format!("test_files{PATH_SEP}test_csv_from_google_sheets_combined_sorted.csv")).unwrap();
-    let table = EZTable::from_csv_string(&table_string, "basic_test", "test").unwrap();
+    let table = ColumnTable::from_csv_string(&table_string, "basic_test", "test").unwrap();
     group.bench_function("binary_vs_CBOR: BINARY VERSION", |b| b.iter(|| table.write_to_binary()));
     group.bench_function("binary_vs_CBOR: CBOR VERSION", |b| b.iter(|| table.to_cbor_bytes()));
     
