@@ -135,29 +135,6 @@ impl From<CborError> for EzError {
     }
 }
 
-impl EzError {
-    pub fn to_error_code(&self) -> u64{
-        match self {
-            EzError::Utf8(_) => 1,
-            EzError::Io(_) => 2,
-            EzError::Instruction(_) => 3,
-            EzError::Confirmation(_) => 4,
-            EzError::Authentication(_) => 5,
-            EzError::Strict(_) => 6,
-            EzError::Crypto(_) => 7,
-            EzError::ParseInt(_) => 8,
-            EzError::ParseResponse(_) => todo!(),
-            EzError::ParseUser(_) => todo!(),
-            EzError::OversizedData => todo!(),
-            EzError::Decompression(_) => todo!(),
-            EzError::Query(_) => todo!(),
-            EzError::Debug(_) => todo!(),
-            EzError::NoMoreBufferSpace(_) => todo!(),
-            EzError::Unimplemented(_) => todo!(),
-            EzError::Serialization(_) => todo!(),
-        }
-    }
-}
 
 /// An enum that lists the possible instructions that the database can receive.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -951,6 +928,7 @@ pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut C
     println!("About to parse response from server");
     let response = bytes_to_str(&buffer)?;
     println!("repsonse: {}", response);
+    
 
     Ok(response.to_owned())
 

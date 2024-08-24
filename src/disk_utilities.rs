@@ -132,6 +132,13 @@ impl BufferPool {
 
         Ok(())
     }
+    
+    pub fn write_table_to_disk(&self) -> Result<(), EzError> {
+
+        
+
+        Ok(())
+    }
 
     // pub fn clear_space(&mut self, space_to_clear: u64) -> Result<(), ServerError> {
         
