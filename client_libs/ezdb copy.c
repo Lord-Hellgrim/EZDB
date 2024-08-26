@@ -30,8 +30,8 @@ typedef struct Connection {
 
 
 int connect_to_db_server(Connection* connection, char* address, char* username, char* password) {
-    if (strlen(username) > 512 | strlen(password) > 512) {
-        return 1;
+    if (strlen(username) > 512 || strlen(password) > 512) {
+        return NULL;
     }
 
     DH* dh = DH_new();
@@ -42,7 +42,6 @@ int connect_to_db_server(Connection* connection, char* address, char* username, 
     if (!DH_generate_parameters_ex(dh, 2048, DH_GENERATOR_2, NULL)) {
         return 1;
     }
-    printf("working!\n");
 
      if (!DH_generate_key(dh)) {
         DH_free(dh);
@@ -60,12 +59,11 @@ int connect_to_db_server(Connection* connection, char* address, char* username, 
     }
 
     int stream_id = socket(AF_INET, SOCK_STREAM, 0);
-    struct sockaddr_in* socket_address;
-    socket_address->sin_family = AF_INET;
-    socket_address->sin_port = 3004;
-    socket_address->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-
-    connect(stream_id, (struct sockaddr*)socket_address, sizeof(socket_address));
+    struct sockaddr_in socket_address;
+    socket_address.sin_family = AF_INET;
+    socket_address.sin_port = 3004;
+    socket_address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    connect(stream_id, &socket_address, sizeof(socket_address));
 
 
     char key_buffer[33];
@@ -87,9 +85,8 @@ int main() {
     char* address = "127.0.0.1:3004";
     char* username = "admin";
     char* password = "admin";
-    printf("working!\n");
+
     connect_to_db_server(connection, address, username, password);
-    printf("working!\n");
 
     return 0;
 

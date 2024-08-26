@@ -1,0 +1,1 @@
+gcc -o test ezdb.c -lssl -lcrypto
