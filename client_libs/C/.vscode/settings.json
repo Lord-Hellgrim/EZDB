@@ -1,0 +1,6 @@
+{
+    "files.associations": {
+        "err.h": "c",
+        "evp.h": "c"
+    }
+}
