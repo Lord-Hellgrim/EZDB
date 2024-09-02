@@ -260,7 +260,8 @@ impl Connection {
 
 /// THe server side of the Connection exchange
 pub fn establish_connection(mut stream: TcpStream, server: Arc<Server>, db_ref: Arc<Database>) -> Result<Connection, EzError> {
-
+    stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+    println!("server_public key: {:?}", server.public_key.as_bytes());
     match stream.write(server.public_key.as_bytes()) {
         Ok(_) => (),
         Err(e) => {
