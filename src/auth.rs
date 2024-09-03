@@ -7,7 +7,7 @@ use std::{
 use ezcbor::cbor::{self, byteslice_from_cbor, Cbor};
 // use serde::{Deserialize, Serialize};
 
-use crate::{db_structure::KeyString, ezql::Query, utilities::{blake3_hash, encode_hex}};
+use crate::{db_structure::KeyString, ezql::Query, utilities::{ez_hash, encode_hex}};
 
 /// Defines a permission a user has to interact with a given table
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -129,7 +129,7 @@ impl User {
     pub fn new(username: &str, password: &str) -> User {
         User {
             username: String::from(username),
-            password: blake3_hash(password.as_bytes()),
+            password: ez_hash(password.as_bytes()),
             admin: false,
             can_upload: false,
             can_read: HashSet::new(),
@@ -141,7 +141,7 @@ impl User {
     pub fn admin(username: &str, password: &str) -> User {
         User {
             username: String::from(username),
-            password: blake3_hash(password.as_bytes()),
+            password: ez_hash(password.as_bytes()),
             admin: true,
             can_upload: true,
             can_read: HashSet::new(),

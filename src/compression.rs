@@ -81,7 +81,7 @@ mod tests {
 
     use rand::Rng;
 
-    use crate::{db_structure::ColumnTable, utilities::blake3_hash};
+    use crate::{db_structure::ColumnTable, utilities::ez_hash};
 
     use super::*;
 

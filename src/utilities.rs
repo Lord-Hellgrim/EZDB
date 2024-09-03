@@ -14,6 +14,7 @@ use ezcbor::cbor::CborError;
 use fnv::FnvHashMap;
 use x25519_dalek::{EphemeralSecret, PublicKey};
 use aes_gcm::aead;
+use sha2::{Sha256, Digest};
 
 use crate::aes_temp_crypto::{encrypt_aes256, decrypt_aes256};
 use crate::auth::AuthenticationError;
@@ -224,7 +225,7 @@ impl Connection {
         let server_public_key = PublicKey::from(key_buffer);
         stream.write_all(client_public_key.as_bytes())?;
         let shared_secret = client_private_key.diffie_hellman(&server_public_key);
-        let aes_key = blake3_hash(&shared_secret.to_bytes());
+        let aes_key = ez_hash(&shared_secret.to_bytes());
 
         let mut auth_buffer = [0u8; 1024];
         auth_buffer[0..username.len()].copy_from_slice(username.as_bytes());
@@ -283,7 +284,8 @@ pub fn establish_connection(mut stream: TcpStream, server: Arc<Server>, db_ref: 
     let client_public_key = PublicKey::from(buffer);
     
     let shared_secret = server.private_key.diffie_hellman(&client_public_key);
-    let aes_key = blake3_hash(shared_secret.as_bytes());
+    println!("Shared secret: {:?}", shared_secret.as_bytes());
+    let aes_key = ez_hash(shared_secret.as_bytes());
 
     let mut auth_buffer = [0u8; 1052];
     println!("About to read auth string");
@@ -318,7 +320,7 @@ pub fn establish_connection(mut stream: TcpStream, server: Arc<Server>, db_ref: 
     println!("password: {:?}", password);
 
     // println!("username: {}\npassword: {:x?}", username, password);
-    let password = blake3_hash(bytes_to_str(password).unwrap().as_bytes());
+    let password = ez_hash(bytes_to_str(password).unwrap().as_bytes());
     println!("password: {:?}", password);
     // println!("password_hash: {:x?}", password);
     println!("About to verify username and password");
@@ -372,10 +374,18 @@ pub fn check_if_http_request(stream: &TcpStream) -> Result<String, EzError> {
 
 }
 
-/// Just a blake3 hash.
+/// Just a hash.
 #[inline]
-pub fn blake3_hash(s: &[u8]) -> [u8;32]{
-    blake3::hash(s).into()
+pub fn ez_hash(s: &[u8]) -> [u8;32]{
+
+    let mut hasher = Sha256::new();
+    hasher.update(s);
+    let result = hasher.finalize();
+
+    result.into()
+    
+    // blake3::hash(s).into()
+
 }
 
 /// Gets the current time as seconds since UNIX_EPOCH. Used for logging, mostly.
@@ -506,7 +516,10 @@ pub fn decode_hex_to_arr32(s: &str) -> Result<[u8;32], ParseIntError> {
 
 /// Just a blake3 hash
 pub fn hash_function(a: &str) -> [u8;32] {
-    blake3::hash(a.as_bytes()).into()
+
+    ez_hash(a.as_bytes())
+
+    // blake3::hash(a.as_bytes()).into()
 }
 
 /// Creates a i32 from a &[u8] of length 4. Panics if len is different than 4. 
