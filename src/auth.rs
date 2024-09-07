@@ -20,6 +20,8 @@ pub enum Permission {
 impl Permission {
     /// Creates a Permission enum from a string, tolerating some common spellings
     pub fn from_string(s: &str) -> Option<Self> {
+    println!("calling: Permission::from_string()");
+
         match s {
             "Read" => Some(Permission::Read),
             "Write" => Some(Permission::Write),
@@ -30,6 +32,8 @@ impl Permission {
 
     /// Serializes the Permission to a String directly.
     pub fn to_str(&self) -> String {
+    println!("calling: Permission::from_str()");
+
         match self {
             Permission::Write => "Write".to_owned(),
             Permission::Read => "Read".to_owned(),
@@ -54,6 +58,8 @@ pub struct User {
 
 impl Display for User {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        println!("calling: Display on User");
+
         let mut can_read = String::new();
         for item in &self.can_read {
             can_read.push('\t');
@@ -79,6 +85,8 @@ impl Display for User {
 
 impl Cbor for User {
     fn to_cbor_bytes(&self) -> Vec<u8> {
+        println!("calling: to_cbor_bytes() on User");
+
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&self.username.to_cbor_bytes());
         bytes.extend_from_slice(&cbor::byteslice_to_cbor(&self.password.as_slice()));
@@ -94,6 +102,8 @@ impl Cbor for User {
         where 
             Self: Sized 
     {
+        println!("calling: from_cbor_bytes() on User");
+
         let mut i = 0;
         let (username, bytes_read) = <String as Cbor>::from_cbor_bytes(&bytes[i..])?;
         i += bytes_read;
@@ -127,6 +137,8 @@ impl Cbor for User {
 impl User {
     /// Create new standard non-admin user with no permissions
     pub fn new(username: &str, password: &str) -> User {
+        println!("calling: User::new()");
+
         User {
             username: String::from(username),
             password: ez_hash(password.as_bytes()),
@@ -139,6 +151,8 @@ impl User {
 
     /// Create admin user. Admin user by default have all permissions. May disable this later.
     pub fn admin(username: &str, password: &str) -> User {
+        println!("calling: User::admin()");
+
         User {
             username: String::from(username),
             password: ez_hash(password.as_bytes()),
@@ -193,6 +207,8 @@ pub fn check_permission(
     username: &str,
     users: Arc<RwLock<BTreeMap<KeyString, RwLock<User>>>>,
 ) -> Result<(), AuthenticationError> {
+    println!("calling: check_permission()");
+
 
     let user = users.read().unwrap();
     let user = match user.get(&KeyString::from(username)) {
@@ -229,6 +245,8 @@ pub fn user_has_permission(
     username: &str,
     users: Arc<RwLock<BTreeMap<KeyString, RwLock<User>>>>,
 ) -> bool {
+    println!("calling: user_has_permission");
+
 
     let user = users.read().unwrap();
     let user = match user.get(&KeyString::from(username)) {
@@ -261,6 +279,8 @@ pub enum AuthenticationError {
 /// Will probably change the known length later.
 impl fmt::Display for AuthenticationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        println!("calling: Display on AuthenticationError");
+
         match self {
             AuthenticationError::WrongUser(_) => write!(f, "IU"),
             AuthenticationError::WrongPassword => write!(f, "IP"),

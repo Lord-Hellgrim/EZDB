@@ -9,11 +9,11 @@ use std::convert::{TryFrom, From};
 use ezcbor::cbor::{decode_cbor, Cbor};
 use x25519_dalek::{StaticSecret, PublicKey};
 
-use crate::aes_temp_crypto::{decrypt_aes256, receive_encrypted_data, send_encrypted_data};
+use crate::aes_temp_crypto::decrypt_aes256;
 use crate::auth::{user_has_permission, AuthenticationError, Permission, User};
 use crate::disk_utilities::{BufferPool, MAX_BUFFERPOOL_SIZE};
 use crate::logging::Logger;
-use crate::utilities::{bytes_to_str, establish_connection, Connection, EzError, Instruction, InstructionError, INSTRUCTION_BUFFER};
+use crate::utilities::{bytes_to_str, establish_connection, receive_encrypted_data, send_encrypted_data, Connection, EzError, Instruction, InstructionError, INSTRUCTION_BUFFER};
 use crate::db_structure::KeyString;
 use crate::handlers::*;
 use crate::PATH_SEP;
@@ -44,6 +44,8 @@ pub struct Database {
 
 impl Database {
     pub fn init() -> Result<Database, EzError> {
+        println!("calling: Database::init()");
+
 
         let buffer_pool = BufferPool::empty(std::sync::atomic::AtomicU64::new(MAX_BUFFERPOOL_SIZE));
         buffer_pool.init_tables(&format!("EZconfig{PATH_SEP}raw_tables"))?;
@@ -78,6 +80,8 @@ impl Database {
 /// Also writes tables to disk in a super primitive way. Basically a separate thread writes all the tables to disk
 /// every 10 seconds. This will be improved but I would appreciate some advice here.
 pub fn run_server(address: &str) -> Result<(), EzError> {
+    println!("calling: run_server()");
+
     
     // #################################### STARTUP SEQUENCE #############################################
     println!("Starting server...\n###########################");
@@ -405,6 +409,8 @@ pub fn parse_instruction(
     database: Arc<Database>,
     connection: &mut Connection,
 ) -> Result<Instruction, EzError> {
+    println!("calling: parse_instruction()");
+
     
     println!("parsing 3...");
     let username = KeyString::try_from(&instructions[0..64])?;

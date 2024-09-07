@@ -2,10 +2,9 @@ use std::str::{self};
 
 use ezcbor::cbor::Cbor;
 
-use crate::aes_temp_crypto::{receive_encrypted_data, send_encrypted_data};
 use crate::auth::{AuthenticationError, User};
 use crate::db_structure::{ColumnTable, KeyString};
-use crate::utilities::{EzError, instruction_send_and_confirm, Instruction, parse_response, Connection, data_send_and_confirm, bytes_to_str};
+use crate::utilities::{bytes_to_str, data_send_and_confirm, instruction_send_and_confirm, parse_response, receive_encrypted_data, send_encrypted_data, Connection, EzError, Instruction};
 use crate::PATH_SEP;
 
 
@@ -21,6 +20,8 @@ pub fn download_table(
     password: &str,
     table_name: &str,
 ) -> Result<ColumnTable, EzError> {
+    println!("calling: download_table()");
+
     let mut connection = Connection::connect(address, username, password)?;
 
     let response = instruction_send_and_confirm(
@@ -52,6 +53,8 @@ pub fn upload_csv(
     table_name: &str,
     csv: &String,
 ) -> Result<(), EzError> {
+    println!("calling: upload_csv()");
+
     let mut connection = Connection::connect(address, username, password)?;
 
     let response =
@@ -82,6 +85,8 @@ pub fn update_table(
     table_name: &str,
     csv: &str,
 ) -> Result<(), EzError> {
+    println!("calling: update_table()");
+
     let mut connection = Connection::connect(address, username, password)?;
 
     let response =
@@ -108,13 +113,12 @@ pub fn query_table(
     password: &str,
     query: &str,
 ) -> Result<Response, EzError> {
+    println!("calling: query_table()");
+
     let mut connection = Connection::connect(address, username, password)?;
 
-    let response = instruction_send_and_confirm(
-        Instruction::Query(query.to_owned()),
-        &mut connection,
-    )?;
-    println!("HERE 1!!!");
+    let response = instruction_send_and_confirm(Instruction::Query(query.to_owned()), &mut connection)?;
+
     let data: Vec<u8>;
     match response.as_str() {
         
@@ -134,8 +138,7 @@ pub fn query_table(
         }
         e => panic!("Need to handle error: {}", e),
     };
-    println!("HERE 2!!!");
-    println!("received data:\n{}", bytes_to_str(&data)?);
+    println!("received data");
 
     send_encrypted_data("OK".as_bytes(), &mut connection)?;
 
@@ -154,6 +157,8 @@ pub fn delete_table(
     password: &str,
     table_name: &str,
 ) -> Result<(), EzError> {
+    println!("calling: delete_table()");
+
 
     let mut connection = Connection::connect(address, username, password)?;
 
@@ -179,6 +184,8 @@ pub fn kv_upload(
     key: &str,
     value: &[u8],
 ) -> Result<(), EzError> {
+    println!("calling: kv_upload()");
+
     let mut connection = Connection::connect(address, username, password)?;
 
     let response = instruction_send_and_confirm(Instruction::KvUpload(KeyString::from(key)), &mut connection)?;
@@ -206,6 +213,8 @@ pub fn kv_download(
     password: &str,
     key: &str,
 ) -> Result<Vec<u8>, EzError> {
+    println!("calling: kv_download()");
+
     let mut connection = Connection::connect(address, username, password)?;
 
     let response = instruction_send_and_confirm(Instruction::KvDownload(KeyString::from(key)), &mut connection)?;
@@ -229,6 +238,8 @@ pub fn kv_update(
     key: &str,
     value: &[u8],
 ) -> Result<(), EzError> {
+    println!("calling: kv_update()");
+
     let mut connection = Connection::connect(address, username, password)?;
 
     let response =
@@ -260,6 +271,8 @@ pub fn kv_delete(
     key: &str,
     value: &[u8],
 ) -> Result<(), EzError> {
+    println!("calling: kv_delete()");
+
     let mut connection = Connection::connect(address, username, password)?;
 
     let response =
@@ -289,6 +302,8 @@ pub fn meta_list_tables(
     username: &str,
     password: &str,
 ) -> Result<String, EzError> {
+    println!("calling: meta_list_tables()");
+
     let mut connection = Connection::connect(address, username, password)?;
 
     let response = instruction_send_and_confirm(Instruction::MetaListTables, &mut connection)?;
@@ -313,6 +328,8 @@ pub fn meta_list_key_values(
     username: &str,
     password: &str,
 ) -> Result<String, EzError> {
+    println!("calling: meta_list_key_values()");
+
     let mut connection = Connection::connect(address, username, password)?;
 
     let response = instruction_send_and_confirm(Instruction::MetaListKeyValues, &mut connection)?;
@@ -337,6 +354,8 @@ pub fn meta_create_new_user(
     username: &str,
     password: &str,
 ) -> Result<(), EzError> {
+    println!("calling: meta_create_new_user()");
+
 
     let mut connection = Connection::connect(address, username, password)?;
 

@@ -6,6 +6,8 @@ use EZDB::server_networking;
 use EZDB::utilities;
 
 fn main() -> Result<(), utilities::EzError> {
+    println!("calling: main()");
+
 
     let args = std::env::args();
 

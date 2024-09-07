@@ -17,6 +17,8 @@ pub struct Entry {
 
 impl Display for Entry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        println!("calling: Entry::fmt()");
+
         let mut printer = format!(
             "{}{} from {} made {} at {}\n\nBefore change:\n",
             match self.finished {
@@ -46,6 +48,8 @@ impl Display for Entry {
 
 impl Entry {
     fn to_binary(&self) -> Vec<u8> {
+        println!("calling: Entry::to_binary()");
+
         let mut binary: Vec<u8> = Vec::new();
 
         let mut entry_size = 0;
@@ -107,6 +111,8 @@ impl Entry {
     }
 
     fn from_binary(slice: &[u8]) -> Entry {
+        println!("calling: Entry::from_binary()");
+
         let mut i = 0;
 
         let entry_size = u64_from_le_slice(&slice[i..i+8]);
@@ -187,12 +193,16 @@ pub struct Logger {
 
 impl Display for Logger {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        println!("calling: Logger::fmt()");
+
         write!(f, "{}", print_sep_list(&self.entries.values().collect::<Vec<&Entry>>(), "\n"))
     }
 }
 
 impl Logger {
     pub fn init() -> Logger {
+        println!("calling: Logger::init()");
+
         Logger {
             entries: BTreeMap::new(),
             counter: AtomicU64::from(0),
@@ -200,6 +210,8 @@ impl Logger {
     }
 
     pub fn read_log_file(timestamp_path: &str) -> Logger {
+        println!("calling: Logger::read_log_file()");
+
         let mut log_file = OpenOptions::new().read(true).append(true).open(&format!("EZconfig/log/{}", timestamp_path)).expect("Log file should exist before Logger is initialized");
         let mut log = Vec::new();
         log_file.read_to_end(&mut log).expect("If reading the log file fails then we damn well better panic!");
@@ -228,6 +240,8 @@ impl Logger {
     }
 
     pub fn start_log(&mut self, query: &str, user: KeyString, client_address: KeyString) -> u64 {
+        println!("calling: Logger::start_log()");
+
         let entry = Entry {
             count: self.counter.load(Ordering::SeqCst).wrapping_add(1),
             user,
@@ -244,6 +258,8 @@ impl Logger {
     }
 
     pub fn update_before_log(&mut self, hash: u64, table: &ColumnTable) {
+        println!("calling: Logger::update_before_log()");
+
         self.entries.entry(hash).and_modify(|e| { 
             if !e.finished {
                 e.before_snap.insert(table.name, table.clone()); 
@@ -252,6 +268,8 @@ impl Logger {
     }
 
     pub fn update_after_log(&mut self, hash: u64, table: &ColumnTable) {
+        println!("calling: Logger::update_after_log()");
+
         self.entries.entry(hash).and_modify(|e| { 
             if !e.finished {
                 e.after_snap.insert(table.name, table.clone()); 
@@ -260,10 +278,14 @@ impl Logger {
     }
 
     pub fn finish_log(&mut self, hash: u64) {
+        println!("calling: Logger::finish_log()");
+
         self.entries.entry(hash).and_modify(|e| e.finished = true);
     }
 
     pub fn flush_to_disk(&mut self) {
+        println!("calling: Logger::flush_to_disk()");
+
         let mut binary = Vec::new();
         for entry in self.entries.values() {
             let entry_binary = entry.to_binary();

@@ -31,6 +31,8 @@ pub struct BufferPool {
 
 impl BufferPool {
     pub fn init_tables(&self, path: &str) -> Result<(), EzError> {
+        println!("calling: BufferPool::init_tables()");
+
 
         let data_dir = read_dir(path)?;
 
@@ -56,6 +58,8 @@ impl BufferPool {
 
     pub fn init_values(&self, path: &str) -> Result<(), EzError> {
         
+        println!("calling: BufferPool::init_values()");
+
         let data_dir = read_dir(path)?;
 
         for file in data_dir{
@@ -80,6 +84,8 @@ impl BufferPool {
     }
 
     pub fn empty(max_size: AtomicU64) -> BufferPool {
+        println!("calling: BufferPool::empty()");
+
         let tables = Arc::new(RwLock::new(BTreeMap::new()));
         let values = Arc::new(RwLock::new(BTreeMap::new()));
         let table_naughty_list = Arc::new(RwLock::new(HashSet::new()));
@@ -100,6 +106,8 @@ impl BufferPool {
     }
 
     pub fn occupied_buffer(&self) -> u64 {
+        println!("calling: BufferPool::occupied_buffer()");
+
         let mut output: u64 = 0;
         for table in self.tables.read().unwrap().values() {
             output += table.read().unwrap().byte_size() as u64;
@@ -113,6 +121,8 @@ impl BufferPool {
     }
 
     pub fn add_table(&self, table: ColumnTable) -> Result<(), EzError> {
+        println!("calling: BufferPool::add_table()");
+
 
         if self.occupied_buffer() + table.metadata.size_of_table() as u64 > self.max_size() {
             return Err(EzError::NoMoreBufferSpace(table.metadata.size_of_table()))
@@ -124,6 +134,8 @@ impl BufferPool {
     }
 
     pub fn add_value(&self, value: Value) -> Result<(), EzError> {
+        println!("calling: BufferPool::add_value()");
+
         if self.occupied_buffer() + value.body.len() as u64 > self.max_size() {
             return Err(EzError::NoMoreBufferSpace(value.body.len()))
         }
@@ -134,6 +146,7 @@ impl BufferPool {
     }
     
     pub fn write_table_to_disk(&self) -> Result<(), EzError> {
+        println!("calling: BufferPool::write_table_to_disk()");
 
         
 

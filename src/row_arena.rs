@@ -12,6 +12,8 @@ pub struct RowArena {
 impl RowArena {
 
     pub fn new(row_size: usize) -> Self {
+        println!("calling: RowArena::new()");
+
         RowArena {
             buffer: Vec::new(),
             row_size: row_size,
@@ -21,6 +23,8 @@ impl RowArena {
     }
 
     pub fn allocate_rows_at_end(&mut self, number_of_rows: usize) -> usize {
+        println!("calling: RowArena::allocate_rows_at_end()");
+
         let returned_pointer = self.pointer;
 
         self.pointer += number_of_rows*self.row_size;
@@ -29,6 +33,8 @@ impl RowArena {
     }
 
     pub fn free_all(&mut self) {
+        println!("calling: RowArena::free_all()");
+
         self.pointer = 0;
         self.buffer.shrink_to_fit();
     }

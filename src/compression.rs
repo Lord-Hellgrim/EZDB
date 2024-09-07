@@ -46,6 +46,8 @@ pub const MAX_PACKET_SIZE: usize = 1_000_000_000;
 /// Compresses a byte slice with miniz_oxide
 /// Puts the uncompressed size of the package as a usize in the first 8 bytes
 pub fn miniz_compress(data: &[u8]) -> Result<Vec<u8>, EzError> {
+    println!("calling: miniz_compress()");
+
     if data.len() > MAX_PACKET_SIZE {
         return Err(EzError::OversizedData);
     }
@@ -58,6 +60,8 @@ pub fn miniz_compress(data: &[u8]) -> Result<Vec<u8>, EzError> {
 /// decompresses a byte slice that was compressed with miniz_oxide
 /// checks to see if decompressed size will be more than 1gb
 pub fn miniz_decompress(data: &[u8]) -> Result<Vec<u8>, EzError> {
+    println!("calling: miniz_decompress()");
+
     if data.len() < 8 {
         return Err(EzError::Unimplemented("There should never be a packe less than 8 bytes".to_owned()));
     }

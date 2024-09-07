@@ -1,5 +1,6 @@
 use std::arch::asm;
 use std::fmt::Display;
+use std::mem::transmute;
 use std::simd;
 use std::io::{Write, Read, ErrorKind};
 use std::net::TcpStream;
@@ -10,13 +11,15 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::{usize, fmt};
 
+use std::arch::x86_64::{self, __m128};
+
 use ezcbor::cbor::CborError;
 use fnv::FnvHashMap;
 use x25519_dalek::{EphemeralSecret, PublicKey};
 use aes_gcm::aead;
 use sha2::{Sha256, Digest};
 
-use crate::aes_temp_crypto::{decrypt_aes256, encrypt_aes256, receive_encrypted_data, send_encrypted_data};
+use crate::aes_temp_crypto::{decrypt_aes256, encrypt_aes256};
 use crate::auth::AuthenticationError;
 use crate::compression;
 use crate::db_structure::{KeyString, StrictError};
@@ -55,6 +58,9 @@ pub enum EzError {
 
 impl fmt::Display for EzError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    #[cfg(debug_assertions)]
+    println!("calling: EzError::fmt()");
+
         match self {
             EzError::Utf8(e) => write!(f, "Encontered invalid utf-8: {}", e),
             EzError::Io(e) => write!(f, "Encountered an IO error: {}", e),
@@ -156,6 +162,9 @@ pub enum Instruction {
 
 impl Display for Instruction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        #[cfg(debug_assertions)]
+        println!("calling: Instruction::fmt()");
+
         match self {
             Instruction::Upload(s) => write!(f, "Upload({})", s),
             Instruction::Download(s) => write!(f, "Download({})", s),
@@ -185,6 +194,9 @@ pub enum InstructionError {
 
 impl fmt::Display for InstructionError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        #[cfg(debug_assertions)]
+        println!("calling: InstructionError::fmt()");
+
         match self {
             InstructionError::Invalid(instruction) => write!(f, "The instruction:\n\n\t{instruction}\n\nis invalid. See documentation for valid buffer\n\n"),
             InstructionError::TooLong => write!(f, "Your instruction is too long. Maximum instruction length is: {INSTRUCTION_BUFFER} bytes\n\n"),
@@ -211,6 +223,8 @@ pub struct Connection {
 impl Connection {
     /// Initialize a connection. This means doing diffie hellman key exchange and establishing a shared secret
     pub fn connect(address: &str, username: &str, password: &str) -> Result<Connection, EzError> {
+        #[cfg(debug_assertions)]
+        println!("calling: Connection::connect()");
 
         if username.len() > 512 || password.len() > 512 {
             return Err(EzError::Authentication(AuthenticationError::TooLong))
@@ -261,6 +275,9 @@ impl Connection {
 
 /// THe server side of the Connection exchange
 pub fn establish_connection(mut stream: TcpStream, server: Arc<Server>, db_ref: Arc<Database>) -> Result<Connection, EzError> {
+    #[cfg(debug_assertions)]
+    println!("calling: establish_connection()");
+
     stream.set_read_timeout(Some(Duration::from_secs(5)))?;
     println!("server_public key: {:?}", server.public_key.as_bytes());
     match stream.write(server.public_key.as_bytes()) {
@@ -353,6 +370,9 @@ pub fn establish_connection(mut stream: TcpStream, server: Arc<Server>, db_ref: 
 }
 
 fn extract_query(request: &str) -> &str {
+    #[cfg(debug_assertions)]
+    println!("calling: extract_query()");
+
     if let Some(pos) = request.find("\r\n\r\n") {
         return &request[pos + 4..];
     }
@@ -360,6 +380,8 @@ fn extract_query(request: &str) -> &str {
 }
 
 pub fn check_if_http_request(stream: &TcpStream) -> Result<String, EzError> {
+    #[cfg(debug_assertions)]
+    println!("calling: check_if_http_request()");
 
     let mut buffer = [0u8;1024];
     stream.peek(&mut buffer)?;
@@ -377,6 +399,9 @@ pub fn check_if_http_request(stream: &TcpStream) -> Result<String, EzError> {
 /// Just a hash.
 #[inline]
 pub fn ez_hash(s: &[u8]) -> [u8;32]{
+    #[cfg(debug_assertions)]
+    println!("calling: ez_hash()");
+
 
     let mut hasher = Sha256::new();
     hasher.update(s);
@@ -391,6 +416,9 @@ pub fn ez_hash(s: &[u8]) -> [u8;32]{
 /// Gets the current time as seconds since UNIX_EPOCH. Used for logging, mostly.
 #[inline]
 pub fn get_current_time() -> u64 {
+    #[cfg(debug_assertions)]
+    println!("calling: get_current_time()");
+
 
     std::time::SystemTime::now()
         .duration_since(std::time::SystemTime::UNIX_EPOCH)
@@ -401,6 +429,9 @@ pub fn get_current_time() -> u64 {
 /// Gets the current time as seconds since UNIX_EPOCH. Used for logging, mostly.
 #[inline]
 pub fn get_precise_time() -> u128 {
+    #[cfg(debug_assertions)]
+    println!("calling: check_precise_time()");
+
 
     std::time::SystemTime::now()
         .duration_since(std::time::SystemTime::UNIX_EPOCH)
@@ -411,6 +442,9 @@ pub fn get_precise_time() -> u128 {
 /// Count cycles for benchmarking
 #[inline(always)]
 pub fn rdtsc() -> u64 {
+    #[cfg(debug_assertions)]
+    println!("calling: rdtsc()");
+
     let lo: u32;
     let hi: u32;
     unsafe {
@@ -421,6 +455,9 @@ pub fn rdtsc() -> u64 {
 
 /// Incredibly convoluted way to print the current date. Copied from StackOverflow
 pub fn time_print(s: &str, cycles: u64) {
+    #[cfg(debug_assertions)]
+    println!("calling: time_print()");
+
     let num = cycles.to_string()
     .as_bytes()
     .rchunks(3)
@@ -445,6 +482,9 @@ pub fn time_print(s: &str, cycles: u64) {
 
 /// Removes the trailing 0 bytes from a str created from a byte buffer
 pub fn bytes_to_str(bytes: &[u8]) -> Result<&str, Utf8Error> {
+    #[cfg(debug_assertions)]
+    println!("calling: bytes_to_str()");
+
     let mut index: usize = 0;
     let len = bytes.len();
     let mut start: usize = 0;
@@ -480,12 +520,18 @@ pub fn bytes_to_str(bytes: &[u8]) -> Result<&str, Utf8Error> {
 /// Parses any 8 byte slice as a usize.
 #[inline]
 pub fn bytes_to_usize(bytes: [u8; 8]) -> usize {
+    #[cfg(debug_assertions)]
+    println!("calling: bytes_to_usize()");
+
     
     std::primitive::usize::from_le_bytes(bytes)
 }
 
 /// Encodes a byte slice as a hexadecimal String
 pub fn encode_hex(bytes: &[u8]) -> String {
+    #[cfg(debug_assertions)]
+    println!("calling: encode_hex()");
+
     let mut s = String::new();
     for &b in bytes {
         s.push_str(&format!("{:02x}", b));
@@ -495,6 +541,9 @@ pub fn encode_hex(bytes: &[u8]) -> String {
 
 /// Decodes a hexadecimal String as a byte slice.
 pub fn decode_hex(s: &str) -> Result<Vec<u8>, ParseIntError> {
+    #[cfg(debug_assertions)]
+    println!("calling: decode_hex()");
+
     // println!("s.len(): {}", s.len());
     (0..s.len())
         .step_by(2)
@@ -503,6 +552,9 @@ pub fn decode_hex(s: &str) -> Result<Vec<u8>, ParseIntError> {
 }
 
 pub fn decode_hex_to_arr32(s: &str) -> Result<[u8;32], ParseIntError> {
+    #[cfg(debug_assertions)]
+    println!("calling: decode_hex_to_arr32()");
+
     // println!("s.len(): {}", s.len());
     let mut arr = [0u8;32];
     let mut i = 0;
@@ -515,7 +567,10 @@ pub fn decode_hex_to_arr32(s: &str) -> Result<[u8;32], ParseIntError> {
 }
 
 /// Just a blake3 hash
-pub fn hash_function(a: &str) -> [u8;32] {
+pub fn hash_string(a: &str) -> [u8;32] {
+    #[cfg(debug_assertions)]
+    println!("calling: hash_string()");
+
 
     ez_hash(a.as_bytes())
 
@@ -525,6 +580,9 @@ pub fn hash_function(a: &str) -> [u8;32] {
 /// Creates a i32 from a &[u8] of length 4. Panics if len is different than 4. 
 #[inline]
 pub fn i32_from_le_slice(slice: &[u8]) -> i32 {
+    #[cfg(debug_assertions)]
+    println!("calling: i32_from_le_slice()");
+
     assert!(slice.len() == 4);
     let l: [u8;4] = [slice[0], slice[1], slice[2], slice[3]];
     i32::from_le_bytes(l)
@@ -533,6 +591,9 @@ pub fn i32_from_le_slice(slice: &[u8]) -> i32 {
 /// Creates a u32 from a &[u8] of length 4. Panics if len is different than 4.
 #[inline]
 pub fn u32_from_le_slice(slice: &[u8]) -> u32 {
+    #[cfg(debug_assertions)]
+    println!("calling: u32_from_le_slice()");
+
     assert!(slice.len() == 4);
     let l: [u8;4] = [slice[0], slice[1], slice[2], slice[3]];
     u32::from_le_bytes(l)
@@ -541,6 +602,9 @@ pub fn u32_from_le_slice(slice: &[u8]) -> u32 {
 /// Creates a u64 from a &[u8] of length 8. Panics if len is different than 8.
 #[inline]
 pub fn u64_from_le_slice(slice: &[u8]) -> u64 {
+    #[cfg(debug_assertions)]
+    println!("calling: u64_from_le_slice()");
+
     assert!(slice.len() == 8);
     let l: [u8;8] = [ slice[0], slice[1], slice[2], slice[3], slice[4], slice[5], slice[6], slice[7] ];
     u64::from_le_bytes(l)
@@ -549,6 +613,9 @@ pub fn u64_from_le_slice(slice: &[u8]) -> u64 {
 /// Creates a u32 from a &[u8] of length 4. Panics if len is different than 4.
 #[inline]
 pub fn f32_from_le_slice(slice: &[u8]) -> f32 {   
+    #[cfg(debug_assertions)]
+    println!("calling: f32_from_le_slice()");
+
     assert!(slice.len() == 4);
     let l: [u8;4] = [slice[0], slice[1], slice[2], slice[3]];
     f32::from_le_bytes(l)
@@ -557,6 +624,9 @@ pub fn f32_from_le_slice(slice: &[u8]) -> f32 {
 /// Creates a usize from a &[u8] of length 8. Panics if len is different than 8.
 #[inline]
 pub fn usize_from_le_slice(slice: &[u8]) -> usize {   
+    #[cfg(debug_assertions)]
+    println!("calling: usize_from_le_slice()");
+
     assert!(slice.len() == 8);
     let l: [u8;8] = [slice[0], slice[1], slice[2], slice[3], slice[4], slice[5], slice[6], slice[7]];
     usize::from_le_bytes(l)
@@ -566,6 +636,9 @@ pub fn usize_from_le_slice(slice: &[u8]) -> usize {
 #[inline]
 pub fn print_sep_list<T>(list: &[T], sep: &str) -> String 
 where T: Display  {
+    #[cfg(debug_assertions)]
+    println!("calling: print_sep_list()");
+
     let mut printer = String::with_capacity(64*list.len());
     for item in list {
         printer.push_str(&item.to_string());
@@ -581,6 +654,9 @@ where T: Display  {
 
 #[inline]
 pub fn chunk3_vec<T>(list: &[T]) -> Option<[&T;3]> {
+    #[cfg(debug_assertions)]
+    println!("calling: chunk3_vec()");
+
     let mut i = list.iter();
     let one = match i.next() {
         Some(x) => x,
@@ -600,6 +676,9 @@ pub fn chunk3_vec<T>(list: &[T]) -> Option<[&T;3]> {
 
 #[inline]
 pub fn sum_i32_slice(slice: &[i32]) -> i32 {
+    #[cfg(debug_assertions)]
+    println!("calling: sum_i32_slice()");
+
 
     let mut suma = simd::i32x4::splat(0);
     let mut sumb = simd::i32x4::splat(0);
@@ -630,6 +709,9 @@ pub fn sum_i32_slice(slice: &[i32]) -> i32 {
 
 #[inline]
 pub fn sum_f32_slice(slice: &[f32]) -> f32 {
+    #[cfg(debug_assertions)]
+    println!("calling: sum_f32_slice()");
+
     let mut suma = simd::f32x4::splat(0.0);
     let mut sumb = simd::f32x4::splat(0.0);
     let mut sumc = simd::f32x4::splat(0.0);
@@ -643,10 +725,57 @@ pub fn sum_f32_slice(slice: &[f32]) -> f32 {
         i += 16;
     }
 
-    let suma = suma.as_array().iter().fold(0.0, |acc: f32, x| acc + *x);
-    let sumb = sumb.as_array().iter().fold(0.0, |acc: f32, x| acc + *x);
-    let sumc = sumc.as_array().iter().fold(0.0, |acc: f32, x| acc + *x);
-    let sumd = sumd.as_array().iter().fold(0.0, |acc: f32, x| acc + *x);
+    // let suma = suma.as_array().iter().fold(0.0, |acc: f32, x| acc + *x);
+    // let sumb = sumb.as_array().iter().fold(0.0, |acc: f32, x| acc + *x);
+    // let sumc = sumc.as_array().iter().fold(0.0, |acc: f32, x| acc + *x);
+    // let sumd = sumd.as_array().iter().fold(0.0, |acc: f32, x| acc + *x);
+    let suma = suma[0] + suma[1] + suma[2] + suma[3];
+    let sumb = sumb[0] + sumb[1] + sumb[2] + sumb[3];
+    let sumc = sumc[0] + sumc[1] + sumc[2] + sumc[3];
+    let sumd = sumd[0] + sumd[1] + sumd[2] + sumd[3];
+
+    let mut sum = suma + sumb + sumc + sumd;
+    while i < slice.len() {
+        sum = sum + slice[i];
+        i += 1;
+    }
+
+    sum
+}
+
+pub unsafe fn raw_sum_f32_slice(slice: &[f32]) -> f32 {
+    #[cfg(debug_assertions)]
+    println!("calling: raw_sum_f32_slice()");
+
+
+    let mut suma = x86_64::_mm_setzero_ps();
+    let mut sumb = x86_64::_mm_setzero_ps();
+    let mut sumc = x86_64::_mm_setzero_ps();
+    let mut sumd = x86_64::_mm_setzero_ps();
+    let mut i = 0;
+    while i + 15 < slice.len() {
+        suma = x86_64::_mm_add_ps(suma, x86_64::_mm_load_ps(slice[i..i+4].as_ptr()));
+        sumb = x86_64::_mm_add_ps(sumb, x86_64::_mm_load_ps(slice[i+4..i+8].as_ptr()));
+        sumc = x86_64::_mm_add_ps(sumc, x86_64::_mm_load_ps(slice[i+8..i+12].as_ptr()));
+        sumd = x86_64::_mm_add_ps(sumd, x86_64::_mm_load_ps(slice[i+12..i+16].as_ptr()));
+        i += 16;
+    }
+
+    let mut pa = [0f32;4];
+    let mut pb = [0f32;4];
+    let mut pc = [0f32;4];
+    let mut pd = [0f32;4];
+
+    x86_64::_mm_store_ps(pa.as_mut_ptr(), suma);
+    x86_64::_mm_store_ps(pb.as_mut_ptr(), sumb);
+    x86_64::_mm_store_ps(pc.as_mut_ptr(), sumc);
+    x86_64::_mm_store_ps(pd.as_mut_ptr(), sumd);
+
+    let suma = pa.iter().fold(0.0, |acc: f32, x| acc + *x);
+    let sumb = pb.iter().fold(0.0, |acc: f32, x| acc + *x);
+    let sumc = pc.iter().fold(0.0, |acc: f32, x| acc + *x);
+    let sumd = pd.iter().fold(0.0, |acc: f32, x| acc + *x);
+
 
     let mut sum = suma + sumb + sumc + sumd;
     while i < slice.len() {
@@ -659,6 +788,9 @@ pub fn sum_f32_slice(slice: &[f32]) -> f32 {
 
 #[inline]
 pub fn mean_i32_slice(slice: &[i32]) -> f32 {
+    #[cfg(debug_assertions)]
+    println!("calling: mean_i32_slice()");
+
     let mut suma = simd::f32x4::splat(0.0);
     let mut sumb = simd::f32x4::splat(0.0);
     let mut sumc = simd::f32x4::splat(0.0);
@@ -688,11 +820,17 @@ pub fn mean_i32_slice(slice: &[i32]) -> f32 {
 
 #[inline]
 pub fn mean_f32_slice(slice: &[f32]) -> f32 {
+    #[cfg(debug_assertions)]
+    println!("calling: mean_f32_slice()");
+
     sum_f32_slice(slice) / (slice.len() as f32)
 }
 
 #[inline]
 pub fn mode_i32_slice(slice: &[i32]) -> i32 {
+    #[cfg(debug_assertions)]
+    println!("calling: mode_i32_slice()");
+
 
     let mut map = FnvHashMap::default();
     for item in slice {
@@ -716,6 +854,9 @@ pub fn mode_i32_slice(slice: &[i32]) -> i32 {
 
 #[inline]
 pub fn mode_string_slice(slice: &[KeyString]) -> KeyString {
+    #[cfg(debug_assertions)]
+    println!("calling: mode_string_slice()");
+
 
     let mut map = FnvHashMap::default();
     for item in slice {
@@ -739,6 +880,9 @@ pub fn mode_string_slice(slice: &[KeyString]) -> KeyString {
 
 #[inline]
 pub fn stdev_i32_slice(slice: &[i32]) -> f32 {
+    #[cfg(debug_assertions)]
+    println!("calling: stdev_i32_slice()");
+
     let mean = mean_i32_slice(slice);
 
     let mut variancea = simd::f32x4::splat(0.0);
@@ -782,6 +926,9 @@ pub fn stdev_i32_slice(slice: &[i32]) -> f32 {
 
 #[inline]
 pub fn stdev_f32_slice(slice: &[f32]) -> f32 {
+    #[cfg(debug_assertions)]
+    println!("calling: stdev_f32_slice()");
+
     let mean = mean_f32_slice(slice);
 
     let mut variancea = simd::f32x4::splat(0.0);
@@ -824,6 +971,9 @@ pub fn stdev_f32_slice(slice: &[f32]) -> f32 {
 
 #[inline]
 fn partition<T: Copy + PartialOrd>(data: &[T]) -> (Vec<T>, T, Vec<T>) {
+    #[cfg(debug_assertions)]
+    println!("calling: partition()");
+
     let (pivot_slice, tail) = data.split_at(1);
     let pivot = pivot_slice[0];
 
@@ -842,6 +992,9 @@ fn partition<T: Copy + PartialOrd>(data: &[T]) -> (Vec<T>, T, Vec<T>) {
 
 #[inline]
 fn select<T: Copy + PartialOrd>(data: &[T], k: usize) -> T {
+    #[cfg(debug_assertions)]
+    println!("calling: select()");
+
 
     let (left, pivot, right) = partition(data);
 
@@ -856,7 +1009,8 @@ fn select<T: Copy + PartialOrd>(data: &[T], k: usize) -> T {
 
 #[inline]
 pub fn median_i32_slice(data: &[i32]) -> f32 {
-
+    #[cfg(debug_assertions)]
+    println!("calling: median_i32_slice()");
 
     match data.len() {
         even if even % 2 == 0 => {
@@ -871,6 +1025,8 @@ pub fn median_i32_slice(data: &[i32]) -> f32 {
 
 #[inline]
 pub fn median_f32_slice(data: &[f32]) -> f32 {
+    #[cfg(debug_assertions)]
+    println!("calling: median_f32_slice()");
 
 
     match data.len() {
@@ -886,6 +1042,9 @@ pub fn median_f32_slice(data: &[f32]) -> f32 {
 
 #[inline]
 pub fn bytes_from_strings(strings: &[&str]) -> Vec<u8> {
+    #[cfg(debug_assertions)]
+    println!("calling: bytes_from_strings()");
+
     let mut v = Vec::with_capacity(strings.len()*64);
     for string in strings {
         v.extend_from_slice(KeyString::from(*string).raw());
@@ -897,6 +1056,9 @@ pub fn bytes_from_strings(strings: &[&str]) -> Vec<u8> {
 
 
 pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut Connection) -> Result<String, EzError> {
+    #[cfg(debug_assertions)]
+    println!("calling: instruction_send_and_confirm()");
+
     let instruction = match instruction {
         Instruction::Download(table_name) => bytes_from_strings(&[&connection.user, "Downloading", &table_name.as_str(),"blank", ]),
         Instruction::Upload(table_name) => bytes_from_strings(&[&connection.user, "Uploading", &table_name.as_str(),"blank", ]), 
@@ -941,6 +1103,9 @@ pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut C
 /// Helper function that parses a response from instruction_send_and_confirm().
 #[inline]
 pub fn parse_response(response: &str, username: &str, table_name: &str) -> Result<(), EzError> {
+    #[cfg(debug_assertions)]
+    println!("calling: parse_response()");
+
 
     if response == "OK" {
         Ok(())
@@ -960,6 +1125,9 @@ pub fn parse_response(response: &str, username: &str, table_name: &str) -> Resul
 /// It compresses, encrypts, sends, and confirms receipt of the data.
 /// Used by both client and server.
 pub fn data_send_and_confirm(connection: &mut Connection, data: &[u8]) -> Result<String, EzError> {
+    #[cfg(debug_assertions)]
+    println!("calling: data_send_and_confirm()");
+
 
     // // println!("data: {:x?}", data);
 
@@ -970,6 +1138,65 @@ pub fn data_send_and_confirm(connection: &mut Connection, data: &[u8]) -> Result
     
     let confirmation = bytes_to_str(&buffer).unwrap_or("corrupt data");
     Ok(confirmation.to_owned())
+
+}
+
+
+
+pub fn send_encrypted_data(data: &[u8], connection: &mut Connection) -> Result<(), EzError> {
+    println!("calling: send_encrypted_data()");
+
+    
+    let data = compression::miniz_compress(data)?;
+    let (encrypted_data, data_nonce) = encrypt_aes256(&data, &connection.aes_key);
+
+    let mut encrypted_data_block = Vec::with_capacity(data.len() + 28);
+    encrypted_data_block.extend_from_slice(&encrypted_data);
+    encrypted_data_block.extend_from_slice(&data_nonce);
+
+
+    // The reason for the +28 in the length checker is that it accounts for the length of the nonce (IV) and the authentication tag
+    // in the aes-gcm encryption. The nonce is 12 bytes and the auth tag is 16 bytes
+    let mut block = Vec::from(&(data.len() + 28).to_le_bytes());
+    block.extend_from_slice(&encrypted_data_block);
+    connection.stream.write_all(&block)?;
+    connection.stream.flush()?;
+
+    Ok(())
+}
+
+pub fn receive_encrypted_data(connection: &mut Connection) -> Result<Vec<u8>, EzError> {
+    println!("calling: receive_encrypted_data()");
+
+
+    let mut size_buffer: [u8; 8] = [0; 8];
+    connection.stream.read_exact(&mut size_buffer)?;
+
+    let data_len = usize::from_le_bytes(size_buffer);
+    if data_len > MAX_DATA_LEN {
+        return Err(EzError::OversizedData)
+    }
+    
+    let mut data = Vec::with_capacity(data_len);
+    let mut buffer = [0; DATA_BUFFER];
+    let mut total_read: usize = 0;
+    
+    while total_read < data_len {
+        let to_read = std::cmp::min(DATA_BUFFER, data_len - total_read);
+        let bytes_received = connection.stream.read(&mut buffer[..to_read])?;
+        if bytes_received == 0 {
+            return Err(EzError::Confirmation("Read failure".to_owned()));
+        }
+        data.extend_from_slice(&buffer[..bytes_received]);
+        total_read += bytes_received;
+        println!("Total read: {}", total_read);
+    }
+
+    let (ciphertext, nonce) = (&data[0..data.len()-12], &data[data.len()-12..]);
+    let csv = decrypt_aes256(ciphertext, &connection.aes_key, nonce)?;
+
+    let csv = compression::miniz_decompress(&csv)?;
+    Ok(csv)
 
 }
 

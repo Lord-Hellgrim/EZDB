@@ -21,6 +21,7 @@ pub struct KeyString {
 
 impl fmt::Debug for KeyString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        
         f.debug_struct("KeyString").field("inner", &self.as_str()).finish()
     }
 }
@@ -293,6 +294,8 @@ impl fmt::Display for Metadata {
 
 impl Cbor for Metadata {
     fn to_cbor_bytes(&self) -> Vec<u8> {
+        println!("calling: Metadata::to_cbor_bytes()");
+
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&self.last_access.load(Ordering::Relaxed).to_cbor_bytes());
         bytes.extend_from_slice(&self.times_accessed.load(Ordering::Relaxed).to_cbor_bytes());
@@ -306,6 +309,8 @@ impl Cbor for Metadata {
         where 
             Self: Sized 
     {
+        println!("calling: Metadata::from_cbor_bytes()");
+
         let mut i = 0;
         let mut count = 0;
         let (last_access, bytes_read) = <u64 as Cbor>::from_cbor_bytes(&bytes[i..])?;
@@ -330,6 +335,8 @@ impl Cbor for Metadata {
 
 impl Metadata {
     pub fn new(client: &str) -> Metadata {
+        println!("calling: Metadata::new()");
+
         Metadata {
             last_access: AtomicU64::new(get_current_time()),
             times_accessed: AtomicU64::new(0),
@@ -340,6 +347,8 @@ impl Metadata {
     }
 
     pub fn from_table(client: &str, header: &[HeaderItem], table: &BTreeMap<KeyString, DbColumn>) -> Metadata {
+        println!("calling: Metadata::from_table()");
+
         let size_of_row = header.iter().fold(0, |acc: usize, x| {
             match x.kind {
                 DbType::Float => acc + 4,
@@ -367,6 +376,8 @@ impl Metadata {
 
     #[inline]
     pub fn update_size(&mut self, header: &[HeaderItem], table: &BTreeMap<KeyString, DbColumn>) {
+        println!("calling: Metadata::update_size()");
+
         self.size_of_row = header.iter().fold(0, |acc: usize, x| {
             match x.kind {
                 DbType::Float => acc + 4,
@@ -405,6 +416,8 @@ pub enum DbType {
 
 impl Cbor for DbType {
     fn to_cbor_bytes(&self) -> Vec<u8> {
+        println!("calling: DbType::to_cbor_bytes()");
+
         let mut bytes = Vec::new();
         match self {
             DbType::Int => bytes.push(0xc6),
@@ -418,6 +431,8 @@ impl Cbor for DbType {
         where 
             Self: Sized 
     {
+        println!("calling: DbType::from_cbor_bytes()");
+
         match expected_data_item(bytes[0]) {
             DataItem::Tag(byte) => match byte {
                 0 => Ok((DbType::Int, 1)),
@@ -441,6 +456,8 @@ pub enum DbColumn {
 
 impl Display for DbColumn {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        println!("calling: DbType::Display()");
+
         match self {
             DbColumn::Ints(v) => write!(f, "{:?}", v),
             DbColumn::Floats(v) => write!(f, "{:?}", v),
@@ -451,6 +468,8 @@ impl Display for DbColumn {
 
 impl Cbor for DbColumn {
     fn to_cbor_bytes(&self) -> Vec<u8> {
+        println!("calling: DbColumn::to_cbor_bytes()");
+
         let mut bytes = Vec::new();
         match self {
             DbColumn::Ints(col) => {
@@ -475,6 +494,8 @@ impl Cbor for DbColumn {
         where 
             Self: Sized 
     {
+        println!("calling: DbColumn::from_cbor_bytes()");
+
         match expected_data_item(bytes[0]) {
             DataItem::Tag(byte) => match byte {
                 0 => {
@@ -508,21 +529,21 @@ impl DbColumn {
     pub fn get_i32_col(&self) -> &Vec<i32> {
         match self {
             DbColumn::Ints(col) => col,
-            _ => panic!("Never call this function unless you are sure its an i32 column"),
+            _ => panic!("Never call this function unless you are sure it's an i32 column"),
         }
     }
 
     pub fn get_f32_col(&self) -> &Vec<f32> {
         match self {
             DbColumn::Floats(col) => col,
-            _ => panic!("Never call this function unless you are sure its an f32 column"),
+            _ => panic!("Never call this function unless you are sure it's an f32 column"),
         }
     }
 
     pub fn get_text_col(&self) -> &Vec<KeyString> {
         match self {
             DbColumn::Texts(col) => col,
-            _ => panic!("Never call this function unless you are sure its a KeyString column"),
+            _ => panic!("Never call this function unless you are sure it's a KeyString column"),
         }
     }
 }
@@ -538,6 +559,8 @@ pub struct HeaderItem {
 
 impl Display for HeaderItem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        println!("calling: HeaderItem::Display()");
+
         let mut printer = String::new();
         printer.push_str(self.name.as_str());
         printer.push(',');
@@ -563,6 +586,8 @@ impl Default for HeaderItem {
 
 impl Cbor for HeaderItem {
     fn to_cbor_bytes(&self) -> Vec<u8> {
+        println!("calling: HeaderItem::to_cbor_bytes()");
+
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&self.name.to_cbor_bytes());
         bytes.extend_from_slice(&self.kind.to_cbor_bytes());
@@ -574,6 +599,8 @@ impl Cbor for HeaderItem {
         where 
             Self: Sized 
     {
+        println!("calling: HeaderItem::from_cbor_bytes()");
+
         let mut i = 0;
         let (name, bytes_read) = <KeyString as Cbor>::from_cbor_bytes(&bytes[i..])?;
         i += bytes_read;
@@ -612,6 +639,8 @@ pub enum TableKey {
 
 impl Cbor for TableKey {
     fn to_cbor_bytes(&self) -> Vec<u8> {
+        println!("calling: TableKey::to_cbor_bytes()");
+
         let mut bytes = Vec::new();
         match self {
             TableKey::Primary => bytes.push(0xc6),
@@ -625,6 +654,8 @@ impl Cbor for TableKey {
         where 
             Self: Sized 
     {
+        println!("calling: TableKey::from_cbor_bytes()");
+
         match expected_data_item(bytes[0]) {
             DataItem::Tag(byte) => match byte {
                 0 => Ok((TableKey::Primary, 1)),
@@ -649,6 +680,8 @@ pub struct ColumnTable {
 
 impl Cbor for ColumnTable {
     fn to_cbor_bytes(&self) -> Vec<u8> {
+        println!("calling: ColumnTable::to_cbor_bytes()");
+
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&self.metadata.to_cbor_bytes());
         bytes.extend_from_slice(&self.name.to_cbor_bytes());
@@ -661,6 +694,8 @@ impl Cbor for ColumnTable {
         where 
             Self: Sized 
     {
+        println!("calling: ColumnTable::from_cbor_bytes()");
+
         let mut i = 0;
         let (metadata, bytes_read) = <Metadata as Cbor>::from_cbor_bytes(&bytes[i..])?;
         i += bytes_read;
@@ -689,6 +724,8 @@ impl PartialEq for ColumnTable {
 /// Prints the ColumnTable as a csv (separated by semicolons ;)
 impl Display for ColumnTable {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        println!("calling: ColumnTable::fmt()");
+
         let mut printer = String::new();
 
         for item in &self.header {
@@ -730,6 +767,8 @@ impl Display for ColumnTable {
 impl ColumnTable {
 
     pub fn blank(header: &Vec<HeaderItem>, name: KeyString, created_by: &str) -> ColumnTable {
+        println!("calling: ColumnTable::blank()");
+
 
         let mut columns = BTreeMap::new();
 
@@ -759,6 +798,8 @@ impl ColumnTable {
         table_name: &str,
         created_by: &str,
     ) -> Result<ColumnTable, StrictError> {
+        println!("calling: ColumnTable::from_csv_string()");
+
         /*
         EZ CSV FORMAT:
         Table names shall be no more that 254 characters.
@@ -959,6 +1000,8 @@ impl ColumnTable {
 
     /// Helper function to update a ColumnTable with a csv
     pub fn update_from_csv(&mut self, input_csv: &str) -> Result<(), StrictError> {
+        println!("calling: ColumnTable::update_from_csv()");
+
         let update_table = ColumnTable::from_csv_string(input_csv, "update", "system")?;
 
         self.update(&update_table)?;
@@ -967,6 +1010,8 @@ impl ColumnTable {
     }
 
     pub fn insert(&mut self, inserts: Inserts) -> Result<(), StrictError> {
+        println!("calling: ColumnTable::insert()");
+
 
         let mut input_table = table_from_inserts(&inserts, "inserts", &self)?;
 
@@ -998,6 +1043,8 @@ impl ColumnTable {
     }
 
     pub fn contains_key_i32(&self, key: i32) -> Option<usize> {
+        println!("calling: ColumnTable::contains_key_i32()");
+
 
         match &self.columns[&self.get_primary_key_col_index()] {
             DbColumn::Ints(column) => {
@@ -1011,6 +1058,8 @@ impl ColumnTable {
     }
 
     pub fn contains_key_string(&self, key: KeyString) -> Option<usize> {
+        println!("calling: ColumnTable::contains_keystring()");
+
 
         match &self.columns[&self.get_primary_key_col_index()] {
             DbColumn::Texts(column) => {
@@ -1026,6 +1075,8 @@ impl ColumnTable {
     
 
     pub fn byte_size(&self) -> usize {
+        println!("calling: ColumnTable::byte_size()");
+
 
         let mut total = 0;
         
@@ -1046,6 +1097,8 @@ impl ColumnTable {
 
     /// utility function to get the index of the column with the primary key
     pub fn get_primary_key_col_index(&self) -> KeyString {
+        println!("calling: ColumnTable::get_primary_key_col()");
+
         
         for item in &self.header {
             if item.key == TableKey::Primary {
@@ -1057,6 +1110,8 @@ impl ColumnTable {
     }
 
     pub fn get_primary_key_type(&self) -> DbType {
+        println!("calling: ColumnTable::get_primary_key_type()");
+
         match self.columns[&self.get_primary_key_col_index()] {
             DbColumn::Ints(_) => DbType::Int,
             DbColumn::Texts(_) => DbType::Text,
@@ -1066,6 +1121,8 @@ impl ColumnTable {
 
     /// Updates a ColumnTable. Overwrites existing keys and adds new ones in proper order
     pub fn update(&mut self, other_table: &ColumnTable) -> Result<(), StrictError> {
+        println!("calling: ColumnTable::update()");
+
 
         if other_table.len() == 0 {
             return Err(StrictError::Update("Can't update anything with an empty table".to_owned()))
@@ -1129,6 +1186,8 @@ impl ColumnTable {
     }
 
     pub fn key_index(&self, key: &KeyString) -> Option<usize> {
+        println!("calling: ColumnTable::key_index()");
+
         match &self.columns[&self.get_primary_key_col_index()] {
             DbColumn::Ints(column) => {
                 match column.binary_search(&key.to_i32()) {
@@ -1148,6 +1207,8 @@ impl ColumnTable {
 
     /// Utility function to get the length of the database columns.
     pub fn len(&self) -> usize {
+        println!("calling: ColumnTable::len()");
+
         match &self.columns.values().next() {
             Some(column) => match column {
                 DbColumn::Floats(col) => col.len(),
@@ -1160,6 +1221,8 @@ impl ColumnTable {
 
     /// Sorts all the columns in the table by the primary key. This was tricky to write.
     pub fn sort(&mut self) {
+        println!("calling: ColumnTable::sort()");
+
         let len = self.len();
 
         let mut indexer: Vec<usize> = (0..len).collect();
@@ -1199,6 +1262,8 @@ impl ColumnTable {
 
     /// Gets a single line from the table as a csv String.
     pub fn get_line(&self, index: usize) -> Result<String, StrictError> {
+        println!("calling: ColumnTable::get_line()");
+
         if index > self.len() {
             return Err(StrictError::Query("Index larger than data".to_owned()));
         }
@@ -1228,6 +1293,8 @@ impl ColumnTable {
     }
     
     pub fn get_column_int<'a>(&'a self, index: &KeyString) -> Result<&'a Vec<i32>, StrictError> {
+        println!("calling: ColumnTable::get_column_int()");
+
 
         match self.columns.get(index) {
             Some(dbcol) => match dbcol {
@@ -1241,6 +1308,7 @@ impl ColumnTable {
     }
 
     pub fn get_column_text<'a>(&'a self, index: &KeyString) -> Result<&'a Vec<KeyString>, StrictError> {
+        println!("calling: ColumnTable::get_column_text()");
 
         match self.columns.get(index) {
             Some(dbcol) => match dbcol {
@@ -1254,6 +1322,7 @@ impl ColumnTable {
     }
 
     pub fn get_column_float<'a>(&'a self, index: &KeyString) -> Result<&'a Vec<f32>, StrictError> {
+        println!("calling: ColumnTable::get_column_float()");
 
         match self.columns.get(index) {
             Some(dbcol) => match dbcol {
@@ -1268,6 +1337,8 @@ impl ColumnTable {
 
     /// Gets a list of items from the table and returns a csv string containing them
     pub fn query_list(&self, mut key_list: Vec<&str>) -> Result<String, StrictError> {
+        println!("calling: ColumnTable::query_list()");
+
         let mut printer = String::new();
         let primary_index = self.get_primary_key_col_index();
         key_list.sort();
@@ -1316,6 +1387,8 @@ impl ColumnTable {
     }
 
     pub fn subtable_from_indexes(&self, indexes: &[usize], new_name: &KeyString) -> ColumnTable {
+        println!("calling: ColumnTable::subtable_from_indexes()");
+
         let mut result_columns = BTreeMap::new();
 
         for (key, column) in self.columns.iter() {
@@ -1356,6 +1429,8 @@ impl ColumnTable {
     }
 
     pub fn subtable_from_columns(&self, columns: &[KeyString], new_name: &str) -> Result<ColumnTable, StrictError> {
+        println!("calling: ColumnTable::subtable_from_columns()");
+
         let mut new_table_inner = BTreeMap::new();
         let mut new_table_header = Vec::new();
 
@@ -1401,6 +1476,8 @@ impl ColumnTable {
 
     /// Gets a range of items from the table and returns a csv String containing them
     pub fn query_range(&self, range: (&str, &str)) -> Result<String, StrictError> {
+        println!("calling: ColumnTable::query_range()");
+
         let mut printer = String::new();
 
         if range.1 < range.0 {
@@ -1481,10 +1558,14 @@ impl ColumnTable {
 
     /// Gets one item from the list. Same as get_line. I should get rid of this but right now I'm commenting...
     pub fn query(&self, query: &str) -> Result<String, StrictError> {
+        println!("calling: ColumnTable::query()");
+
         self.query_list(Vec::from([query]))
     }
 
     pub fn copy_lines(&self, target: &mut ColumnTable, line_keys: &DbColumn) -> Result<(), StrictError> {
+        println!("calling: ColumnTable::copy_lines()");
+
         if target.header != self.header {
             return Err(StrictError::Query("Target table header does not match source table header.".to_owned()));
         }
@@ -1585,6 +1666,8 @@ impl ColumnTable {
     }
 
     pub fn create_subtable_from_index_range(&self, start: usize, mut stop: usize) -> ColumnTable {
+        println!("calling: ColumnTable::create_subtable_from_index_range()");
+
 
         if stop >= self.len() {
             stop = self.len();
@@ -1618,6 +1701,8 @@ impl ColumnTable {
 
     /// Deletes a range of rows by primary key from the table
     pub fn delete_range(&mut self, range: (&str, &str)) -> Result<(), StrictError> {
+        println!("calling: ColumnTable::delete_range()");
+
         // Up to but not including.
         // Up to but not including!!
         // UP TO BUT NOT INCLUDING!!!
@@ -1696,6 +1781,8 @@ impl ColumnTable {
 
     /// Deletes a list of rows by primary key from the database
     pub fn delete_list(&mut self, mut key_list: Vec<&str>) -> Result<(), StrictError> {
+        println!("calling: ColumnTable::delete_list()");
+
         let primary_index = self.get_primary_key_col_index();
         key_list.sort();
 
@@ -1748,6 +1835,8 @@ impl ColumnTable {
 
 
     pub fn delete_by_vec(&mut self, key_list: DbColumn) -> Result<(), StrictError> {
+        println!("calling: ColumnTable::delete_by_vec()");
+
         let primary_index = self.get_primary_key_col_index();
 
         let mut indexes = Vec::with_capacity(key_list.len());
@@ -1807,6 +1896,8 @@ impl ColumnTable {
     }
 
     pub fn delete_by_indexes(&mut self, indexes: &[usize]) {
+        println!("calling: ColumnTable::delete_by_indexes()");
+
         let imut = self.columns.values_mut();
         for col in imut {
             match col {
@@ -1826,10 +1917,14 @@ impl ColumnTable {
 
     /// Deletes a single row from the table by primary key
     fn delete(&mut self, query: &str) -> Result<(), StrictError> {
+        println!("calling: ColumnTable::delete()");
+
         self.delete_list(Vec::from([query]))
     }
 
     pub fn clear(&mut self) {
+        println!("calling: ColumnTable::clear()");
+
         for column in self.columns.values_mut() {
             match column {
                 DbColumn::Ints(col) => {
@@ -1846,6 +1941,8 @@ impl ColumnTable {
     }
 
     pub fn add_column(&mut self, name: KeyString, column: DbColumn) -> Result<(), StrictError> {
+        println!("calling: ColumnTable::add_column()");
+
 
         let kind = match column {
             DbColumn::Ints(_) => DbType::Int,
@@ -1868,6 +1965,8 @@ impl ColumnTable {
 
 
     pub fn alt_left_join(&mut self, right_table: &ColumnTable, predicate_column: &KeyString) -> Result<(), StrictError> {
+        println!("calling: ColumnTable::alt_left_join()");
+
 
         match self.columns.keys().find(|x| **x == *predicate_column) {
             Some(_) => (),
@@ -1942,6 +2041,8 @@ impl ColumnTable {
 
 
     pub fn left_join(&mut self, right_table: &ColumnTable, predicate_column: &KeyString) -> Result<(), StrictError> {
+        println!("calling: ColumnTable::left_join()");
+
 
         match self.columns.keys().find(|x| **x == *predicate_column) {
             Some(_) => (),
@@ -2062,9 +2163,13 @@ impl ColumnTable {
 
     /// Writes to EZ binary format
     pub fn write_to_binary(&self) -> Vec<u8> {
+        println!("calling: ColumnTable::write_to_binary()");
+
 
         let mut output: Vec<u8> = Vec::with_capacity(self.metadata.size_of_table());
         
+        output.extend_from_slice("EZDB".as_bytes());
+
         // WRITING HEADER
         for item in &self.header {
             let kind = match item.kind {
@@ -2118,6 +2223,15 @@ impl ColumnTable {
 
     /// Reads an EZ binary formatted file to a ColumnTable, checking for strictness.
     pub fn from_binary(name: &str, binary: &[u8]) -> Result<ColumnTable, StrictError> {
+        println!("calling: ColumnTable::from_binary()");
+
+        if binary.len() < 4 {
+            return Err(StrictError::BinaryRead("binary is less than 4 bytes".to_owned()));
+        }
+        if &binary[0..4] != "EZDB".as_bytes() {
+            return Err(StrictError::BinaryRead("No EZDB prefix".to_owned()));
+        }
+        let binary = &binary[4..];
         let mut binter = binary.iter();
         let first_newline = binter.position(|n| *n == b'\n').expect(&format!("Reading the first newline should never fail unless the data is corrupted. The file that was being read is {name}"));
         let bin_header = &binary[0..first_newline];
@@ -2249,6 +2363,8 @@ pub struct RowTable {
 
 
 pub fn write_subtable_to_raw_binary(subtable: ColumnTable) -> Vec<u8> {
+    println!("calling: write_subtable_to_raw_binary()");
+
     let mut total_bytes = 0;
 
         let length = subtable.len();
@@ -2289,6 +2405,8 @@ pub fn write_subtable_to_raw_binary(subtable: ColumnTable) -> Vec<u8> {
 
 
 pub fn subtable_from_keys(table: &ColumnTable, mut keys: Vec<KeyString>) -> Result<ColumnTable, StrictError> {
+    println!("calling: subtable_from_keys()");
+
 
     let mut indexes = Vec::new();
     match table.get_primary_key_type() {
@@ -2331,6 +2449,8 @@ pub fn subtable_from_keys(table: &ColumnTable, mut keys: Vec<KeyString>) -> Resu
 }
 
 pub fn table_from_inserts(inserts: &Inserts, table_name: &str, template_table: &ColumnTable) -> Result<ColumnTable, StrictError> {
+    println!("calling: table_from_inserts()");
+
     let mut new_header = Vec::new();
 
         for item in &inserts.value_columns {
@@ -2360,6 +2480,8 @@ pub fn table_from_inserts(inserts: &Inserts, table_name: &str, template_table: &
 /// This is how the other columns as sorted to match the primary key column after it is sorted.
 #[inline]
 fn rearrange_by_index<T: Clone>(col: &mut Vec<T>, indexer: &[usize]) {
+    println!("calling: rearrange_by_index()");
+
     let mut temp = Vec::with_capacity(col.len());
     for i in 0..col.len() {
         temp.push(col[indexer[i]].clone());
@@ -2369,6 +2491,8 @@ fn rearrange_by_index<T: Clone>(col: &mut Vec<T>, indexer: &[usize]) {
 
 /// Helper function to remove indices in batches.
 pub fn remove_indices<T>(vec: &mut Vec<T>, indices: &[usize]) {
+    println!("calling: remove_indices()");
+
     let indices_set: HashSet<_> = indices.iter().cloned().collect();
     let mut shift = 0;
 
@@ -2385,6 +2509,8 @@ pub fn remove_indices<T>(vec: &mut Vec<T>, indices: &[usize]) {
 
 /// Helper function to merge two sorted Vecs. Used in the update methods.
 fn merge_sorted<T: Ord + Clone + Display + Debug>(one: &[T], two: &[T]) -> (Vec<T>, Vec<u8>) {
+    println!("calling: merge_sorted()");
+
     let mut output: Vec<T> = Vec::with_capacity(one.len() + two.len());
     let mut record_vec: Vec<u8> = Vec::with_capacity(one.len() + two.len());
     let mut one_pointer = 0;
@@ -2455,6 +2581,8 @@ fn merge_sorted<T: Ord + Clone + Display + Debug>(one: &[T], two: &[T]) -> (Vec<
 
 /// Helper function for merging two unsorted vecs in the order of another vec. Used to sort.
 fn merge_in_order<T: Clone + Display>(one: &[T], two: &[T], record_vec: &[u8]) -> Vec<T> {
+    println!("calling: merge_in_order()");
+
     let mut output = Vec::with_capacity(one.len() + two.len());
     let mut one_pointer = 0;
     let mut two_pointer = 0;
@@ -2494,6 +2622,8 @@ pub struct Value {
 
 impl Value {
     pub fn new(name: &str, creator: &str, body: &[u8]) -> Value {
+        println!("calling: Value::new()");
+
         let mut body = Vec::from(body);
         body.shrink_to_fit();
         Value {
@@ -2504,6 +2634,8 @@ impl Value {
     }
 
     pub fn update(&mut self, value: Value) {
+        println!("calling: Value::update()");
+
         assert_eq!(self.name, value.name);
         self.body = value.body;
         self.metadata.last_access.store(get_current_time(), Ordering::Relaxed);
@@ -2513,6 +2645,8 @@ impl Value {
 
     /// Saves the binary blob to disk in a file named key.
     pub fn write_to_binary(&self) -> Vec<u8> {
+        println!("calling: Value::write_to_binary()");
+
         let mut output = Vec::with_capacity(self.body.len() + 80);
 
         // WRITING METADATA
@@ -2526,6 +2660,8 @@ impl Value {
     }
 
     pub fn from_binary(name: &str, binary: &[u8]) -> Value {
+        println!("calling: Value::from_binary()");
+
 
         let metadata_created_by = KeyString::try_from(&binary[0..64]).expect("This should only fail if the binary data is corrupt");
         let metadata_last_access = u64_from_le_slice(&binary[64..72]);
@@ -2682,7 +2818,7 @@ mod tests {
     }
 
     #[test]
-    fn test_raw_binary() {
+    fn test_binary_format() {
         // let input = "vnr,i-P;heiti,t;magn,i\n113035;undirlegg;200\n113050;annad undirlegg;500";
         let input = std::fs::read_to_string(format!(
             "test_files{PATH_SEP}test_csv_from_google_sheets_combined_sorted.csv"

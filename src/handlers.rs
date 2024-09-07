@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, fs::File, sync::{atomic::Ordering, Arc, RwLock}
 use aes_gcm::Key;
 use ezcbor::cbor::decode_cbor;
 
-use crate::{aes_temp_crypto::{receive_encrypted_data, send_encrypted_data}, auth::{check_permission, User}}; 
+use crate::{auth::{check_permission, User}, utilities::{receive_encrypted_data, send_encrypted_data}}; 
 use crate::db_structure::{ColumnTable, KeyString, Value};
 use crate::ezql::{execute_EZQL_queries, parse_serial_query}; 
 use crate::utilities::{Connection, EzError, data_send_and_confirm, get_current_time, bytes_to_str, };
@@ -19,6 +19,7 @@ pub fn handle_download_request(
     database: Arc<Database>,
 
 ) -> Result<(), EzError> {
+    println!("calling: handle_download_request()");
 
     let requested_csv: Vec<u8>;
     {
@@ -55,6 +56,8 @@ pub fn handle_upload_request(
     name: &str,
 
 ) -> Result<String, EzError> {
+    println!("calling: handle_upload_request()");
+
 
     let csv = receive_encrypted_data(connection)?;
 
@@ -90,6 +93,8 @@ pub fn handle_update_request(
     name: &str, 
     database: Arc<Database>,
 ) -> Result<String, EzError> {
+    println!("calling: handle_update_request()");
+
 
     let csv = receive_encrypted_data(connection)?;
     let csv = bytes_to_str(&csv)?;
@@ -122,6 +127,8 @@ pub fn handle_query_request(
     database: Arc<Database>
 ) -> Result<String, EzError> {
     // PARSE INSTRUCTION
+    println!("calling: handle_query_request()");
+
 
     let queries = parse_serial_query(query)?;
 
@@ -149,6 +156,8 @@ pub fn handle_delete_request(
     name: &str,
     database: Arc<Database>,
 ) -> Result<(), EzError> {
+    println!("calling: handle_delete_request()");
+
     
     let mut mutex_binding = database.buffer_pool.tables.write().unwrap();
     mutex_binding.remove(&KeyString::from(name)).expect("Instruction parser should have verified table");
@@ -166,6 +175,8 @@ pub fn handle_new_user_request(
     user_string: &[u8], 
     database: Arc<Database>,
 ) -> Result<(), EzError> {
+    println!("calling: handle_new_user_request()");
+
     
     
     let user: User = decode_cbor(user_string).unwrap();
@@ -185,6 +196,8 @@ pub fn handle_kv_upload(
     key: &str, 
     database: Arc<Database>,
 ) -> Result<(), EzError> {
+    println!("calling: handle_kv_upload()");
+
 
     println!("about to receive data");
     
@@ -221,6 +234,8 @@ pub fn handle_kv_update(
     key: &str, 
     database: Arc<Database>,
 ) -> Result<(), EzError> {
+    println!("calling: handle_kv_update()");
+
     
     let value = receive_encrypted_data(connection)?;
     let value = Value::new(key, &connection.user, &value);
@@ -251,6 +266,8 @@ pub fn handle_kv_delete(
     name: &str,
     database: Arc<Database>,
 ) -> Result<(), EzError> {
+    println!("calling: handle_kv_delete()");
+
 
     let mut mutex_binding = database.buffer_pool.values.write().unwrap();
     mutex_binding.remove(&KeyString::from(name)).expect("Instruction parser should have verified value");
@@ -271,6 +288,8 @@ pub fn handle_kv_download(
     name: &str, 
     database: Arc<Database>,
 ) -> Result<(), EzError> {
+    println!("calling: handle_kv_download()");
+
 
     let read_binding = database.buffer_pool.values.read().unwrap();
     let requested_value = read_binding.get(&KeyString::from(name)).expect("Instruction parser should have verified table").read().unwrap();
@@ -314,6 +333,8 @@ pub fn handle_meta_list_tables(
     connection: &mut Connection, 
     database: Arc<Database>,
 ) -> Result<(), EzError> {
+    println!("calling: handle_meta_list_tables()");
+
 
     let mut tables = BTreeMap::new();
     for (table_name, table) in database.buffer_pool.tables.read().unwrap().iter() {
@@ -347,6 +368,8 @@ pub fn handle_meta_list_key_values(
     connection: &mut Connection, 
     database: Arc<Database>,
 ) -> Result<(), EzError> {
+    println!("calling: handle_meta_list_key_values()");
+
     
     let mut values = Vec::new();
     for value_name in database.buffer_pool.values.read().unwrap().keys() {

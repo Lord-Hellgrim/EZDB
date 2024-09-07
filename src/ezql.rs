@@ -18,6 +18,8 @@ pub enum QueryError {
 
 impl Display for QueryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        println!("calling: QueryError::fmt()");
+
         match self {
             QueryError::InvalidQuery => write!(f, "InvalidQuery,"),
             QueryError::InvalidConditionFormat => write!(f, "    InvalidConditionFormat,"),
@@ -54,6 +56,8 @@ pub enum Statistic{
 
 impl Display for Statistic {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        println!("calling: Statistic::fmt()");
+
         match self {
             Statistic::SUM(x) => write!(f, "(SUM {x})"),
             Statistic::MEAN(x) => write!(f, "(MEAN {x})"),
@@ -66,6 +70,8 @@ impl Display for Statistic {
 
 impl Default for Statistic {
     fn default() -> Self {
+        println!("calling: Statistic::fmt()");
+
         Statistic::SUM(KeyString::from("id"))
     }
 }
@@ -74,6 +80,8 @@ impl FromStr for Statistic {
     type Err = QueryError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        println!("calling: Statistic::from_str()");
+
         let split = s.split_whitespace();
         if split.count() != 2 {
             Err(QueryError::InvalidQueryStructure("Statistic must be 2 items separated by whitespace".to_owned()))
@@ -118,6 +126,7 @@ pub enum Query {
 
 impl Display for Query {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        println!("calling: Query::fmt()");
 
         let mut printer = String::new();
         match self {
@@ -194,6 +203,8 @@ impl Default for Query {
 
 impl Query {
     pub fn new() -> Self {
+        println!("calling: Query::new()");
+
         Query::SELECT {
             table_name: KeyString::from("__RESULT__"),
             primary_keys: RangeOrListOrAll::All,
@@ -203,6 +214,8 @@ impl Query {
     }
 
     pub fn blank(keyword: &str) -> Result<Query, QueryError> {
+        println!("calling: Query::blank()");
+
         match keyword {
             "INSERT" => Ok(Query::INSERT{ table_name: KeyString::new(), inserts: Inserts{value_columns: Vec::new(), new_values: String::new()} }),
             "SELECT" => Ok(Query::SELECT{ table_name: KeyString::new(), primary_keys: RangeOrListOrAll::All, columns: Vec::new(), conditions: Vec::new()  }),
@@ -217,6 +230,8 @@ impl Query {
     }
 
     pub fn get_primary_keys_ref(&self) -> Option<&RangeOrListOrAll> {
+        println!("calling: Query::get_primary_keys_ref()");
+
         match self {
             Query::SELECT { table_name: _, primary_keys, columns: _, conditions: _ } => Some(primary_keys),
             Query::LEFT_JOIN { left_table_name: _, right_table_name: _, match_columns: _, primary_keys } => Some(primary_keys),
@@ -227,6 +242,8 @@ impl Query {
     }
 
     pub fn get_table_name(&self) -> KeyString {
+        println!("calling: Query::get_table_name()");
+
         match self {
             Query::SELECT { table_name, primary_keys: _, columns: _, conditions: _ } => *table_name,
             Query::LEFT_JOIN { left_table_name, right_table_name: _, match_columns: _, primary_keys: _ } => *left_table_name,
@@ -250,6 +267,8 @@ pub struct Update {
 
 impl Display for Update {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        println!("calling: Update::fmt()");
+
         let op = match self.operator {
             UpdateOp::Assign => "=",
             UpdateOp::PlusEquals => "+=",
@@ -266,6 +285,8 @@ impl FromStr for Update {
     type Err = QueryError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        println!("calling: Update::from_str()");
+
         let output: Update;
         let mut t = s.split_whitespace();
         if s.split_whitespace().count() < 3 {
@@ -321,6 +342,8 @@ impl FromStr for Update {
 impl Update {
 
     pub fn blank() -> Self{
+        println!("calling: Update::blank()");
+
         Update {
             attribute: KeyString::new(),
             operator: UpdateOp::Assign,
@@ -341,6 +364,8 @@ pub enum UpdateOp {
 
 impl UpdateOp {
     fn from_str(s: &str) -> Result<Self, QueryError> {
+        println!("calling: UpdateOp::from_str()");
+
         match s {
             "=" => Ok(UpdateOp::Assign),
             "+=" => Ok(UpdateOp::PlusEquals),
@@ -368,6 +393,8 @@ pub enum RangeOrListOrAll {
 
 impl Display for RangeOrListOrAll {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        println!("calling: RangeOrListOrAll::fmt()");
+
         let mut printer = String::new();
         match &self {
             RangeOrListOrAll::Range(start, stop) => printer.push_str(&format!("{}..{}", start, stop)),
@@ -391,6 +418,8 @@ pub struct Condition {
 
 impl Display for Condition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        println!("calling: Condition::fmt()");
+
         write!(f, "{} - {}", self.attribute, self.test)
     }
 }
@@ -398,6 +427,8 @@ impl Display for Condition {
 impl Condition {
 
     pub fn new(attribute: &str, test: &str, bar: &str) -> Result<Self, QueryError> {
+        println!("calling: Condition::new()");
+
         let test = match test {
             "equals" => Test::Equals(KeyString::from(bar)),
             "less_than" => Test::Less(KeyString::from(bar)),
@@ -415,6 +446,8 @@ impl Condition {
     }
 
     fn from_str(s: &str) -> Result<Self, QueryError> {
+        println!("calling: Condition::from_str()");
+
         let output: Condition;
         let mut t = s.split_whitespace();
         if s.split_whitespace().count() < 3 {
@@ -461,6 +494,8 @@ impl Condition {
     }
 
     pub fn blank() -> Self {
+        println!("calling: Condition::blank()");
+
         Condition {
             attribute: KeyString::from(""),
             test: Test::Equals(KeyString::from("")),
@@ -484,6 +519,8 @@ pub enum OpOrCond {
 
 impl Display for OpOrCond {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        println!("calling: OpOrCond::fmt()");
+
         match self {
             OpOrCond::Cond(cond) => write!(f, "({} {})", cond.attribute, cond.test),
             OpOrCond::Op(op) => match op {
@@ -510,6 +547,8 @@ pub enum Test {
 
 impl Display for Test {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        println!("calling: Test::fmt()");
+
         match self {
             Test::Equals(value) => write!(f, "equals {}", value),
             Test::NotEquals(value) => write!(f, "not_equals {}", value),
@@ -524,6 +563,8 @@ impl Display for Test {
 
 impl Test {
     pub fn new(input: &str, bar: &str) -> Self {
+        println!("calling: Test::new()");
+
         match input.to_lowercase().as_str() {
             "equals" => Test::Equals(KeyString::from(bar)),
             "not_equals" => Test::NotEquals(KeyString::from(bar)),
@@ -578,6 +619,8 @@ Refer to the EZ-FORMAT section of the documentation for information of the diffe
 */
 
 pub fn parse_serial_query(query_string: &str) -> Result<Vec<Query>, QueryError> {
+    println!("calling: parse_serial_query()");
+
     let mut result = Vec::new();
 
     for subquery in query_string.split("->") {
@@ -596,6 +639,8 @@ pub struct ParserState {
 
 #[allow(non_snake_case)]
 pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
+    println!("calling: parse_EZQL()");
+
 
     let mut state = ParserState {
         depth: 0,
@@ -846,6 +891,8 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
 }
 
 fn fill_fields(args: &HashMap<String, Vec<String>>) -> Result<(KeyString, Vec<OpOrCond>, RangeOrListOrAll), QueryError> {
+    println!("calling: fill_fields()");
+
     let table_name = match args.get("table_name") {
         Some(x) => {
             let x = match x.first() {
@@ -935,6 +982,8 @@ fn fill_fields(args: &HashMap<String, Vec<String>>) -> Result<(KeyString, Vec<Op
 
 
 pub fn subsplitter(s: &str) -> Vec<Vec<&str>> {
+    println!("calling: subsplitter()");
+
 
     let mut temp = Vec::new();
     for line in s.split(';') {
@@ -945,12 +994,17 @@ pub fn subsplitter(s: &str) -> Vec<Vec<&str>> {
 
 }
 
+#[inline]
 pub fn is_even(x: usize) -> bool {
+    println!("calling: is_even()");
+
     0 == (x & 1)
 }
 
 
 pub fn parse_contained_token(s: &str, container_open: char, container_close: char) -> Option<&str> {
+    println!("calling: parse_contained_token()");
+
     let mut start = std::usize::MAX;
     let mut stop = 0;
     let mut inside = false;
@@ -998,6 +1052,8 @@ pub fn parse_contained_token(s: &str, container_open: char, container_close: cha
 
 #[allow(non_snake_case)]
 pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Result<Option<ColumnTable>, EzError> {
+    println!("calling: execute_EZQL_queries()");
+
 
     let mut result_table = None;
     for query in queries.into_iter() {
@@ -1109,6 +1165,7 @@ pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Res
 
 
 pub fn execute_delete_query(query: Query, table: &mut ColumnTable) -> Result<Option<ColumnTable>, EzError> {
+    println!("calling: execute_delete_query()");
     
     match query {
         Query::DELETE { primary_keys, table_name: _, conditions } => {
@@ -1125,6 +1182,7 @@ pub fn execute_delete_query(query: Query, table: &mut ColumnTable) -> Result<Opt
 }
 
 pub fn execute_left_join_query(query: Query, left_table: &ColumnTable, right_table: &ColumnTable) -> Result<Option<ColumnTable>, EzError> {
+    println!("calling: execute_left_join_query()");
     
     match query {
         Query::LEFT_JOIN { left_table_name: _, right_table_name: _, match_columns, primary_keys } => {
@@ -1140,6 +1198,7 @@ pub fn execute_left_join_query(query: Query, left_table: &ColumnTable, right_tab
 }
 
 pub fn execute_update_query(query: Query, table: &mut ColumnTable) -> Result<Option<ColumnTable>, EzError> {
+    println!("calling: execute_update_query()");
     
     match query {
         Query::UPDATE { table_name: _, primary_keys, conditions, updates } => {
@@ -1212,6 +1271,7 @@ pub fn execute_update_query(query: Query, table: &mut ColumnTable) -> Result<Opt
 }
 
 pub fn execute_insert_query(query: Query, table: &mut ColumnTable) -> Result<Option<ColumnTable>, EzError> {
+    println!("calling: execute_insert_query()");
 
     match query {
         Query::INSERT { table_name: _, inserts } => {
@@ -1227,6 +1287,7 @@ pub fn execute_insert_query(query: Query, table: &mut ColumnTable) -> Result<Opt
 }
 
 pub fn execute_select_query(query: Query, table: &ColumnTable) -> Result<Option<ColumnTable>, EzError> {
+    println!("calling: execute_select_query()");
 
     match query {
         Query::SELECT { table_name: _, primary_keys, columns, conditions } => {
@@ -1245,6 +1306,7 @@ pub fn execute_select_query(query: Query, table: &ColumnTable) -> Result<Option<
 }
 
 pub fn execute_summary_query(query: Query, table: &ColumnTable) -> Result<Option<ColumnTable>, EzError> {
+    println!("calling: execute_summary_query()");
 
     match query {
         Query::SUMMARY { table_name: _, columns } => {
@@ -1321,6 +1383,7 @@ pub fn execute_summary_query(query: Query, table: &ColumnTable) -> Result<Option
 }
 
 pub fn execute_inner_join_query(query: Query, database: Arc<Database>) -> Result<Option<ColumnTable>, EzError> {
+    println!("calling: execute_inner_join_query()");
     
     // let tables = database.buffer_pool.tables.read().unwrap();
     // let table = tables.get(&query.table).unwrap().read().unwrap();
@@ -1330,6 +1393,8 @@ pub fn execute_inner_join_query(query: Query, database: Arc<Database>) -> Result
 }
 
 pub fn execute_right_join_query(query: Query, database: Arc<Database>) -> Result<Option<ColumnTable>, EzError> {
+    println!("calling: execute_right_join_query()");
+
     // let tables = database.buffer_pool.tables.read().unwrap();
     // let table = tables.get(&query.table).unwrap().read().unwrap();
     // let keepers = filter_keepers(&query, &table)?;
@@ -1338,6 +1403,8 @@ pub fn execute_right_join_query(query: Query, database: Arc<Database>) -> Result
 }
 
 pub fn execute_full_join_query(query: Query, database: Arc<Database>) -> Result<Option<ColumnTable>, EzError> {
+    println!("calling: execute_full_join_query()");
+
     // let tables = database.buffer_pool.tables.read().unwrap();
     // let table = tables.get(&query.table).unwrap().read().unwrap();
     // let keepers = filter_keepers(&query, &table)?;
@@ -1346,6 +1413,8 @@ pub fn execute_full_join_query(query: Query, database: Arc<Database>) -> Result<
 }
 
 pub fn keys_to_indexes(table: &ColumnTable, keys: &RangeOrListOrAll) -> Result<Vec<usize>, StrictError> {
+    println!("calling: keys_to_indexes()");
+
     let mut indexes = Vec::new();
 
     match keys {
@@ -1421,6 +1490,8 @@ pub fn keys_to_indexes(table: &ColumnTable, keys: &RangeOrListOrAll) -> Result<V
 
 
 pub fn filter_keepers(conditions: &Vec<OpOrCond>, primary_keys: &RangeOrListOrAll, table: &ColumnTable) -> Result<Vec<usize>, EzError> {
+    println!("calling: filter_keepers()");
+
     let indexes = keys_to_indexes(table, primary_keys)?;
     
     if conditions.is_empty() {
