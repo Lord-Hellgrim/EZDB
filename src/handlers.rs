@@ -1,12 +1,12 @@
-use std::{collections::BTreeMap, fs::File, io::Write, sync::{atomic::Ordering, Arc, RwLock}};
+use std::{collections::BTreeMap, fs::File, sync::{atomic::Ordering, Arc, RwLock}};
 
 use aes_gcm::Key;
 use ezcbor::cbor::decode_cbor;
 
-use crate::auth::{check_permission, User}; 
+use crate::{aes_temp_crypto::{receive_encrypted_data, send_encrypted_data}, auth::{check_permission, User}}; 
 use crate::db_structure::{ColumnTable, KeyString, Value};
 use crate::ezql::{execute_EZQL_queries, parse_serial_query}; 
-use crate::utilities::{Connection, EzError, data_send_and_confirm, get_current_time, receive_data, bytes_to_str, };
+use crate::utilities::{Connection, EzError, data_send_and_confirm, get_current_time, bytes_to_str, };
 use crate::server_networking::Database;
 
 use crate::PATH_SEP;
@@ -56,23 +56,18 @@ pub fn handle_upload_request(
 
 ) -> Result<String, EzError> {
 
-    let csv = receive_data(connection)?;
+    let csv = receive_encrypted_data(connection)?;
 
     // Here we create a ColumnTable from the csv and supplied name
     println!("About to check for strictness");
     let table = match ColumnTable::from_csv_string(bytes_to_str(&csv)?, name, &connection.user) {
         Ok(table) => {
             println!("About to write: {:x?}", "OK".as_bytes());
-            match connection.stream.write_all("OK".as_bytes()) {
-                Ok(_) => {
-                    println!("Confirmed correctness with client");
-                },
-                Err(e) => {return Err(EzError::Io(e.kind()));},
-            };
+            send_encrypted_data("OK".as_bytes(), connection)?;
            table
         },
         Err(e) => {
-            connection.stream.write_all(e.to_string().as_bytes())?;
+            send_encrypted_data(e.to_string().as_bytes(), connection)?;
             return Err(EzError::Strict(e))
         },
     };
@@ -96,7 +91,7 @@ pub fn handle_update_request(
     database: Arc<Database>,
 ) -> Result<String, EzError> {
 
-    let csv = receive_data(connection)?;
+    let csv = receive_encrypted_data(connection)?;
     let csv = bytes_to_str(&csv)?;
 
     match ColumnTable::from_csv_string(csv, "insert", "system") {
@@ -112,7 +107,7 @@ pub fn handle_update_request(
             database.buffer_pool.table_naughty_list.write().unwrap().insert(table.name);
         },
         Err(e) => {
-            connection.stream.write_all(e.to_string().as_bytes())?;
+            send_encrypted_data(e.to_string().as_bytes(), connection)?;
             return Err(EzError::Strict(e));
         },
     };
@@ -160,7 +155,7 @@ pub fn handle_delete_request(
 
     database.buffer_pool.table_delete_list.write().unwrap().insert(KeyString::from(name));
     
-    connection.stream.write_all("OK".as_bytes())?;
+    send_encrypted_data("OK".as_bytes(), connection)?;
 
     Ok(())
 }
@@ -177,7 +172,7 @@ pub fn handle_new_user_request(
     let mut user_lock = database.users.write().unwrap();
     user_lock.insert(KeyString::from(user.username.as_str()), RwLock::new(user));
     
-    connection.stream.write_all("OK".as_bytes())?;
+    send_encrypted_data("OK".as_bytes(), connection)?;
 
     Ok(())
 
@@ -193,7 +188,7 @@ pub fn handle_kv_upload(
 
     println!("about to receive data");
     
-    let value = receive_data(connection)?;
+    let value = receive_encrypted_data(connection)?;
     let value = Value::new(key, &connection.user, &value);
     let value_name = value.name;
     
@@ -214,7 +209,7 @@ pub fn handle_kv_upload(
 
     println!("data written");
 
-    connection.stream.write_all("OK".as_bytes())?;
+    send_encrypted_data("OK".as_bytes(), connection)?;
     
     Ok(())
 
@@ -227,7 +222,7 @@ pub fn handle_kv_update(
     database: Arc<Database>,
 ) -> Result<(), EzError> {
     
-    let value = receive_data(connection)?;
+    let value = receive_encrypted_data(connection)?;
     let value = Value::new(key, &connection.user, &value);
     
     {
@@ -243,7 +238,7 @@ pub fn handle_kv_update(
         database.buffer_pool.table_naughty_list.write().unwrap().insert(value_name);
     }
 
-    connection.stream.write_all("OK".as_bytes())?;
+    send_encrypted_data("OK".as_bytes(), connection)?;
 
     Ok(())
 
@@ -262,7 +257,7 @@ pub fn handle_kv_delete(
 
     database.buffer_pool.value_delete_list.write().unwrap().insert(KeyString::from(name));
     
-    connection.stream.write_all("OK".as_bytes())?;
+    send_encrypted_data("OK".as_bytes(), connection)?;
 
     Ok(())
 }

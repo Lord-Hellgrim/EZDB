@@ -9,7 +9,7 @@ use std::convert::{TryFrom, From};
 use ezcbor::cbor::{decode_cbor, Cbor};
 use x25519_dalek::{StaticSecret, PublicKey};
 
-use crate::aes_temp_crypto::decrypt_aes256;
+use crate::aes_temp_crypto::{decrypt_aes256, receive_encrypted_data, send_encrypted_data};
 use crate::auth::{user_has_permission, AuthenticationError, Permission, User};
 use crate::disk_utilities::{BufferPool, MAX_BUFFERPOOL_SIZE};
 use crate::logging::Logger;
@@ -199,24 +199,10 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                 // ############################ HANDLING REQUESTS ###########################################################################################################
                 let mut instruction_size = 0;
     
-                let mut buffer: [u8; INSTRUCTION_BUFFER] = [0; INSTRUCTION_BUFFER];
-                println!("Initialized string buffer");
-                
-                while instruction_size == 0 {
-                    match connection.stream.read(&mut buffer) {
-                        Ok(n) => instruction_size = n,
-                        Err(e) => {
-                            println!("There was an io error during a large read.\nError:\t{e}");
-                            return Err(EzError::Io(e.kind()));
-                        },
-                    };
-                }
-                
-                // println!("Instruction buffer[0..50]: {:x?}", &buffer[0..50]);
-                let instructions = &buffer[0..instruction_size];
+                let instructions = receive_encrypted_data(&mut connection)?;
                 println!("Parsing instructions...");
                 match parse_instruction(
-                    instructions, 
+                    &instructions, 
                     db_ref.clone(),
                     &mut connection
                 ) {
@@ -393,18 +379,13 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                     
                     Err(e) => {
                         println!("Failed to serve request because: {e}");
-                        match connection.stream.write(e.to_string().as_bytes()){
-                            Ok(_) => (),
-                            Err(e) => {
-                                println!("failed to write error message because: {}", e);
-                            }
-                        }
+                        send_encrypted_data(e.to_string().as_bytes(), &mut connection)?;
                         println!("Thread finished on error: {e}");
                     },
                     
                 };
     
-                Ok(())
+                Ok::<(), EzError>(())
             });
         }
 
@@ -424,33 +405,17 @@ pub fn parse_instruction(
     database: Arc<Database>,
     connection: &mut Connection,
 ) -> Result<Instruction, EzError> {
-
-    println!("Decrypting instructions");
-    let ciphertext = &instructions[0..instructions.len()-12];
-    let nonce = &instructions[instructions.len()-12..];
-
-    let plaintext = decrypt_aes256(ciphertext, &connection.aes_key, nonce)?;
-
-    let instruction = bytes_to_str(&plaintext)?;
-    println!("instruction: {}", instruction);
-
-    // let instruction_block: Vec<&str> = instruction.split('|').collect();
-
-    // println!("parsing 2...");
-    // if instruction_block.len() != INSTRUCTION_LENGTH {
-    //     return Err(ServerError::Instruction(InstructionError::Invalid("Wrong number of query fields. Query should be usernme, password, request, table_name, query(or blank)".to_owned())));
-    // }
     
     println!("parsing 3...");
-    let username = KeyString::try_from(&plaintext[0..64])?;
-    let action = KeyString::try_from(&plaintext[64..128])?;
-    let table_name = KeyString::try_from(&plaintext[128..192])?;
+    let username = KeyString::try_from(&instructions[0..64])?;
+    let action = KeyString::try_from(&instructions[64..128])?;
+    let table_name = KeyString::try_from(&instructions[128..192])?;
     let user_bytes: Vec<u8> = Vec::new();
     let mut query = String::new();
     if action.as_str() == "MetaNewUser" {
-        let user_bytes = Vec::from(&plaintext[192..]);
+        let user_bytes = Vec::from(&instructions[192..]);
     } else {
-        query = match String::from_utf8(Vec::from(&plaintext[192..])) {
+        query = match String::from_utf8(Vec::from(&instructions[192..])) {
             Ok(x) => x,
             Err(e) => return Err(EzError::Utf8(e.utf8_error())),
         };
@@ -568,11 +533,7 @@ pub fn parse_instruction(
     };
 
     if confirmed.is_ok() {
-        match connection.stream.write("OK".as_bytes()) {
-            Ok(n) => println!("Wrote {n} bytes"),
-            Err(e) => {return Err(EzError::Io(e.kind()));},
-        };
-        connection.stream.flush()?;
+        send_encrypted_data("OK".as_bytes(), connection)?;
     }
 
     confirmed

@@ -5,6 +5,9 @@ import "core:fmt"
 import "core:net"
 import "core:crypto/x25519"
 import "core:crypto"
+import "core:crypto/aead"
+import "core:crypto/aes"
+import "core:crypto/sha2"
 
 
 make_connection :: proc(address: [4]u8, port: int) -> ([32]u8, net.Network_Error) {
@@ -33,6 +36,9 @@ make_connection :: proc(address: [4]u8, port: int) -> ([32]u8, net.Network_Error
 
     x25519.scalarmult(shared_secret[:], self_private_key[:], server_public_key[:])
 
+    aes_key := simple_hash(shared_secret[:])
+
+
     return shared_secret, nil
 
 }
@@ -49,6 +55,8 @@ main :: proc() {
 
 
 
+
+
     fmt.println(shared_secret)
 
 // scalarmult_basepoint with a random 32-byte scalar writes a 32-byte public key to dst
@@ -58,8 +66,35 @@ main :: proc() {
 // in theory this only needs scalarmult since scalarmult(your_public, your_private, basepoint) is equivalent
 
 
+}
 
 
+simple_hash :: proc(plaintext: []u8) -> [32]u8 {
+    ctx : sha2.Context_256;
+    sha2.init_256(&ctx)
+
+    sha2.update(&ctx, plaintext)
+    hash : [32]u8
+    sha2.final(&ctx, hash[:])
+
+    return hash
+}
+
+aes256gcm_encrypt :: proc(plaintext: []u8, key: []u8, ciphertext_buffer: []u8, tag: []u8) -> EzError {
+    tag_size :=  16
+    
+    if len(ciphertext_buffer) < len(plaintext) + tag_size {
+        return .crypto
+    }
+
+    ctx : aead.Context
+    iv : [12]u8
+    crypto.rand_bytes(iv[:])
+    
+
+    aead.init(&ctx, aead.Algorithm.AES_GCM_256, key)
+    aead.seal_ctx(&ctx, ciphertext_buffer, tag, iv[:], nil, plaintext)
+    return .no_error
 }
 
 
@@ -73,6 +108,7 @@ Response :: struct {
 }
 
 EzError :: enum {
+    no_error,
     no_server,
     crypto,
 }

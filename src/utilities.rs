@@ -16,7 +16,7 @@ use x25519_dalek::{EphemeralSecret, PublicKey};
 use aes_gcm::aead;
 use sha2::{Sha256, Digest};
 
-use crate::aes_temp_crypto::{encrypt_aes256, decrypt_aes256};
+use crate::aes_temp_crypto::{decrypt_aes256, encrypt_aes256, receive_encrypted_data, send_encrypted_data};
 use crate::auth::AuthenticationError;
 use crate::compression;
 use crate::db_structure::{KeyString, StrictError};
@@ -25,7 +25,7 @@ use crate::server_networking::{Database, Server};
 
 
 pub const INSTRUCTION_BUFFER: usize = 1024;
-pub const DATA_BUFFER: usize = 1_000_000;
+pub const DATA_BUFFER: usize = 1_048_576; // 1 mb
 pub const INSTRUCTION_LENGTH: usize = 4;
 pub const MAX_DATA_LEN: usize = u32::MAX as usize;
 
@@ -922,25 +922,13 @@ pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut C
 
     println!("{:x?}", instruction);
 
-    let (encrypted_instructions, nonce) = encrypt_aes256(&instruction, &connection.aes_key);
-
-    let mut encrypted_data_block = Vec::with_capacity(encrypted_instructions.len() + 28);
-    encrypted_data_block.extend_from_slice(&encrypted_instructions);
-    encrypted_data_block.extend_from_slice(&nonce);
-
-    // // println!("encrypted instructions.len(): {}", encrypted_instructions.len());
-    match connection.stream.write_all(&encrypted_data_block) {
-        Ok(_) => println!("Wrote request as {} bytes", encrypted_data_block.len()),
-        Err(e) => {return Err(EzError::Io(e.kind()));},
-    };
-    connection.stream.flush()?;
+    send_encrypted_data(&instruction, connection)?;
     
-    let mut buffer: [u8;2] = [0;2];
-    println!("Waiting for response from server");
-    connection.stream.read_exact(&mut buffer)?;
-    println!("INSTRUCTION_BUFFER: {:x?}", buffer);
-    println!("About to parse response from server");
-    let response = bytes_to_str(&buffer)?;
+    let response = receive_encrypted_data(connection)?;
+    let response = match String::from_utf8(response) {
+        Ok(s) => s,
+        Err(e) => return Err(e.utf8_error().into()),
+    };
     println!("repsonse: {}", response);
     
 
@@ -975,73 +963,14 @@ pub fn data_send_and_confirm(connection: &mut Connection, data: &[u8]) -> Result
 
     // // println!("data: {:x?}", data);
 
-    let data = compression::miniz_compress(data)?;
-    let (encrypted_data, data_nonce) = encrypt_aes256(&data, &connection.aes_key);
-
-    let mut encrypted_data_block = Vec::with_capacity(data.len() + 28);
-    encrypted_data_block.extend_from_slice(&encrypted_data);
-    encrypted_data_block.extend_from_slice(&data_nonce);
-
-
-    // The reason for the +28 in the length checker is that it accounts for the length of the nonce (IV) and the authentication tag
-    // in the aes-gcm encryption. The nonce is 12 bytes and the auth tag is 16 bytes
-    let mut block = Vec::from(&(data.len() + 28).to_le_bytes());
-    block.extend_from_slice(&encrypted_data_block);
-    connection.stream.write_all(&block)?;
-    // connection.stream.write_all(&(data.len() + 28).to_le_bytes())?;
-    // connection.stream.write_all(&encrypted_data_block)?;
+    send_encrypted_data(data, connection)?;
     
-    // println!("data sent");
-    let mut buffer: [u8;INSTRUCTION_BUFFER] = [0;INSTRUCTION_BUFFER];
-    match connection.stream.read(&mut buffer) {
-        Ok(_) => {
-            println!("Confirmation '{}' received", bytes_to_str(&buffer)?);
-        },
-        Err(_) => println!("Did not confirm transmission with peer"),
-    }
+    println!("data sent");
+    let buffer = receive_encrypted_data(connection)?;
     
     let confirmation = bytes_to_str(&buffer).unwrap_or("corrupt data");
     Ok(confirmation.to_owned())
 
-}
-
-/// This is the function primarily responsible for receiving data.
-/// It receives, decompresses, decrypts, and confirms receipt of the data.
-/// Used by both client and server.
-pub fn receive_data(connection: &mut Connection) -> Result<Vec<u8>, EzError> {
-    
-    let mut size_buffer: [u8; 8] = [0; 8];
-    connection.stream.read_exact(&mut size_buffer)?;
-    println!("HERE 4!!!");
-
-    let data_len = usize::from_le_bytes(size_buffer);
-    if data_len > MAX_DATA_LEN {
-        return Err(EzError::OversizedData)
-    }
-    
-    let mut data = Vec::with_capacity(data_len);
-    let mut buffer = [0; DATA_BUFFER];
-    let mut total_read: usize = 0;
-    
-    while total_read < data_len {
-        let to_read = std::cmp::min(DATA_BUFFER, data_len - total_read);
-        let bytes_received = connection.stream.read(&mut buffer[..to_read])?;
-        if bytes_received == 0 {
-            return Err(EzError::Confirmation("Read failure".to_owned()));
-        }
-        data.extend_from_slice(&buffer[..bytes_received]);
-        total_read += bytes_received;
-        println!("Total read: {}", total_read);
-    }
-    println!("HERE 3!!!");
-    
-
-
-    let (ciphertext, nonce) = (&data[0..data.len()-12], &data[data.len()-12..]);
-    let csv = decrypt_aes256(ciphertext, &connection.aes_key, nonce)?;
-
-    let csv = compression::miniz_decompress(&csv)?;
-    Ok(csv)
 }
 
 

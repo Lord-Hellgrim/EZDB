@@ -1,11 +1,11 @@
-use std::io::Write;
 use std::str::{self};
 
 use ezcbor::cbor::Cbor;
 
+use crate::aes_temp_crypto::{receive_encrypted_data, send_encrypted_data};
 use crate::auth::{AuthenticationError, User};
 use crate::db_structure::{ColumnTable, KeyString};
-use crate::utilities::{EzError, instruction_send_and_confirm, Instruction, parse_response, receive_data, Connection, data_send_and_confirm, bytes_to_str};
+use crate::utilities::{EzError, instruction_send_and_confirm, Instruction, parse_response, Connection, data_send_and_confirm, bytes_to_str};
 use crate::PATH_SEP;
 
 
@@ -32,17 +32,11 @@ pub fn download_table(
 
     let data: Vec<u8>;
     match parse_response(&response, &connection.user, table_name) {
-        Ok(_) => data = receive_data(&mut connection)?,
+        Ok(_) => data = receive_encrypted_data(&mut connection)?,
         Err(e) => return Err(e),
     };
 
-    match connection.stream.write("OK".as_bytes()) {
-        Ok(n) => println!("Wrote 'OK' as {n} bytes"),
-        Err(e) => {
-            return Err(EzError::Io(e.kind()));
-        }
-    };
-    connection.stream.flush()?;
+    send_encrypted_data("OK".as_bytes(), &mut connection)?;
 
     let table = ColumnTable::from_binary(table_name, &data)?;
 
@@ -126,7 +120,7 @@ pub fn query_table(
         
         // THIS IS WHERE YOU SEND THE BULK OF THE DATA
         //########## SUCCESS BRANCH #################################
-        "OK" => data = receive_data(&mut connection)?,
+        "OK" => data = receive_encrypted_data(&mut connection)?,
         //###########################################################
         "Username is incorrect" => {
             return Err(EzError::Authentication(AuthenticationError::WrongUser(
@@ -143,12 +137,7 @@ pub fn query_table(
     println!("HERE 2!!!");
     println!("received data:\n{}", bytes_to_str(&data)?);
 
-    match connection.stream.write("OK".as_bytes()) {
-        Ok(n) => println!("Wrote 'OK' as {n} bytes"),
-        Err(e) => {
-            return Err(EzError::Io(e.kind()));
-        }
-    };
+    send_encrypted_data("OK".as_bytes(), &mut connection)?;
 
     match String::from_utf8(data.clone()) {
         Ok(x) => Ok(Response::Message(x)),
@@ -223,16 +212,11 @@ pub fn kv_download(
 
     let value: Vec<u8>;
     match parse_response(&response, &connection.user, key) {
-        Ok(_) => value = receive_data(&mut connection)?,
+        Ok(_) => value = receive_encrypted_data(&mut connection)?,
         Err(e) => return Err(e),
     };
 
-    match connection.stream.write("OK".as_bytes()) {
-        Ok(n) => println!("Wrote 'OK' as {n} bytes"),
-        Err(e) => {
-            return Err(EzError::Io(e.kind()));
-        }
-    };
+    send_encrypted_data("OK".as_bytes(), &mut connection)?;
 
     Ok(value)
 }
@@ -311,17 +295,12 @@ pub fn meta_list_tables(
 
     let value: Vec<u8>;
     match parse_response(&response, &connection.user, "") {
-        Ok(_) => value = receive_data(&mut connection)?,
+        Ok(_) => value = receive_encrypted_data(&mut connection)?,
         Err(e) => return Err(e),
     };
     println!("value downloaded successfully");
 
-    match connection.stream.write("OK".as_bytes()) {
-        Ok(n) => println!("Wrote 'OK' as {n} bytes"),
-        Err(e) => {
-            return Err(EzError::Io(e.kind()));
-        }
-    };
+    send_encrypted_data("OK".as_bytes(), &mut connection)?;
 
     let table_list = bytes_to_str(&value)?;
 
@@ -340,17 +319,12 @@ pub fn meta_list_key_values(
 
     let value: Vec<u8>;
     match parse_response(&response, &connection.user, "") {
-        Ok(_) => value = receive_data(&mut connection)?,
+        Ok(_) => value = receive_encrypted_data(&mut connection)?,
         Err(e) => return Err(e),
     };
     println!("value downloaded successfully");
 
-    match connection.stream.write("OK".as_bytes()) {
-        Ok(n) => println!("Wrote 'OK' as {n} bytes"),
-        Err(e) => {
-            return Err(EzError::Io(e.kind()));
-        }
-    };
+    send_encrypted_data("OK".as_bytes(), &mut connection)?;
 
     let table_list = bytes_to_str(&value)?;
 
