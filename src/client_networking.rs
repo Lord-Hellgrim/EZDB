@@ -57,8 +57,7 @@ pub fn upload_csv(
 
     let mut connection = Connection::connect(address, username, password)?;
 
-    let response =
-        instruction_send_and_confirm(Instruction::Upload(KeyString::from(table_name)), &mut connection)?;
+    let response = instruction_send_and_confirm(Instruction::Upload(KeyString::from(table_name)), &mut connection)?;
 
     println!("upload_table - parsing response");
     let confirmation: String = match parse_response(&response, &connection.user, table_name) {

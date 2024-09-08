@@ -178,7 +178,6 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
         }); // Thread that writes in memory tables to disk
 
 
-
         loop {
             // Reading instructions
             let (stream, client_address) = match server.listener.accept() {

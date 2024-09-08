@@ -279,7 +279,7 @@ pub fn establish_connection(mut stream: TcpStream, server: Arc<Server>, db_ref: 
     println!("calling: establish_connection()");
 
     stream.set_read_timeout(Some(Duration::from_secs(5)))?;
-    println!("server_public key: {:?}", server.public_key.as_bytes());
+    // println!("server_public key: {:?}", server.public_key.as_bytes());
     match stream.write(server.public_key.as_bytes()) {
         Ok(_) => (),
         Err(e) => {
@@ -301,7 +301,7 @@ pub fn establish_connection(mut stream: TcpStream, server: Arc<Server>, db_ref: 
     let client_public_key = PublicKey::from(buffer);
     
     let shared_secret = server.private_key.diffie_hellman(&client_public_key);
-    println!("Shared secret: {:?}", shared_secret.as_bytes());
+    // println!("Shared secret: {:?}", shared_secret.as_bytes());
     let aes_key = ez_hash(shared_secret.as_bytes());
 
     let mut auth_buffer = [0u8; 1052];
@@ -334,11 +334,11 @@ pub fn establish_connection(mut stream: TcpStream, server: Arc<Server>, db_ref: 
         }
     };
     let password = &auth_string[512..];
-    println!("password: {:?}", password);
+    // println!("password: {:?}", password);
 
     // println!("username: {}\npassword: {:x?}", username, password);
     let password = ez_hash(bytes_to_str(password).unwrap().as_bytes());
-    println!("password: {:?}", password);
+    // println!("password: {:?}", password);
     // println!("password_hash: {:x?}", password);
     println!("About to verify username and password");
 
@@ -1073,7 +1073,7 @@ pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut C
             let mut bytes = bytes_from_strings(&[&connection.user, "NewUser", "blank"]);
             bytes.extend_from_slice(&user_string);
             bytes
-        }
+        },
         Instruction::KvUpload(table_name) => bytes_from_strings(&[&connection.user, "KvUpload", &table_name.as_str(),"blank", ]), 
         Instruction::KvUpdate(table_name) => bytes_from_strings(&[&connection.user, "KvUpdate", &table_name.as_str(),"blank", ]),
         Instruction::KvDelete(table_name) => bytes_from_strings(&[&connection.user, "KvDelete", &table_name.as_str(),"blank", ]),
@@ -1159,8 +1159,11 @@ pub fn send_encrypted_data(data: &[u8], connection: &mut Connection) -> Result<(
     // in the aes-gcm encryption. The nonce is 12 bytes and the auth tag is 16 bytes
     let mut block = Vec::from(&(data.len() + 28).to_le_bytes());
     block.extend_from_slice(&encrypted_data_block);
+    println!("About to send the encrypted data");
     connection.stream.write_all(&block)?;
     connection.stream.flush()?;
+    println!("DATA SENT!");
+
 
     Ok(())
 }
@@ -1173,14 +1176,16 @@ pub fn receive_encrypted_data(connection: &mut Connection) -> Result<Vec<u8>, Ez
     connection.stream.read_exact(&mut size_buffer)?;
 
     let data_len = usize::from_le_bytes(size_buffer);
+    println!("data_len: {}", data_len);
     if data_len > MAX_DATA_LEN {
         return Err(EzError::OversizedData)
     }
-    
+    println!("About to receive_data!");
     let mut data = Vec::with_capacity(data_len);
     let mut buffer = [0; DATA_BUFFER];
     let mut total_read: usize = 0;
     
+    let mut i = 1;
     while total_read < data_len {
         let to_read = std::cmp::min(DATA_BUFFER, data_len - total_read);
         let bytes_received = connection.stream.read(&mut buffer[..to_read])?;
@@ -1189,6 +1194,8 @@ pub fn receive_encrypted_data(connection: &mut Connection) -> Result<Vec<u8>, Ez
         }
         data.extend_from_slice(&buffer[..bytes_received]);
         total_read += bytes_received;
+        println!("Received {i} times");
+        i += 1;
         println!("Total read: {}", total_read);
     }
 
