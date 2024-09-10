@@ -7,6 +7,7 @@ use std::net::TcpStream;
 use std::num::ParseIntError;
 use std::simd::num::SimdInt;
 use std::str::{self, Utf8Error};
+use std::string::FromUtf8Error;
 use std::sync::Arc;
 use std::time::Duration;
 use std::{usize, fmt};
@@ -43,7 +44,7 @@ pub enum EzError {
     Confirmation(String),
     Authentication(AuthenticationError),
     Strict(StrictError),
-    Crypto(aead::Error),
+    Crypto(String),
     ParseInt(ParseIntError),
     ParseResponse(String),
     ParseUser(String),
@@ -116,7 +117,7 @@ impl From<StrictError> for EzError {
 
 impl From<aead::Error> for EzError {
     fn from(e: aead::Error) -> Self {
-        EzError::Crypto(e)
+        EzError::Crypto(format!("{e}"))
     }
 }
 
@@ -142,6 +143,12 @@ impl From<CborError> for EzError {
     }
 }
 
+impl From<FromUtf8Error> for EzError {
+    fn from(e: FromUtf8Error) -> Self {
+        EzError::Utf8(e.utf8_error())
+    }
+}
+
 
 /// An enum that lists the possible instructions that the database can receive.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -149,9 +156,9 @@ pub enum Instruction {
     Upload(KeyString),
     Download(KeyString),
     Update(KeyString),
-    Query(String),
+    Query,
     Delete(KeyString),
-    NewUser(Vec<u8>),
+    NewUser,
     KvUpload(KeyString),
     KvUpdate(KeyString),
     KvDelete(KeyString),
@@ -169,15 +176,34 @@ impl Display for Instruction {
             Instruction::Upload(s) => write!(f, "Upload({})", s),
             Instruction::Download(s) => write!(f, "Download({})", s),
             Instruction::Update(s) => write!(f, "Update({})", s),
-            Instruction::Query(s) => write!(f, "Query({})", s),
+            Instruction::Query => write!(f, "Query()"),
             Instruction::Delete(s) => write!(f, "Delete({})", s),
-            Instruction::NewUser(s) => write!(f, "NewUser({:x?})", s),
+            Instruction::NewUser => write!(f, "NewUser()"),
             Instruction::KvUpload(s) => write!(f, "KvUpload({})", s),
             Instruction::KvUpdate(s) => write!(f, "KvUpdate({})", s),
             Instruction::KvDelete(s) => write!(f, "KvDelete({})", s),
             Instruction::KvDownload(s) => write!(f, "KvDownload({})", s),
             Instruction::MetaListTables => write!(f, "MetaListTables"),
             Instruction::MetaListKeyValues => write!(f, "MetaListKeyValues"),
+        }
+    }
+}
+
+impl Instruction {
+    pub fn to_bytes(&self, username: &str) -> Vec<u8> {
+        match self {
+            Instruction::Download(table_name) => bytes_from_strings(&[username, "Downloading", &table_name.as_str(),"blank", ]),
+            Instruction::Upload(table_name) => bytes_from_strings(&[username, "Uploading", &table_name.as_str(),"blank", ]), 
+            Instruction::Update(table_name) => bytes_from_strings(&[username, "Updating", &table_name.as_str(),"blank", ]), 
+            Instruction::Query => bytes_from_strings(&[username, "Querying", "blank", ]),
+            Instruction::Delete(table_name) => bytes_from_strings(&[username, "Deleting", &table_name.as_str(),"blank", ]), 
+            Instruction::NewUser => bytes_from_strings(&[username, "NewUser", "blank"]),
+            Instruction::KvUpload(table_name) => bytes_from_strings(&[username, "KvUpload", &table_name.as_str(),"blank", ]), 
+            Instruction::KvUpdate(table_name) => bytes_from_strings(&[username, "KvUpdate", &table_name.as_str(),"blank", ]),
+            Instruction::KvDelete(table_name) => bytes_from_strings(&[username, "KvDelete", &table_name.as_str(),"blank", ]),
+            Instruction::KvDownload(table_name) => bytes_from_strings(&[username, "KvDownload", &table_name.as_str(),"blank", ]), 
+            Instruction::MetaListTables => bytes_from_strings(&[username, "MetaListTables", "blank","blank", ]), 
+            Instruction::MetaListKeyValues => bytes_from_strings(&[username, "MetaListKeyValues", "blank","blank", ]), 
         }
     }
 }
@@ -1059,28 +1085,7 @@ pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut C
     #[cfg(debug_assertions)]
     println!("calling: instruction_send_and_confirm()");
 
-    let instruction = match instruction {
-        Instruction::Download(table_name) => bytes_from_strings(&[&connection.user, "Downloading", &table_name.as_str(),"blank", ]),
-        Instruction::Upload(table_name) => bytes_from_strings(&[&connection.user, "Uploading", &table_name.as_str(),"blank", ]), 
-        Instruction::Update(table_name) => bytes_from_strings(&[&connection.user, "Updating", &table_name.as_str(),"blank", ]), 
-        Instruction::Query(query) => {
-            let mut q = bytes_from_strings(&[&connection.user, "Querying", "blank", ]);
-            q.extend_from_slice(query.as_bytes());
-            q
-        }, 
-        Instruction::Delete(table_name) => bytes_from_strings(&[&connection.user, "Deleting", &table_name.as_str(),"blank", ]), 
-        Instruction::NewUser(user_string) => {
-            let mut bytes = bytes_from_strings(&[&connection.user, "NewUser", "blank"]);
-            bytes.extend_from_slice(&user_string);
-            bytes
-        },
-        Instruction::KvUpload(table_name) => bytes_from_strings(&[&connection.user, "KvUpload", &table_name.as_str(),"blank", ]), 
-        Instruction::KvUpdate(table_name) => bytes_from_strings(&[&connection.user, "KvUpdate", &table_name.as_str(),"blank", ]),
-        Instruction::KvDelete(table_name) => bytes_from_strings(&[&connection.user, "KvDelete", &table_name.as_str(),"blank", ]),
-        Instruction::KvDownload(table_name) => bytes_from_strings(&[&connection.user, "KvDownload", &table_name.as_str(),"blank", ]), 
-        Instruction::MetaListTables => bytes_from_strings(&[&connection.user, "MetaListTables", "blank","blank", ]), 
-        Instruction::MetaListKeyValues => bytes_from_strings(&[&connection.user, "MetaListKeyValues", "blank","blank", ]), 
-    };
+    let instruction = instruction.to_bytes(&connection.user);
 
     println!("{:x?}", instruction);
 
@@ -1105,7 +1110,6 @@ pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut C
 pub fn parse_response(response: &str, username: &str, table_name: &str) -> Result<(), EzError> {
     #[cfg(debug_assertions)]
     println!("calling: parse_response()");
-
 
     if response == "OK" {
         Ok(())

@@ -21,6 +21,7 @@ pub fn encrypt_aes256(s: &[u8], key: &[u8]) -> (Vec<u8>, [u8;12]) {
     
 }
 
+
 pub fn decrypt_aes256(s: &[u8], key: &[u8], nonce: &[u8] ) -> Result<Vec<u8>, EzError> {
     println!("calling: decrypt_aes256()");
 
@@ -33,6 +34,33 @@ pub fn decrypt_aes256(s: &[u8], key: &[u8], nonce: &[u8] ) -> Result<Vec<u8>, Ez
     Ok(plaintext)
 }
 
+pub fn encrypt_aes256_nonce_prefixed(s: &[u8], key: &[u8]) -> Vec<u8> {
+    println!("calling: encrypt_aes256()");
+
+    let key = Key::<Aes256Gcm>::from_slice(key);
+
+    let cipher = Aes256Gcm::new(key);
+    let nonce = Aes256Gcm::generate_nonce(&mut OsRng).into(); // 96-bits; unique per message
+    let ciphertext = cipher.encrypt(&nonce, s).unwrap();
+    let mut result = Vec::new();
+    result.extend_from_slice(&nonce); // safe because we generate the nonce here
+    result.extend_from_slice(&ciphertext);
+    result
+}
+
+pub fn decrypt_aes256_with_prefixed_nonce(s: &[u8], key: &[u8]) -> Result<Vec<u8>, EzError> {
+    println!("calling: decrypt_aes256()");
+    if s.len() < 13 {
+        return Err(EzError::Crypto("slice has no bytes to encrypt".to_owned()))
+    }
+
+    // TODO Add clause to handle the case where the nonce is not 12 bytes
+    let key = Key::<Aes256Gcm>::from_slice(key);
+    let cipher = Aes256Gcm::new(key);
+    let nonce = GenericArray::clone_from_slice(&s[0..12]); // 96-bits; unique per message
+    let plaintext = cipher.decrypt(&nonce, &s[12..])?;
+    Ok(plaintext)
+}
 
 mod tests {
     #![allow(unused)]

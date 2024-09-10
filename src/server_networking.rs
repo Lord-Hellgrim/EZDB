@@ -191,17 +191,17 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
             // Spawn a thread to handle establishing connections
             outer_scope.spawn(move || {
                 
-                // ################## ESTABLISHING ENCRYPTED CONNECTION ##########################################################################################################
+                // ###### ESTABLISHING ENCRYPTED CONNECTION ##########################################################################################################
                 // check_if_http();
 
                 let mut connection = establish_connection(stream, thread_server, db_ref.clone())?;
 
-                // ############################ END OF ESTABLISHING ENCRYPTED CONNECTION ###################################################################################
+                // ###### END OF ESTABLISHING ENCRYPTED CONNECTION ###################################################################################
     
     
                 // ############################ HANDLING REQUESTS ###########################################################################################################
                 let mut instruction_size = 0;
-    
+                let instruction_buffer = [u8;218];
                 let instructions = receive_encrypted_data(&mut connection)?;
                 println!("Parsing instructions...");
                 match parse_instruction(
@@ -253,10 +253,9 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                                 },
                             }
                         },
-                        Instruction::Query(query) => {
+                        Instruction::Query => {
                             match handle_query_request(
                                 &mut connection,
-                                &query, 
                                 db_ref.clone(),
                             ) {
                                 Ok(_) => {
@@ -281,10 +280,9 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                                 },
                             }
                         },
-                        Instruction::NewUser(user_string) => {
+                        Instruction::NewUser => {
                             match handle_new_user_request(
-                                &mut connection, 
-                                &user_string, 
+                                &mut connection,
                                 db_ref.clone(),
                             ) {
                                 Ok(_) => {
@@ -415,16 +413,6 @@ pub fn parse_instruction(
     let username = KeyString::try_from(&instructions[0..64])?;
     let action = KeyString::try_from(&instructions[64..128])?;
     let table_name = KeyString::try_from(&instructions[128..192])?;
-    let user_bytes: Vec<u8> = Vec::new();
-    let mut query = String::new();
-    if action.as_str() == "MetaNewUser" {
-        let user_bytes = Vec::from(&instructions[192..]);
-    } else {
-        query = match String::from_utf8(Vec::from(&instructions[192..])) {
-            Ok(x) => x,
-            Err(e) => return Err(EzError::Utf8(e.utf8_error())),
-        };
-    }
 
     if table_name.as_str() == "All" {
         return Err(EzError::Instruction(InstructionError::InvalidTable("Table cannot be called 'All'".to_owned())));
@@ -433,7 +421,7 @@ pub fn parse_instruction(
     println!("parsing 4...");
     let confirmed = match action.as_str() {
         "Querying" => {
-            Ok(Instruction::Query(query.to_owned()))
+            Ok(Instruction::Query)
             
         }
         "Uploading" => {
@@ -529,7 +517,7 @@ pub fn parse_instruction(
         },
         "MetaNewUser" => {
             if user_has_permission(table_name.as_str(), Permission::Write, username.as_str(), database.users.clone()) {
-                Ok(Instruction::NewUser(user_bytes))
+                Ok(Instruction::NewUser)
             } else {
                 Err(EzError::Authentication(AuthenticationError::Permission))
             }

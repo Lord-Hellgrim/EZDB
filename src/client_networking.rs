@@ -1,8 +1,11 @@
+use std::io::{Read, Write};
 use std::str::{self};
 
 use ezcbor::cbor::Cbor;
 
+use crate::aes_temp_crypto::{decrypt_aes256_with_prefixed_nonce, encrypt_aes256, encrypt_aes256_nonce_prefixed};
 use crate::auth::{AuthenticationError, User};
+use crate::compression::miniz_compress;
 use crate::db_structure::{ColumnTable, KeyString};
 use crate::utilities::{bytes_to_str, data_send_and_confirm, instruction_send_and_confirm, parse_response, receive_encrypted_data, send_encrypted_data, Connection, EzError, Instruction};
 use crate::PATH_SEP;
@@ -57,20 +60,25 @@ pub fn upload_csv(
 
     let mut connection = Connection::connect(address, username, password)?;
 
-    let response = instruction_send_and_confirm(Instruction::Upload(KeyString::from(table_name)), &mut connection)?;
+    let instruction = Instruction::Upload(KeyString::from(table_name));
+    let instruction = encrypt_aes256_nonce_prefixed(&instruction.to_bytes(username), &connection.aes_key);
+    
+    let table_data = miniz_compress(csv.as_bytes())?;
+    let table_data = encrypt_aes256_nonce_prefixed(&table_data, &connection.aes_key);
 
-    println!("upload_table - parsing response");
-    let confirmation: String = match parse_response(&response, &connection.user, table_name) {
-        Ok(_) => data_send_and_confirm(&mut connection, csv.as_bytes())?,
-        Err(e) => return Err(e),
-    };
-    println!("confirmation: {}", confirmation);
+    let mut package = Vec::new();
+    package.extend_from_slice(&instruction);
+    package.extend_from_slice(&(table_data.len() + 28).to_le_bytes());
 
-    if confirmation == "OK" {
-        Ok(())
-    } else {
-        Err(EzError::Confirmation(confirmation))
-    }
+    connection.stream.write_all(&package)?;
+
+    let mut response_buffer = [0u8;80];
+    connection.stream.read(&mut response_buffer)?;
+
+    let response = String::from_utf8(decrypt_aes256_with_prefixed_nonce(&response_buffer, &connection.aes_key)?)?;
+
+    parse_response(&response, username, table_name)
+
 }
 
 /// Updates a given table with a given csv string. If there is an existing record in the database with

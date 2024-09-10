@@ -58,6 +58,7 @@ pub fn handle_upload_request(
 ) -> Result<String, EzError> {
     println!("calling: handle_upload_request()");
 
+    
 
     let csv = receive_encrypted_data(connection)?;
 
@@ -122,32 +123,32 @@ pub fn handle_update_request(
 
 
 pub fn handle_query_request(
-    connection: &mut Connection, 
-    query: &str, 
+    connection: &mut Connection,
     database: Arc<Database>
 ) -> Result<String, EzError> {
     // PARSE INSTRUCTION
     println!("calling: handle_query_request()");
-
-
-    let queries = parse_serial_query(query)?;
-
-    check_permission(&queries, &connection.user, database.users.clone())?;
-    let requested_table = match execute_EZQL_queries(queries, database) {
-        Ok(res) => match res {
-            Some(table) => table.write_to_binary(),
-            None => "None.".as_bytes().to_vec(),
-        },
-        Err(e) => format!("ERROR -> Could not process query because of error: '{}'", e.to_string()).as_bytes().to_vec(),
-    };
-
-    let response = data_send_and_confirm(connection, &requested_table)?;
     
-    if response == "OK" {
-        Ok("OK".to_owned())
-    } else {
-        Err(EzError::Confirmation(response))
-    }
+    
+    todo!()
+    // let queries = parse_serial_query(query)?;
+
+    // check_permission(&queries, &connection.user, database.users.clone())?;
+    // let requested_table = match execute_EZQL_queries(queries, database) {
+    //     Ok(res) => match res {
+    //         Some(table) => table.write_to_binary(),
+    //         None => "None.".as_bytes().to_vec(),
+    //     },
+    //     Err(e) => format!("ERROR -> Could not process query because of error: '{}'", e.to_string()).as_bytes().to_vec(),
+    // };
+
+    // let response = data_send_and_confirm(connection, &requested_table)?;
+    
+    // if response == "OK" {
+    //     Ok("OK".to_owned())
+    // } else {
+    //     Err(EzError::Confirmation(response))
+    // }
 }
 
 /// This will be rewritten to use EZQL soon.
@@ -171,17 +172,16 @@ pub fn handle_delete_request(
 
 /// Handles a create user request from a client. The user requesting the new user must have permission to create users
 pub fn handle_new_user_request(
-    connection: &mut Connection, 
-    user_string: &[u8], 
+    connection: &mut Connection,
     database: Arc<Database>,
 ) -> Result<(), EzError> {
     println!("calling: handle_new_user_request()");
 
     
     
-    let user: User = decode_cbor(user_string).unwrap();
-    let mut user_lock = database.users.write().unwrap();
-    user_lock.insert(KeyString::from(user.username.as_str()), RwLock::new(user));
+    // let user: User = decode_cbor(user_string).unwrap();
+    // let mut user_lock = database.users.write().unwrap();
+    // user_lock.insert(KeyString::from(user.username.as_str()), RwLock::new(user));
     
     send_encrypted_data("OK".as_bytes(), connection)?;
 
