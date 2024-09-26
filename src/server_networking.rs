@@ -9,15 +9,16 @@ use std::convert::{TryFrom, From};
 use ezcbor::cbor::{decode_cbor, Cbor};
 use x25519_dalek::{StaticSecret, PublicKey};
 
-use crate::aes_temp_crypto::decrypt_aes256;
+use crate::aes_temp_crypto::{decrypt_aes256, decrypt_aes256_with_prefixed_nonce};
 use crate::auth::{user_has_permission, AuthenticationError, Permission, User};
 use crate::disk_utilities::{BufferPool, MAX_BUFFERPOOL_SIZE};
 use crate::logging::Logger;
-use crate::utilities::{bytes_to_str, establish_connection, receive_encrypted_data, send_encrypted_data, Connection, EzError, Instruction, InstructionError, INSTRUCTION_BUFFER};
+use crate::utilities::{bytes_to_str, establish_connection, receive_decrypt_decompress, send_compressed_encrypted, Connection, EzError, Instruction, InstructionError, INSTRUCTION_BUFFER};
 use crate::db_structure::KeyString;
 use crate::handlers::*;
 use crate::PATH_SEP;
 
+pub const INSTRUCTION_LENGTH: usize = 284;
 pub const CONFIG_FOLDER: &str = "EZconfig/";
 pub const MAX_PENDING_MESSAGES: usize = 10;
 pub const PROCESS_MESSAGES_INTERVAL: u64 = 10;   // The number of seconds that pass before the database processes all pending write messages.
@@ -200,9 +201,12 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
     
     
                 // ############################ HANDLING REQUESTS ###########################################################################################################
-                let mut instruction_size = 0;
-                let instruction_buffer = [u8;218];
-                let instructions = receive_encrypted_data(&mut connection)?;
+                let mut instruction_buffer = [0u8;INSTRUCTION_LENGTH];
+                connection.stream.read_exact(&mut instruction_buffer)?;
+                let instructions = match decrypt_aes256_with_prefixed_nonce(&instruction_buffer, &connection.aes_key) {
+                    Ok(bytes) => bytes,
+                    Err(_) => panic!("failed to decrypt instructions.\nIntruction bytes: {:x?}", &instruction_buffer),
+                };
                 println!("Parsing instructions...");
                 match parse_instruction(
                     &instructions, 
@@ -380,7 +384,7 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                     
                     Err(e) => {
                         println!("Failed to serve request because: {e}");
-                        send_encrypted_data(e.to_string().as_bytes(), &mut connection)?;
+                        send_compressed_encrypted(e.to_string().as_bytes(), &mut connection)?;
                         println!("Thread finished on error: {e}");
                     },
                     
@@ -413,6 +417,7 @@ pub fn parse_instruction(
     let username = KeyString::try_from(&instructions[0..64])?;
     let action = KeyString::try_from(&instructions[64..128])?;
     let table_name = KeyString::try_from(&instructions[128..192])?;
+    let blank = KeyString::try_from(&instructions[192..256])?;
 
     if table_name.as_str() == "All" {
         return Err(EzError::Instruction(InstructionError::InvalidTable("Table cannot be called 'All'".to_owned())));
@@ -524,10 +529,6 @@ pub fn parse_instruction(
         }
         _ => Err(EzError::Instruction(InstructionError::Invalid(action.to_string()))),
     };
-
-    if confirmed.is_ok() {
-        send_encrypted_data("OK".as_bytes(), connection)?;
-    }
 
     confirmed
 }

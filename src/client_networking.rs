@@ -7,7 +7,7 @@ use crate::aes_temp_crypto::{decrypt_aes256_with_prefixed_nonce, encrypt_aes256,
 use crate::auth::{AuthenticationError, User};
 use crate::compression::miniz_compress;
 use crate::db_structure::{ColumnTable, KeyString};
-use crate::utilities::{bytes_to_str, data_send_and_confirm, instruction_send_and_confirm, parse_response, receive_encrypted_data, send_encrypted_data, Connection, EzError, Instruction};
+use crate::utilities::{bytes_to_str, data_send_and_confirm, instruction_send_and_confirm, parse_response, receive_decrypt, receive_decrypt_decompress, send_compressed_encrypted, send_encrypted, Connection, EzError, Instruction};
 use crate::PATH_SEP;
 
 
@@ -27,24 +27,17 @@ pub fn download_table(
 
     let mut connection = Connection::connect(address, username, password)?;
 
-    let response = instruction_send_and_confirm(
-        Instruction::Download(KeyString::from(table_name)),
-        &mut connection,
-    )?;
-    println!("Instruction successfully sent");
-    println!("response: {}", response);
+    let instruction = encrypt_aes256_nonce_prefixed(&Instruction::Download(KeyString::from(table_name)).to_bytes(username), &connection.aes_key);
+    connection.stream.write_all(&instruction)?;    
 
-    let data: Vec<u8>;
-    match parse_response(&response, &connection.user, table_name) {
-        Ok(_) => data = receive_encrypted_data(&mut connection)?,
-        Err(e) => return Err(e),
+    let response = receive_decrypt_decompress(&mut connection)?;
+
+    let output = match ColumnTable::from_binary(table_name, &response) {
+        Ok(table) => Ok(table),
+        Err(e) => Err(EzError::from(e)),
     };
 
-    send_encrypted_data("OK".as_bytes(), &mut connection)?;
-
-    let table = ColumnTable::from_binary(table_name, &data)?;
-
-    Ok(table)
+    output
 }
 
 /// Uploads a given csv string to the EZDB server at the given address.
@@ -62,20 +55,29 @@ pub fn upload_csv(
 
     let instruction = Instruction::Upload(KeyString::from(table_name));
     let instruction = encrypt_aes256_nonce_prefixed(&instruction.to_bytes(username), &connection.aes_key);
+    println!("instruction lnght: {} bytes", instruction.len());
     
     let table_data = miniz_compress(csv.as_bytes())?;
     let table_data = encrypt_aes256_nonce_prefixed(&table_data, &connection.aes_key);
-
+    println!("table_data.len(): {}", table_data.len());
     let mut package = Vec::new();
     package.extend_from_slice(&instruction);
-    package.extend_from_slice(&(table_data.len() + 28).to_le_bytes());
+    package.extend_from_slice(&(table_data.len()).to_le_bytes());
+    package.extend_from_slice(&table_data);
+    println!("package len: {}", package.len()-284);
 
     connection.stream.write_all(&package)?;
 
-    let mut response_buffer = [0u8;80];
-    connection.stream.read(&mut response_buffer)?;
+    let response = receive_decrypt(&mut connection)?;
+    let response = String::from_utf8(response)?;
 
-    let response = String::from_utf8(decrypt_aes256_with_prefixed_nonce(&response_buffer, &connection.aes_key)?)?;
+    // let mut response_buffer = Vec::new();
+    // connection.stream.read_to_end(&mut response_buffer)?;
+    // println!("response bytes: {:x?}", response_buffer);
+
+    // let response = decrypt_aes256_with_prefixed_nonce(&response_buffer, &connection.aes_key)?;
+    // println!("decrypted response: {:x?}", response);
+
 
     parse_response(&response, username, table_name)
 
@@ -124,14 +126,14 @@ pub fn query_table(
 
     let mut connection = Connection::connect(address, username, password)?;
 
-    let response = instruction_send_and_confirm(Instruction::Query(query.to_owned()), &mut connection)?;
+    let response = instruction_send_and_confirm(Instruction::Query, &mut connection)?;
 
     let data: Vec<u8>;
     match response.as_str() {
         
         // THIS IS WHERE YOU SEND THE BULK OF THE DATA
         //########## SUCCESS BRANCH #################################
-        "OK" => data = receive_encrypted_data(&mut connection)?,
+        "OK" => data = receive_decrypt_decompress(&mut connection)?,
         //###########################################################
         "Username is incorrect" => {
             return Err(EzError::Authentication(AuthenticationError::WrongUser(
@@ -147,7 +149,7 @@ pub fn query_table(
     };
     println!("received data");
 
-    send_encrypted_data("OK".as_bytes(), &mut connection)?;
+    send_compressed_encrypted("OK".as_bytes(), &mut connection)?;
 
     match String::from_utf8(data.clone()) {
         Ok(x) => Ok(Response::Message(x)),
@@ -228,11 +230,11 @@ pub fn kv_download(
 
     let value: Vec<u8>;
     match parse_response(&response, &connection.user, key) {
-        Ok(_) => value = receive_encrypted_data(&mut connection)?,
+        Ok(_) => value = receive_decrypt_decompress(&mut connection)?,
         Err(e) => return Err(e),
     };
 
-    send_encrypted_data("OK".as_bytes(), &mut connection)?;
+    send_compressed_encrypted("OK".as_bytes(), &mut connection)?;
 
     Ok(value)
 }
@@ -317,12 +319,12 @@ pub fn meta_list_tables(
 
     let value: Vec<u8>;
     match parse_response(&response, &connection.user, "") {
-        Ok(_) => value = receive_encrypted_data(&mut connection)?,
+        Ok(_) => value = receive_decrypt_decompress(&mut connection)?,
         Err(e) => return Err(e),
     };
     println!("value downloaded successfully");
 
-    send_encrypted_data("OK".as_bytes(), &mut connection)?;
+    send_compressed_encrypted("OK".as_bytes(), &mut connection)?;
 
     let table_list = bytes_to_str(&value)?;
 
@@ -343,12 +345,12 @@ pub fn meta_list_key_values(
 
     let value: Vec<u8>;
     match parse_response(&response, &connection.user, "") {
-        Ok(_) => value = receive_encrypted_data(&mut connection)?,
+        Ok(_) => value = receive_decrypt_decompress(&mut connection)?,
         Err(e) => return Err(e),
     };
     println!("value downloaded successfully");
 
-    send_encrypted_data("OK".as_bytes(), &mut connection)?;
+    send_compressed_encrypted("OK".as_bytes(), &mut connection)?;
 
     let table_list = bytes_to_str(&value)?;
 
@@ -368,7 +370,7 @@ pub fn meta_create_new_user(
 
     let user_bytes = user.to_cbor_bytes();
 
-    let response = instruction_send_and_confirm(Instruction::NewUser(user_bytes), &mut connection)?;
+    let response = instruction_send_and_confirm(Instruction::NewUser, &mut connection)?;
 
     println!("Create new user - parsing response");
     let confirmation: String = match parse_response(&response, &connection.user, "no table") {
@@ -457,7 +459,7 @@ mod tests {
     #[test]
     fn test_receive_csv() {
         println!("Sending...\n##########################");
-        test_send_good_csv();
+        // test_send_good_csv();
         let name = "good_csv";
         let address = "127.0.0.1:3004";
         println!("Receiving\n############################");

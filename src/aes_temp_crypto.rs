@@ -35,7 +35,7 @@ pub fn decrypt_aes256(s: &[u8], key: &[u8], nonce: &[u8] ) -> Result<Vec<u8>, Ez
 }
 
 pub fn encrypt_aes256_nonce_prefixed(s: &[u8], key: &[u8]) -> Vec<u8> {
-    println!("calling: encrypt_aes256()");
+    println!("calling: encrypt_aes256_nonce_prefixed()");
 
     let key = Key::<Aes256Gcm>::from_slice(key);
 
@@ -49,7 +49,7 @@ pub fn encrypt_aes256_nonce_prefixed(s: &[u8], key: &[u8]) -> Vec<u8> {
 }
 
 pub fn decrypt_aes256_with_prefixed_nonce(s: &[u8], key: &[u8]) -> Result<Vec<u8>, EzError> {
-    println!("calling: decrypt_aes256()");
+    println!("calling: decrypt_aes256_with_prefixed_nonce()");
     if s.len() < 13 {
         return Err(EzError::Crypto("slice has no bytes to encrypt".to_owned()))
     }
@@ -66,6 +66,15 @@ mod tests {
     #![allow(unused)]
 
     use super::*;
+
+    #[test]
+    fn test_prefixed_nonce() {
+        let plaintext = String::from("OK");
+        let key = [42 as u8;32];
+        let ciphertext_with_nonce = encrypt_aes256_nonce_prefixed(plaintext.as_bytes(), &key);
+        let deciphered = decrypt_aes256_with_prefixed_nonce(&ciphertext_with_nonce, &key).unwrap();
+        assert_eq!(plaintext.as_bytes(), deciphered);
+    }
 
     #[test]
     fn test_encrypt_then_decrypt() {

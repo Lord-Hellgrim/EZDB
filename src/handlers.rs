@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, fs::File, sync::{atomic::Ordering, Arc, RwLock}
 use aes_gcm::Key;
 use ezcbor::cbor::decode_cbor;
 
-use crate::{auth::{check_permission, User}, utilities::{receive_encrypted_data, send_encrypted_data}}; 
+use crate::{auth::{check_permission, User}, utilities::{receive_decrypt_decompress, send_compressed_encrypted, send_encrypted}}; 
 use crate::db_structure::{ColumnTable, KeyString, Value};
 use crate::ezql::{execute_EZQL_queries, parse_serial_query}; 
 use crate::utilities::{Connection, EzError, data_send_and_confirm, get_current_time, bytes_to_str, };
@@ -21,32 +21,26 @@ pub fn handle_download_request(
 ) -> Result<(), EzError> {
     println!("calling: handle_download_request()");
 
-    let requested_csv: Vec<u8>;
+    let requested_table: Vec<u8>;
     {
         let global_read_binding = database.buffer_pool.tables.read().unwrap();
     
-        let requested_table = global_read_binding.get(&KeyString::from(name)).expect("Instruction parser should have verified table").read().unwrap();
-        requested_csv = requested_table.write_to_binary();
-        println!("Requested_csv.len(): {}", requested_csv.len());
+        let table = global_read_binding.get(&KeyString::from(name)).expect("Instruction parser should have verified table").read().unwrap();
+        requested_table = table.write_to_binary();
+        println!("Requested_csv.len(): {}", requested_table.len());
     }
 
-    let response = data_send_and_confirm(connection, &requested_csv)?;
-
-    if response == "OK" {
-        
+    send_compressed_encrypted(&requested_table, connection)?;
+    
+    {
         let global_read_binding = database.buffer_pool.tables.read().unwrap();
 
         let requested_table = global_read_binding[&KeyString::from(name)].read().unwrap();
 
         requested_table.metadata.times_accessed.fetch_add(1, Ordering::Relaxed);
         requested_table.metadata.last_access.store(get_current_time(), Ordering::Relaxed);
-        
-        Ok(())
-        
-    } else {
-        Err(EzError::Confirmation(response))
     }
-
+    Ok(())
 }
 
 /// Handles an upload request from a client. An upload request uploads a whole csv string that will be parsed into a ColumnTable.
@@ -58,20 +52,18 @@ pub fn handle_upload_request(
 ) -> Result<String, EzError> {
     println!("calling: handle_upload_request()");
 
-    
-
-    let csv = receive_encrypted_data(connection)?;
+    let csv = receive_decrypt_decompress(connection)?;
 
     // Here we create a ColumnTable from the csv and supplied name
     println!("About to check for strictness");
     let table = match ColumnTable::from_csv_string(bytes_to_str(&csv)?, name, &connection.user) {
         Ok(table) => {
             println!("About to write: {:x?}", "OK".as_bytes());
-            send_encrypted_data("OK".as_bytes(), connection)?;
+            send_encrypted("OK".as_bytes(), connection)?;
            table
         },
         Err(e) => {
-            send_encrypted_data(e.to_string().as_bytes(), connection)?;
+            send_encrypted(e.to_string().as_bytes(), connection)?;
             return Err(EzError::Strict(e))
         },
     };
@@ -97,7 +89,7 @@ pub fn handle_update_request(
     println!("calling: handle_update_request()");
 
 
-    let csv = receive_encrypted_data(connection)?;
+    let csv = receive_decrypt_decompress(connection)?;
     let csv = bytes_to_str(&csv)?;
 
     match ColumnTable::from_csv_string(csv, "insert", "system") {
@@ -113,7 +105,7 @@ pub fn handle_update_request(
             database.buffer_pool.table_naughty_list.write().unwrap().insert(table.name);
         },
         Err(e) => {
-            send_encrypted_data(e.to_string().as_bytes(), connection)?;
+            send_compressed_encrypted(e.to_string().as_bytes(), connection)?;
             return Err(EzError::Strict(e));
         },
     };
@@ -165,7 +157,7 @@ pub fn handle_delete_request(
 
     database.buffer_pool.table_delete_list.write().unwrap().insert(KeyString::from(name));
     
-    send_encrypted_data("OK".as_bytes(), connection)?;
+    send_compressed_encrypted("OK".as_bytes(), connection)?;
 
     Ok(())
 }
@@ -183,7 +175,7 @@ pub fn handle_new_user_request(
     // let mut user_lock = database.users.write().unwrap();
     // user_lock.insert(KeyString::from(user.username.as_str()), RwLock::new(user));
     
-    send_encrypted_data("OK".as_bytes(), connection)?;
+    send_compressed_encrypted("OK".as_bytes(), connection)?;
 
     Ok(())
 
@@ -201,7 +193,7 @@ pub fn handle_kv_upload(
 
     println!("about to receive data");
     
-    let value = receive_encrypted_data(connection)?;
+    let value = receive_decrypt_decompress(connection)?;
     let value = Value::new(key, &connection.user, &value);
     let value_name = value.name;
     
@@ -222,7 +214,7 @@ pub fn handle_kv_upload(
 
     println!("data written");
 
-    send_encrypted_data("OK".as_bytes(), connection)?;
+    send_compressed_encrypted("OK".as_bytes(), connection)?;
     
     Ok(())
 
@@ -237,7 +229,7 @@ pub fn handle_kv_update(
     println!("calling: handle_kv_update()");
 
     
-    let value = receive_encrypted_data(connection)?;
+    let value = receive_decrypt_decompress(connection)?;
     let value = Value::new(key, &connection.user, &value);
     
     {
@@ -253,7 +245,7 @@ pub fn handle_kv_update(
         database.buffer_pool.table_naughty_list.write().unwrap().insert(value_name);
     }
 
-    send_encrypted_data("OK".as_bytes(), connection)?;
+    send_compressed_encrypted("OK".as_bytes(), connection)?;
 
     Ok(())
 
@@ -274,7 +266,7 @@ pub fn handle_kv_delete(
 
     database.buffer_pool.value_delete_list.write().unwrap().insert(KeyString::from(name));
     
-    send_encrypted_data("OK".as_bytes(), connection)?;
+    send_compressed_encrypted("OK".as_bytes(), connection)?;
 
     Ok(())
 }
