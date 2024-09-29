@@ -1,6 +1,5 @@
 use std::arch::asm;
 use std::fmt::Display;
-use std::mem::transmute;
 use std::simd;
 use std::io::{Write, Read, ErrorKind};
 use std::net::TcpStream;
@@ -194,7 +193,7 @@ impl Instruction {
             Instruction::Download(table_name) => bytes_from_strings(&[username, "Downloading", &table_name.as_str(),"blank", ]),
             Instruction::Upload(table_name) => bytes_from_strings(&[username, "Uploading", &table_name.as_str(),"blank", ]), 
             Instruction::Update(table_name) => bytes_from_strings(&[username, "Updating", &table_name.as_str(),"blank", ]), 
-            Instruction::Query => bytes_from_strings(&[username, "Querying", "blank", ]),
+            Instruction::Query => bytes_from_strings(&[username, "Querying", "blank", "blank"]),
             Instruction::Delete(table_name) => bytes_from_strings(&[username, "Deleting", &table_name.as_str(),"blank", ]), 
             Instruction::NewUser => bytes_from_strings(&[username, "NewUser", "blank"]),
             Instruction::KvUpload(table_name) => bytes_from_strings(&[username, "KvUpload", &table_name.as_str(),"blank", ]), 
@@ -276,8 +275,8 @@ impl Connection {
         // The reason for the +28 in the length checker is that it accounts for the length of the nonce (IV) and the authentication tag
         // in the aes-gcm encryption. The nonce is 12 bytes and the auth tag is 16 bytes
         let mut encrypted_data_block = Vec::with_capacity(encrypted_data.len() + 28);
-        encrypted_data_block.extend_from_slice(&encrypted_data);
         encrypted_data_block.extend_from_slice(&data_nonce);
+        encrypted_data_block.extend_from_slice(&encrypted_data);
         // println!("Encrypted auth string: {:x?}", encrypted_data_block);
         // println!("Encrypted auth string.len(): {}", encrypted_data_block.len());
         
@@ -341,7 +340,7 @@ pub fn establish_connection(mut stream: TcpStream, server: Arc<Server>, db_ref: 
     // println!("encrypted auth_buffer: {:x?}", auth_buffer);
     // println!("Encrypted auth_buffer.len(): {}", auth_buffer.len());
 
-    let (ciphertext, nonce) = (&auth_buffer[0..auth_buffer.len()-12], &auth_buffer[auth_buffer.len()-12..auth_buffer.len()]);
+    let (ciphertext, nonce) = (&auth_buffer[12..], &auth_buffer[..12]);
     println!("About to decrypt auth string");
     let auth_string = match decrypt_aes256(ciphertext, &aes_key, nonce) {
         Ok(s) => s,

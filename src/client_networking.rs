@@ -54,6 +54,31 @@ pub fn upload_csv(
     let mut connection = Connection::connect(address, username, password)?;
 
     let instruction = Instruction::Upload(KeyString::from(table_name));
+    send_instruction_with_associated_data(instruction, username, csv.as_bytes(), &mut connection)?;
+
+    let response = receive_decrypt(&mut connection)?;
+    let response = String::from_utf8(response)?;
+
+    parse_response(&response, username, table_name)
+
+}
+
+/// Updates a given table with a given csv string. If there is an existing record in the database with
+/// primary key matching a primary key in the csv passed here, it will be overwritten.
+/// If there is no record with the primary key in the passed in csv, a new row will be added
+/// preserving the sorted order of the table.
+pub fn update_table(
+    address: &str,
+    username: &str,
+    password: &str,
+    table_name: &str,
+    csv: &str,
+) -> Result<(), EzError> {
+    println!("calling: upload_csv()");
+
+    let mut connection = Connection::connect(address, username, password)?;
+
+    let instruction = Instruction::Update(KeyString::from(table_name));
     let instruction = encrypt_aes256_nonce_prefixed(&instruction.to_bytes(username), &connection.aes_key);
     println!("instruction lnght: {} bytes", instruction.len());
     
@@ -71,93 +96,30 @@ pub fn upload_csv(
     let response = receive_decrypt(&mut connection)?;
     let response = String::from_utf8(response)?;
 
-    // let mut response_buffer = Vec::new();
-    // connection.stream.read_to_end(&mut response_buffer)?;
-    // println!("response bytes: {:x?}", response_buffer);
-
-    // let response = decrypt_aes256_with_prefixed_nonce(&response_buffer, &connection.aes_key)?;
-    // println!("decrypted response: {:x?}", response);
-
-
     parse_response(&response, username, table_name)
-
-}
-
-/// Updates a given table with a given csv string. If there is an existing record in the database with
-/// primary key matching a primary key in the csv passed here, it will be overwritten.
-/// If there is no record with the primary key in the passed in csv, a new row will be added
-/// preserving the sorted order of the table.
-pub fn update_table(
-    address: &str,
-    username: &str,
-    password: &str,
-    table_name: &str,
-    csv: &str,
-) -> Result<(), EzError> {
-    println!("calling: update_table()");
-
-    let mut connection = Connection::connect(address, username, password)?;
-
-    let response =
-        instruction_send_and_confirm(Instruction::Update(KeyString::from(table_name)), &mut connection)?;
-
-    let confirmation: String = match parse_response(&response, &connection.user, table_name) {
-        Ok(_) => data_send_and_confirm(&mut connection, csv.as_bytes())?,
-        Err(e) => return Err(e),
-    };
-
-    if confirmation == "OK" {
-        println!("Confirmation from server: {}", confirmation);
-        Ok(())
-    } else {
-        println!("Confirmation from server: {}", confirmation);
-        Err(EzError::Confirmation(confirmation))
-    }
 }
 
 /// Send an EZQL query to the database server
-pub fn query_table(
+pub fn send_query(
     address: &str,
     username: &str,
     password: &str,
     query: &str,
-) -> Result<Response, EzError> {
-    println!("calling: query_table()");
+) -> Result<ColumnTable, EzError> {
+    println!("calling: send_query()");
 
     let mut connection = Connection::connect(address, username, password)?;
 
-    let response = instruction_send_and_confirm(Instruction::Query, &mut connection)?;
+    let instruction = Instruction::Query;
+    send_instruction_with_associated_data(instruction, username, query.as_bytes(), &mut connection)?;
 
-    let data: Vec<u8>;
-    match response.as_str() {
-        
-        // THIS IS WHERE YOU SEND THE BULK OF THE DATA
-        //########## SUCCESS BRANCH #################################
-        "OK" => data = receive_decrypt_decompress(&mut connection)?,
-        //###########################################################
-        "Username is incorrect" => {
-            return Err(EzError::Authentication(AuthenticationError::WrongUser(
-                connection.user,
-            )))
-        }
-        "Password is incorrect" => {
-            return Err(EzError::Authentication(
-                AuthenticationError::WrongPassword,
-            ))
-        }
-        e => panic!("Need to handle error: {}", e),
-    };
-    println!("received data");
+    let response = receive_decrypt_decompress(&mut connection)?;
 
-    send_compressed_encrypted("OK".as_bytes(), &mut connection)?;
-
-    match String::from_utf8(data.clone()) {
-        Ok(x) => Ok(Response::Message(x)),
-        Err(_) => match ColumnTable::from_binary("RESULT", &data) {
-            Ok(table) => Ok(Response::Table(table)),
-            Err(e) => Err(e.into()),
-        },
+    match ColumnTable::from_binary("RESULT", &response) {
+        Ok(table) => Ok(table),
+        Err(e) => Err(EzError::Strict(e)),
     }
+
 }
 
 pub fn delete_table(
@@ -171,18 +133,13 @@ pub fn delete_table(
 
     let mut connection = Connection::connect(address, username, password)?;
 
-    let response = instruction_send_and_confirm(
-        Instruction::Delete(KeyString::from(table_name)),
-        &mut connection,
-    )?;
+    let instruction = encrypt_aes256_nonce_prefixed(&Instruction::Delete(KeyString::from(table_name)).to_bytes(username), &connection.aes_key);
+    connection.stream.write_all(&instruction)?;   
 
-    println!("Instruction successfully sent");
-    println!("response: {}", response);
+    let response = receive_decrypt(&mut connection)?;
+    let response = String::from_utf8(response)?;
 
-    match parse_response(&response, &connection.user, table_name) {
-        Ok(_) => Ok(()),
-        Err(e) => Err(e),
-    }
+    parse_response(&response, username, table_name)
 }
 
 /// Uploads an arbitrary binary blob to the EZDB server at the given address and associates it with the given key
@@ -197,22 +154,13 @@ pub fn kv_upload(
 
     let mut connection = Connection::connect(address, username, password)?;
 
-    let response = instruction_send_and_confirm(Instruction::KvUpload(KeyString::from(key)), &mut connection)?;
+    let instruction = Instruction::KvUpload(KeyString::from(key));
+    send_instruction_with_associated_data(instruction, username, value, &mut connection)?;
 
-    println!("Response: {}", response);
+    let response = receive_decrypt(&mut connection)?;
+    let response = String::from_utf8(response)?;
 
-    println!("upload_value - parsing response");
-    let confirmation: String = match parse_response(&response, &connection.user, key) {
-        Ok(_) => data_send_and_confirm(&mut connection, value)?,
-        Err(e) => return Err(e),
-    };
-    println!("value uploaded successfully");
-
-    if confirmation == "OK" {
-        Ok(())
-    } else {
-        Err(EzError::Confirmation(confirmation))
-    }
+    parse_response(&response, username, key)
 }
 
 /// Downloads the binary blob associated with the passed key from the EZDB server running at address.
@@ -226,17 +174,12 @@ pub fn kv_download(
 
     let mut connection = Connection::connect(address, username, password)?;
 
-    let response = instruction_send_and_confirm(Instruction::KvDownload(KeyString::from(key)), &mut connection)?;
+    let instruction = encrypt_aes256_nonce_prefixed(&Instruction::KvDownload(KeyString::from(key)).to_bytes(username), &connection.aes_key);
+    connection.stream.write_all(&instruction)?;    
 
-    let value: Vec<u8>;
-    match parse_response(&response, &connection.user, key) {
-        Ok(_) => value = receive_decrypt_decompress(&mut connection)?,
-        Err(e) => return Err(e),
-    };
+    let response = receive_decrypt_decompress(&mut connection)?;
 
-    send_compressed_encrypted("OK".as_bytes(), &mut connection)?;
-
-    Ok(value)
+    Ok(response)
 }
 
 /// Overwrites the binary blob associated with the passed in key at the given address
@@ -251,25 +194,13 @@ pub fn kv_update(
 
     let mut connection = Connection::connect(address, username, password)?;
 
-    let response =
-        instruction_send_and_confirm(Instruction::KvUpdate(KeyString::from(key)), &mut connection)?;
+    let instruction = Instruction::KvUpdate(KeyString::from(key));
+    send_instruction_with_associated_data(instruction, username, value, &mut connection)?;
 
-    let confirmation: String;
-    println!("upload_value - parsing response");
-    match parse_response(&response, &connection.user, key) {
-        Ok(_) => confirmation = data_send_and_confirm(&mut connection, value)?,
-        Err(e) => return Err(e),
-    };
-    println!("value uploaded successfully");
+    let response = receive_decrypt(&mut connection)?;
+    let response = String::from_utf8(response)?;
 
-    // The reason for the +28 in the length checker is that it accounts for the length of the nonce (IV) and the authentication tag
-    // in the aes-gcm encryption. The nonce is 12 bytes and the auth tag is 16 bytes
-    let data_len = (value.len() + 28).to_string();
-    if confirmation == data_len {
-        Ok(())
-    } else {
-        Err(EzError::Confirmation(confirmation))
-    }
+    parse_response(&response, username, key)
 }
 
 /// Overwrites the binary blob associated with the passed in key at the given address
@@ -278,31 +209,18 @@ pub fn kv_delete(
     username: &str,
     password: &str,
     key: &str,
-    value: &[u8],
 ) -> Result<(), EzError> {
     println!("calling: kv_delete()");
 
     let mut connection = Connection::connect(address, username, password)?;
 
-    let response =
-        instruction_send_and_confirm(Instruction::KvDelete(KeyString::from(key)), &mut connection)?;
+    let instruction = encrypt_aes256_nonce_prefixed(&Instruction::KvDelete(KeyString::from(key)).to_bytes(username), &connection.aes_key);
+    connection.stream.write_all(&instruction)?;   
 
-    let confirmation: String;
-    println!("upload_value - parsing response");
-    match parse_response(&response, &connection.user, key) {
-        Ok(_) => confirmation = data_send_and_confirm(&mut connection, value)?,
-        Err(e) => return Err(e),
-    };
-    println!("value uploaded successfully");
+    let response = receive_decrypt(&mut connection)?;
+    let response = String::from_utf8(response)?;
 
-    // The reason for the +28 in the length checker is that it accounts for the length of the nonce (IV) and the authentication tag
-    // in the aes-gcm encryption. The nonce is 12 bytes and the auth tag is 16 bytes
-    let data_len = (value.len() + 28).to_string();
-    if confirmation == data_len {
-        Ok(())
-    } else {
-        Err(EzError::Confirmation(confirmation))
-    }
+    parse_response(&response, username, key)
 }
 
 /// Returns a list of table_names in the database.
@@ -315,17 +233,10 @@ pub fn meta_list_tables(
 
     let mut connection = Connection::connect(address, username, password)?;
 
-    let response = instruction_send_and_confirm(Instruction::MetaListTables, &mut connection)?;
+    let instruction = encrypt_aes256_nonce_prefixed(&Instruction::MetaListTables.to_bytes(username), &connection.aes_key);
+    connection.stream.write_all(&instruction)?;   
 
-    let value: Vec<u8>;
-    match parse_response(&response, &connection.user, "") {
-        Ok(_) => value = receive_decrypt_decompress(&mut connection)?,
-        Err(e) => return Err(e),
-    };
-    println!("value downloaded successfully");
-
-    send_compressed_encrypted("OK".as_bytes(), &mut connection)?;
-
+    let value = receive_decrypt_decompress(&mut connection)?;
     let table_list = bytes_to_str(&value)?;
 
     Ok(table_list.to_owned())
@@ -341,17 +252,10 @@ pub fn meta_list_key_values(
 
     let mut connection = Connection::connect(address, username, password)?;
 
-    let response = instruction_send_and_confirm(Instruction::MetaListKeyValues, &mut connection)?;
+    let instruction = encrypt_aes256_nonce_prefixed(&Instruction::MetaListKeyValues.to_bytes(username), &connection.aes_key);
+    connection.stream.write_all(&instruction)?;   
 
-    let value: Vec<u8>;
-    match parse_response(&response, &connection.user, "") {
-        Ok(_) => value = receive_decrypt_decompress(&mut connection)?,
-        Err(e) => return Err(e),
-    };
-    println!("value downloaded successfully");
-
-    send_compressed_encrypted("OK".as_bytes(), &mut connection)?;
-
+    let value = receive_decrypt_decompress(&mut connection)?;
     let table_list = bytes_to_str(&value)?;
 
     Ok(table_list.to_owned())
@@ -384,6 +288,25 @@ pub fn meta_create_new_user(
     } else {
         Err(EzError::Confirmation(confirmation))
     }
+}
+
+
+fn send_instruction_with_associated_data(instruction: Instruction, username: &str, associated_data: &[u8], connection: &mut Connection) -> Result<(), EzError> {
+    let instruction = encrypt_aes256_nonce_prefixed(&instruction.to_bytes(username), &connection.aes_key);
+    println!("instruction lnght: {} bytes", instruction.len());
+    
+    let associated_data = miniz_compress(associated_data)?;
+    let associated_data = encrypt_aes256_nonce_prefixed(&associated_data, &connection.aes_key);
+    println!("associated_data.len(): {}", associated_data.len());
+    let mut package = Vec::new();
+    package.extend_from_slice(&instruction);
+    package.extend_from_slice(&(associated_data.len()).to_le_bytes());
+    package.extend_from_slice(&associated_data);
+    println!("package len: {}", package.len()-284);
+
+    connection.stream.write_all(&package)?;
+
+    Ok(())
 }
 
 
@@ -495,6 +418,19 @@ mod tests {
     }
 
     #[test]
+    fn test_update_table() {
+        let csv = std::fs::read_to_string(format!("test_files{PATH_SEP}good_csv.txt")).unwrap();
+        let address = "127.0.0.1:3004";
+        let username = "admin";
+        let password = "admin";
+        let e = upload_csv(address, username, password, "good_csv", &csv).unwrap();
+        assert_eq!(e, ());
+        let update_csv = "vnr,i-P;heiti,t-N;magn,i-N\n0113000;undirlegg2;200\n0113035;undirlegg;200\n18572054;flísalím;42";
+        update_table(address, username, password, "good_csv", update_csv).unwrap();
+
+    }
+
+    #[test]
     fn test_query() {
         let csv = std::fs::read_to_string(format!("test_files{PATH_SEP}good_csv.txt")).unwrap();
         let address = "127.0.0.1:3004";
@@ -502,14 +438,12 @@ mod tests {
         let password = "admin";
         let e = upload_csv(address, username, password, "good_csv", &csv).unwrap();
         assert_eq!(e, ());
+        println!("NEXT REQUEST");
 
         let query = "SELECT(table_name: good_csv, primary_keys: (*), columns: (*), conditions: ())";
         let username = "admin";
         let password = "admin";
-        let response = match query_table(address, username, password, query).unwrap() {
-            Response::Message(message) => panic!("This should be a table"),
-            Response::Table(table) => table,
-        };
+        let response = send_query(address, username, password, query).unwrap();
         let full_table = download_table(address, username, password, "good_csv").unwrap();
         println!("{}", response);
         assert_eq!(response, full_table);
@@ -522,6 +456,7 @@ mod tests {
         let password = "admin";
         test_send_good_csv();
         let tables = meta_list_tables(address, username, password).unwrap();
+        println!("tables:\n{}", tables);
         let e = delete_table(address, username, password, "good_csv").unwrap();
         let tables = meta_list_tables(address, username, password).unwrap();
         println!("tables:\n{}", tables);
@@ -546,6 +481,19 @@ mod tests {
         kv_upload(address, username, password, "test_download", value);
         println!("About to download");
         let e = kv_download(address, username, password, "test_download").unwrap();
+        println!("value: {:x?}", e);
+    }
+
+    #[test]
+    fn test_kv_delete() {
+        let value: &[u8] = &[1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let address = "127.0.0.1:3004";
+        let username = "admin";
+        let password = "admin";
+        println!("About to upload");
+        kv_upload(address, username, password, "test_delete", value);
+        println!("About to delete");
+        let e = kv_delete(address, username, password, "test_delete").unwrap();
         println!("value: {:x?}", e);
     }
 
@@ -579,10 +527,9 @@ mod tests {
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";
-        // test_send_good_csv();
-        // test_send_large_csv();
+        test_kv_upload();
         // std::thread::sleep(Duration::from_secs(3));
         let tables = meta_list_key_values(address, username, password).unwrap();
-        println!("tables: \n{}", tables);
+        println!("Key - Value pairs: \n{}", tables);
     }
 }

@@ -1,3 +1,4 @@
+use core::str;
 use std::{collections::BTreeMap, fs::File, sync::{atomic::Ordering, Arc, RwLock}};
 
 use aes_gcm::Key;
@@ -103,9 +104,10 @@ pub fn handle_update_request(
             .update(&table)
             ?;
             database.buffer_pool.table_naughty_list.write().unwrap().insert(table.name);
+            send_encrypted("OK".as_bytes(), connection)?;
         },
         Err(e) => {
-            send_compressed_encrypted(e.to_string().as_bytes(), connection)?;
+            send_encrypted(e.to_string().as_bytes(), connection)?;
             return Err(EzError::Strict(e));
         },
     };
@@ -117,30 +119,25 @@ pub fn handle_update_request(
 pub fn handle_query_request(
     connection: &mut Connection,
     database: Arc<Database>
-) -> Result<String, EzError> {
+) -> Result<(), EzError> {
     // PARSE INSTRUCTION
     println!("calling: handle_query_request()");
     
-    
-    todo!()
-    // let queries = parse_serial_query(query)?;
+    let query = receive_decrypt_decompress(connection)?;
+    let query = str::from_utf8(&query)?;
+    let queries = parse_serial_query(query)?;
 
-    // check_permission(&queries, &connection.user, database.users.clone())?;
-    // let requested_table = match execute_EZQL_queries(queries, database) {
-    //     Ok(res) => match res {
-    //         Some(table) => table.write_to_binary(),
-    //         None => "None.".as_bytes().to_vec(),
-    //     },
-    //     Err(e) => format!("ERROR -> Could not process query because of error: '{}'", e.to_string()).as_bytes().to_vec(),
-    // };
+    check_permission(&queries, &connection.user, database.users.clone())?;
+    let requested_table = match execute_EZQL_queries(queries, database) {
+        Ok(res) => match res {
+            Some(table) => table.write_to_binary(),
+            None => "None.".as_bytes().to_vec(),
+        },
+        Err(e) => format!("ERROR -> Could not process query because of error: '{}'", e.to_string()).as_bytes().to_vec(),
+    };
 
-    // let response = data_send_and_confirm(connection, &requested_table)?;
+    send_compressed_encrypted(&requested_table, connection)
     
-    // if response == "OK" {
-    //     Ok("OK".to_owned())
-    // } else {
-    //     Err(EzError::Confirmation(response))
-    // }
 }
 
 /// This will be rewritten to use EZQL soon.
@@ -157,7 +154,7 @@ pub fn handle_delete_request(
 
     database.buffer_pool.table_delete_list.write().unwrap().insert(KeyString::from(name));
     
-    send_compressed_encrypted("OK".as_bytes(), connection)?;
+    send_encrypted("OK".as_bytes(), connection)?;
 
     Ok(())
 }
@@ -190,9 +187,6 @@ pub fn handle_kv_upload(
 ) -> Result<(), EzError> {
     println!("calling: handle_kv_upload()");
 
-
-    println!("about to receive data");
-    
     let value = receive_decrypt_decompress(connection)?;
     let value = Value::new(key, &connection.user, &value);
     let value_name = value.name;
@@ -214,7 +208,47 @@ pub fn handle_kv_upload(
 
     println!("data written");
 
-    send_compressed_encrypted("OK".as_bytes(), connection)?;
+    send_encrypted("OK".as_bytes(), connection)?;
+    
+    Ok(())
+
+}
+
+/// Handles a download request of a value associated with the given key. 
+/// Returns error if no value with that key exists or if user doesn't have permission.
+pub fn handle_kv_download(
+    connection: &mut Connection, 
+    key: &str, 
+    database: Arc<Database>,
+) -> Result<(), EzError> {
+    println!("calling: handle_kv_download()");
+
+    let read_binding = database.buffer_pool.values.read().unwrap();
+    let requested_value = read_binding.get(&KeyString::from(key)).expect("Instruction parser should have verified table").read().unwrap();
+
+    send_compressed_encrypted(&requested_value.body, connection)?;
+
+    {
+        println!("handle_kv_download: about to lock values for metadata update");
+        
+        let values = database.buffer_pool.values
+        .read()
+        .unwrap();
+    
+        println!("handle_kv_download: values table lock acquired");
+
+        let this_value = values.get(&KeyString::from(key))
+            .unwrap()
+            .read()
+            .unwrap();
+
+        println!("handle_kv_download: value entry lock acquired");
+
+        this_value.metadata.last_access.store(get_current_time(), Ordering::Relaxed);
+        this_value.metadata.times_accessed.fetch_add(1, Ordering::Relaxed);
+
+        println!("handle_kv_download: metadata updated");
+    }
     
     Ok(())
 
@@ -228,7 +262,6 @@ pub fn handle_kv_update(
 ) -> Result<(), EzError> {
     println!("calling: handle_kv_update()");
 
-    
     let value = receive_decrypt_decompress(connection)?;
     let value = Value::new(key, &connection.user, &value);
     
@@ -245,7 +278,7 @@ pub fn handle_kv_update(
         database.buffer_pool.table_naughty_list.write().unwrap().insert(value_name);
     }
 
-    send_compressed_encrypted("OK".as_bytes(), connection)?;
+    send_encrypted("OK".as_bytes(), connection)?;
 
     Ok(())
 
@@ -260,65 +293,19 @@ pub fn handle_kv_delete(
 ) -> Result<(), EzError> {
     println!("calling: handle_kv_delete()");
 
-
     let mut mutex_binding = database.buffer_pool.values.write().unwrap();
     mutex_binding.remove(&KeyString::from(name)).expect("Instruction parser should have verified value");
 
     database.buffer_pool.value_delete_list.write().unwrap().insert(KeyString::from(name));
     
-    send_compressed_encrypted("OK".as_bytes(), connection)?;
+    send_encrypted("OK".as_bytes(), connection)?;
 
     Ok(())
 }
 
 
 
-/// Handles a download request of a value associated with the given key. 
-/// Returns error if no value with that key exists or if user doesn't have permission.
-pub fn handle_kv_download(
-    connection: &mut Connection, 
-    name: &str, 
-    database: Arc<Database>,
-) -> Result<(), EzError> {
-    println!("calling: handle_kv_download()");
 
-
-    let read_binding = database.buffer_pool.values.read().unwrap();
-    let requested_value = read_binding.get(&KeyString::from(name)).expect("Instruction parser should have verified table").read().unwrap();
-
-    println!("handle_kv_download: sending data");
-    let response = data_send_and_confirm(connection, &requested_value.body)?;
-    println!("handle_kv_download: data sent");
-
-    if response == "OK" {
-        {
-            println!("handle_kv_download: about to lock values for metadata update");
-            
-            let values = database.buffer_pool.values
-            .read()
-            .unwrap();
-        
-            println!("handle_kv_download: values table lock acquired");
-
-            let mut this_value = values.get(&KeyString::from(name))
-                .unwrap()
-                .read()
-                .unwrap();
-
-            println!("handle_kv_download: value entry lock acquired");
-
-            this_value.metadata.last_access.store(get_current_time(), Ordering::Relaxed);
-            this_value.metadata.times_accessed.fetch_add(1, Ordering::Relaxed);
-
-            println!("handle_kv_download: metadata updated");
-        }
-        
-        Ok(())
-    } else {
-        Err(EzError::Confirmation(response))
-    }
-
-}
 
 /// Handles the request for the list of tables.
 pub fn handle_meta_list_tables(
@@ -345,13 +332,7 @@ pub fn handle_meta_list_tables(
     }
     printer.pop();
 
-    let response = data_send_and_confirm(connection, printer.as_bytes())?;
-
-    if response == "OK" {
-        Ok(())
-    } else {
-        Err(EzError::Confirmation(response))
-    }
+    send_compressed_encrypted(printer.as_bytes(), connection)
 
 }
 
