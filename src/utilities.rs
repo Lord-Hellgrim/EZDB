@@ -28,7 +28,7 @@ use crate::server_networking::{Database, Server};
 
 
 pub const INSTRUCTION_BUFFER: usize = 1024;
-pub const DATA_BUFFER: usize = 1_048_576; // 1 mb
+pub const DATA_BUFFER: usize = 1_048;//_576; // 1 mb
 pub const MAX_DATA_LEN: usize = u32::MAX as usize;
 
 
@@ -304,7 +304,9 @@ pub fn establish_connection(mut stream: TcpStream, server: Arc<Server>, db_ref: 
 
     stream.set_read_timeout(Some(Duration::from_secs(5)))?;
     // println!("server_public key: {:?}", server.public_key.as_bytes());
-    match stream.write(server.public_key.as_bytes()) {
+    let server_private_key = EphemeralSecret::random();
+    let server_public_key = PublicKey::from(&server_private_key);
+    match stream.write(server_public_key.as_bytes()) {
         Ok(_) => (),
         Err(e) => {
             println!("failed to write server public key because: {}", e);
@@ -323,8 +325,7 @@ pub fn establish_connection(mut stream: TcpStream, server: Arc<Server>, db_ref: 
     }
     
     let client_public_key = PublicKey::from(buffer);
-    
-    let shared_secret = server.private_key.diffie_hellman(&client_public_key);
+    let shared_secret = server_private_key.diffie_hellman(&client_public_key);
     // println!("Shared secret: {:?}", shared_secret.as_bytes());
     let aes_key = ez_hash(shared_secret.as_bytes());
 
@@ -393,32 +394,8 @@ pub fn establish_connection(mut stream: TcpStream, server: Arc<Server>, db_ref: 
 
 }
 
-fn extract_query(request: &str) -> &str {
-    #[cfg(debug_assertions)]
-    println!("calling: extract_query()");
-
-    if let Some(pos) = request.find("\r\n\r\n") {
-        return &request[pos + 4..];
-    }
-    ""
-}
-
-pub fn check_if_http_request(stream: &TcpStream) -> Result<String, EzError> {
-    #[cfg(debug_assertions)]
-    println!("calling: check_if_http_request()");
-
-    let mut buffer = [0u8;1024];
-    stream.peek(&mut buffer)?;
-
-    let text = bytes_to_str(&buffer)?;
-    if text.starts_with("POST /query HTTP/1.1") {
-        Ok(extract_query(text).to_owned())
-    } else {
-        Err(EzError::Query("Not http. Proceed with normal".to_owned()))
-    }
 
 
-}
 
 /// Just a hash.
 #[inline]

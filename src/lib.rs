@@ -23,3 +23,4 @@ pub mod utilities;
 pub mod server_networking;
 pub mod bloom_filter;
 pub mod row_arena;
+pub mod http_interface;

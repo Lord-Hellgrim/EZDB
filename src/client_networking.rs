@@ -299,11 +299,20 @@ fn send_instruction_with_associated_data(instruction: Instruction, username: &st
     let associated_data = encrypt_aes256_nonce_prefixed(&associated_data, &connection.aes_key);
     println!("associated_data.len(): {}", associated_data.len());
     let mut package = Vec::new();
-    package.extend_from_slice(&instruction);
     package.extend_from_slice(&(associated_data.len()).to_le_bytes());
     package.extend_from_slice(&associated_data);
-    println!("package len: {}", package.len()-284);
-
+    
+    match connection.stream.write(&instruction) {
+        Ok(n) => {
+            if n == 284 {
+                println!("YAAAYYYY!!!!");
+                ()
+            } else {
+                panic!("AHHAAAAAAAAAAAAAAAAAAAAAA!!!");
+            }
+        },
+        Err(e) => return Err(EzError::Io(e.kind())),
+    };
     connection.stream.write_all(&package)?;
 
     Ok(())

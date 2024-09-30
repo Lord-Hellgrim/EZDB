@@ -12,6 +12,7 @@ use x25519_dalek::{StaticSecret, PublicKey};
 use crate::aes_temp_crypto::{decrypt_aes256, decrypt_aes256_with_prefixed_nonce};
 use crate::auth::{user_has_permission, AuthenticationError, Permission, User};
 use crate::disk_utilities::{BufferPool, MAX_BUFFERPOOL_SIZE};
+use crate::http_interface::{check_if_http_request, handle_http_connection};
 use crate::logging::Logger;
 use crate::utilities::{bytes_to_str, establish_connection, receive_decrypt_decompress, send_compressed_encrypted, Connection, EzError, Instruction, InstructionError, INSTRUCTION_BUFFER};
 use crate::db_structure::KeyString;
@@ -32,8 +33,6 @@ pub const PROCESS_MESSAGES_INTERVAL: u64 = 10;   // The number of seconds that p
 /// The struct that carries data relevant to the running server. 
 /// Am trying to think of ways to reduce reliance on Arc<RwLock<T>>
 pub struct Server {
-    pub public_key: PublicKey,
-    pub private_key: StaticSecret,
     pub listener: TcpListener,
 }
 
@@ -86,8 +85,6 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
     
     // #################################### STARTUP SEQUENCE #############################################
     println!("Starting server...\n###########################");
-    let server_private_key = StaticSecret::random();
-    let server_public_key = PublicKey::from(&server_private_key);
     
     println!("Binding to address: {address}");
     let l = match TcpListener::bind(address) {
@@ -96,8 +93,6 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
     };
 
     let server = Arc::new(Server {
-        public_key: server_public_key,
-        private_key: server_private_key,
         listener: l,
     });
 
@@ -193,16 +188,20 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
             outer_scope.spawn(move || {
                 
                 // ###### ESTABLISHING ENCRYPTED CONNECTION ##########################################################################################################
-                // check_if_http();
+                if check_if_http_request(&stream) {
+                    handle_http_connection();
+                }
 
                 let mut connection = establish_connection(stream, thread_server, db_ref.clone())?;
-
+                
                 // ###### END OF ESTABLISHING ENCRYPTED CONNECTION ###################################################################################
-    
-    
+                
+                
                 // ############################ HANDLING REQUESTS ###########################################################################################################
                 let mut instruction_buffer = [0u8;INSTRUCTION_LENGTH];
+                // std::thread::sleep(Duration::from_secs(1));
                 connection.stream.read_exact(&mut instruction_buffer)?;
+                println!("HAHAHAHAHAHAHA");
                 let instructions = match decrypt_aes256_with_prefixed_nonce(&instruction_buffer, &connection.aes_key) {
                     Ok(bytes) => bytes,
                     Err(_) => panic!("failed to decrypt instructions.\nIntruction bytes: {:x?}", &instruction_buffer),
