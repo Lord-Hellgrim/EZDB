@@ -302,17 +302,7 @@ fn send_instruction_with_associated_data(instruction: Instruction, username: &st
     package.extend_from_slice(&(associated_data.len()).to_le_bytes());
     package.extend_from_slice(&associated_data);
     
-    match connection.stream.write(&instruction) {
-        Ok(n) => {
-            if n == 284 {
-                println!("YAAAYYYY!!!!");
-                ()
-            } else {
-                panic!("AHHAAAAAAAAAAAAAAAAAAAAAA!!!");
-            }
-        },
-        Err(e) => return Err(EzError::Io(e.kind())),
-    };
+    connection.stream.write_all(&instruction)?;
     connection.stream.write_all(&package)?;
 
     Ok(())
