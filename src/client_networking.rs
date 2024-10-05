@@ -1,13 +1,13 @@
-use std::io::{Read, Write};
+use std::io::Write;
 use std::str::{self};
 
 use ezcbor::cbor::Cbor;
 
-use crate::aes_temp_crypto::{decrypt_aes256_with_prefixed_nonce, encrypt_aes256, encrypt_aes256_nonce_prefixed};
-use crate::auth::{AuthenticationError, User};
+use crate::aes_temp_crypto::encrypt_aes256_nonce_prefixed;
+use crate::auth::User;
 use crate::compression::miniz_compress;
 use crate::db_structure::{ColumnTable, KeyString};
-use crate::utilities::{bytes_to_str, data_send_and_confirm, instruction_send_and_confirm, parse_response, receive_decrypt, receive_decrypt_decompress, send_compressed_encrypted, send_encrypted, Connection, EzError, Instruction};
+use crate::utilities::{bytes_to_str, instruction_send_and_confirm, parse_response, receive_decrypt, receive_decrypt_decompress, Connection, EzError, Instruction};
 use crate::PATH_SEP;
 
 
@@ -269,25 +269,15 @@ pub fn meta_create_new_user(
 ) -> Result<(), EzError> {
     println!("calling: meta_create_new_user()");
 
-
     let mut connection = Connection::connect(address, username, password)?;
 
-    let user_bytes = user.to_cbor_bytes();
+    let instruction = Instruction::NewUser;
+    send_instruction_with_associated_data(instruction, username, &user.to_cbor_bytes(), &mut connection)?;
 
-    let response = instruction_send_and_confirm(Instruction::NewUser, &mut connection)?;
+    let response = receive_decrypt(&mut connection)?;
+    let response = String::from_utf8(response)?;
 
-    println!("Create new user - parsing response");
-    let confirmation: String = match parse_response(&response, &connection.user, "no table") {
-        Ok(_) => "OK".to_owned(),
-        Err(e) => return Err(e),
-    };
-    println!("confirmation: {}", confirmation);
-
-    if confirmation == "OK" {
-        Ok(())
-    } else {
-        Err(EzError::Confirmation(confirmation))
-    }
+    parse_response(&response, username, &user.username)
 }
 
 

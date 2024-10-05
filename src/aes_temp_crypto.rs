@@ -1,11 +1,9 @@
-use std::{io::{Read, Write}, net::TcpStream};
-
 use aes_gcm::{
     aead::{Aead, AeadCore, KeyInit, OsRng, generic_array::GenericArray},
     Aes256Gcm, Key // Or `Aes128Gcm`
 };
 
-use crate::{compression, utilities::{Connection, EzError, DATA_BUFFER, MAX_DATA_LEN}};
+use crate::utilities::{EzError, DATA_BUFFER, MAX_DATA_LEN};
 
 // TODO Add a handler for using the tag
 pub fn encrypt_aes256(s: &[u8], key: &[u8]) -> (Vec<u8>, [u8;12]) {

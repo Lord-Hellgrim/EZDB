@@ -1,7 +1,6 @@
 use miniz_oxide::deflate::compress_to_vec;
 use miniz_oxide::inflate::decompress_to_vec;
 // use brotli::{CompressorReader, Decompressor};
-use std::io::{self, Read, Write};
 
 use crate::utilities::{usize_from_le_slice, EzError};
 use crate::PATH_SEP;

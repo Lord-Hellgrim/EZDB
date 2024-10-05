@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap, HashSet}, fmt::{self, Debug, Display}, io::Write, num::{ParseFloatError, ParseIntError}, sync::atomic::{AtomicU64, Ordering}
+    collections::{BTreeMap, HashMap, HashSet}, fmt::{self, Debug, Display}, num::{ParseFloatError, ParseIntError}, sync::atomic::{AtomicU64, Ordering}
 };
 
 // use smartstring::{LazyCompact, SmartString, };
@@ -312,7 +312,6 @@ impl Cbor for Metadata {
         println!("calling: Metadata::from_cbor_bytes()");
 
         let mut i = 0;
-        let mut count = 0;
         let (last_access, bytes_read) = <u64 as Cbor>::from_cbor_bytes(&bytes[i..])?;
         i += bytes_read;
         let (times_accessed, bytes_read) = <u64 as Cbor>::from_cbor_bytes(&bytes[i..])?;
@@ -2685,6 +2684,8 @@ impl Value {
 #[cfg(test)]
 mod tests {
     #![allow(unused)]
+
+    use std::io::Write;
 
     use aes_gcm::Key;
     use ezcbor::cbor::decode_cbor;

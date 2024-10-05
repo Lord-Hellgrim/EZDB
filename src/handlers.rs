@@ -159,25 +159,6 @@ pub fn handle_delete_request(
     Ok(())
 }
 
-/// Handles a create user request from a client. The user requesting the new user must have permission to create users
-pub fn handle_new_user_request(
-    connection: &mut Connection,
-    database: Arc<Database>,
-) -> Result<(), EzError> {
-    println!("calling: handle_new_user_request()");
-
-    
-    
-    // let user: User = decode_cbor(user_string).unwrap();
-    // let mut user_lock = database.users.write().unwrap();
-    // user_lock.insert(KeyString::from(user.username.as_str()), RwLock::new(user));
-    
-    send_compressed_encrypted("OK".as_bytes(), connection)?;
-
-    Ok(())
-
-}
-
 
 /// Handles a key value upload request.
 pub fn handle_kv_upload(
@@ -371,3 +352,21 @@ pub fn handle_meta_list_key_values(
 }
 
 
+/// Handles a create user request from a client. The user requesting the new user must have permission to create users
+pub fn handle_new_user_request(
+    connection: &mut Connection,
+    database: Arc<Database>,
+) -> Result<(), EzError> {
+    println!("calling: handle_new_user_request()");
+
+    let user_bytes = receive_decrypt_decompress(connection)?;
+    let user: User = decode_cbor(&user_bytes)?;
+
+    let mut user_lock = database.users.write().unwrap();
+    user_lock.insert(KeyString::from(user.username.as_str()), RwLock::new(user));
+    
+    send_compressed_encrypted("OK".as_bytes(), connection)?;
+
+    Ok(())
+
+}

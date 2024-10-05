@@ -163,42 +163,6 @@ impl User {
         }
     }
 
-    // pub fn from_str(s: &str) -> Result<User, ServerError> {
-
-    //     let mut user = User::new("", "");
-    //     let mut expect = "";
-    //     let keywords = ["username", "password", "admin", "can_upload", "can_read", "can_write"];
-    //     for line in s.lines() {
-    //         println!("line: {}", line.trim());
-    //         let k = keywords.iter().position(|x| *x == line);
-    //         match k {
-    //             Some(l) => expect = keywords[l],
-    //             None => {
-    //                 match expect {
-    //                     "username" => user.username = line.trim().to_owned(),
-    //                     "password" => user.password = decode_hex_to_arr32(line.trim())?,
-    //                     "admin" => user.admin = {
-    //                         match line.trim().parse::<bool>() {
-    //                             Ok(x) => x,
-    //                             Err(e) => return Err(ServerError::ParseUser(e.to_string())),
-    //                         }
-    //                     },
-    //                     "can_upload" => user.can_upload = {
-    //                         match line.trim().parse::<bool>() {
-    //                             Ok(x) => x,
-    //                             Err(e) => return Err(ServerError::ParseUser(e.to_string())),
-    //                         }
-    //                     },
-    //                     "can_read" => user.can_read.push(line.trim().to_owned()),
-    //                     "can_write" => user.can_write.push(line.trim().to_owned()),
-    //                     _ => (),
-    //                 }
-    //             }
-    //         }
-    //     }
-
-    //     Ok(user)
-    // }
     
 }
 
