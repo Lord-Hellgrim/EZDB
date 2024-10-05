@@ -137,7 +137,7 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                 writer_thread_db_ref.buffer_pool.table_delete_list.write().unwrap().clear();
 
 
-                for key in writer_thread_db_ref.buffer_pool.value_delete_list.read().unwrap().iter() {
+                for key in writer_thread_db_ref.buffer_pool.value_delete_list.write().unwrap().iter() {
                     match std::fs::remove_file(format!("EZconfig{PATH_SEP}raw_values{PATH_SEP}{}", key.as_str())) {
                         Ok(_) => (),
                         Err(e) => println!("LINE: {} - ERROR: {}", line!(), e),

@@ -1,11 +1,9 @@
-use fnv::FnvHashSet;
-
 
 
 pub struct RowArena {
-    buffer: Vec<u8>,
+    buffer: Vec<usize>,
     row_size: usize,
-    free_list: FnvHashSet<usize>,
+    free_list: Vec<u32>,
     pointer: usize,
 }
 
@@ -17,7 +15,7 @@ impl RowArena {
         RowArena {
             buffer: Vec::new(),
             row_size: row_size,
-            free_list: FnvHashSet::with_hasher(fnv::FnvBuildHasher::default()),
+            free_list: Vec::new(),
             pointer: 0,
         }
     }

@@ -153,23 +153,23 @@ upload_csv :: proc(address: [4]u8, port: int, username: string, password: string
 
 }
 
-send_instruction_with_associated_data :: proc(instruction: string, username: &str, associated_data: &[u8], connection: &mut Connection) -> Result<(), EzError> {
-    let instruction = encrypt_aes256_nonce_prefixed(&instruction.to_bytes(username), &connection.aes_key);
-    println!("instruction lnght: {} bytes", instruction.len());
+// send_instruction_with_associated_data :: proc(instruction: string, username: &str, associated_data: &[u8], connection: &mut Connection) -> Result<(), EzError> {
+//     let instruction = encrypt_aes256_nonce_prefixed(&instruction.to_bytes(username), &connection.aes_key);
+//     println!("instruction lnght: {} bytes", instruction.len());
     
-    let associated_data = miniz_compress(associated_data)?;
-    let associated_data = encrypt_aes256_nonce_prefixed(&associated_data, &connection.aes_key);
-    println!("associated_data.len(): {}", associated_data.len());
-    let mut package = Vec::new();
-    package.extend_from_slice(&instruction);
-    package.extend_from_slice(&(associated_data.len()).to_le_bytes());
-    package.extend_from_slice(&associated_data);
-    println!("package len: {}", package.len()-284);
+//     let associated_data = miniz_compress(associated_data)?;
+//     let associated_data = encrypt_aes256_nonce_prefixed(&associated_data, &connection.aes_key);
+//     println!("associated_data.len(): {}", associated_data.len());
+//     let mut package = Vec::new();
+//     package.extend_from_slice(&instruction);
+//     package.extend_from_slice(&(associated_data.len()).to_le_bytes());
+//     package.extend_from_slice(&associated_data);
+//     println!("package len: {}", package.len()-284);
 
-    connection.stream.write_all(&package)?;
+//     connection.stream.write_all(&package)?;
 
-    Ok(())
-}
+//     Ok(())
+// }
 
 simple_hash :: proc(plaintext: []u8) -> [32]u8 {
     ctx : sha2.Context_256;
