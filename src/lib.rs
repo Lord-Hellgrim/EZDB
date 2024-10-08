@@ -9,7 +9,7 @@ pub const PATH_SEP: char = '\\';
 pub const PATH_SEP: char = '/';
 
 
-// pub mod aes;
+pub mod aes;
 pub mod aes_temp_crypto;
 pub mod auth;
 pub mod client_networking;

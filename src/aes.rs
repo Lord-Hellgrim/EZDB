@@ -246,38 +246,16 @@ fn encrypt_one_block_128(plaintext: [u8;16], key: &[u8;16]) -> [u8;16] {
 
     // The main body of the AES128 algorithm starts here
     let plaintext = unsafe { _mm_loadu_si128(plaintext.as_ptr() as *const __m128i) };
-    
-    // { // This is a SIMD print statement
-    //     let mut value: [u8;16] = [0;16];
-    //     unsafe { _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, plaintext) };
-    //     println!("Plaintext as _m128i: {:x?}", value);
-    // }
 
     let mut ciphertext = unsafe { _mm_xor_si128(plaintext, round_keys[0]) };
-    // { // This is a SIMD print statement
-    //     let mut value: [u8;16] = [0;16];
-    //     unsafe { _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, ciphertext) };
-    //     println!("state0: {:x?}", value);
-    // }
-    
     
     let mut i = 1;
     while i < 10 {
         ciphertext = unsafe { _mm_aesenc_si128(ciphertext, round_keys[i]) };
-        // { // This is a SIMD print statement
-        //     let mut value: [u8;16] = [0;16];
-        //     unsafe { _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, ciphertext) };
-        //     println!("state{i}: {:x?}", value);
-        // }
         
         i += 1;
     }
     ciphertext = unsafe { _mm_aesenclast_si128(ciphertext, round_keys[10]) };
-    // { // This is a SIMD print statement
-    //     let mut value: [u8;16] = [0;16];
-    //     unsafe { _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, ciphertext) };
-    //     println!("state10: {:x?}", value);
-    // }
    
     let mut value: [u8;16] = [0;16];
     unsafe { _mm_storeu_si128(value.as_mut_ptr() as *mut __m128i, ciphertext) };
@@ -369,11 +347,14 @@ pub fn decrypt_128(data: &[u8], key: &[u8;16]) -> Vec<u8> {
 
 
 
+
+
+
 #[cfg(test)]
 mod tests {
     use std::time::Instant;
 
-    use crate::networking_utilities::bytes_to_str;
+    use crate::utilities::bytes_to_str;
 
     use super::*;
 
