@@ -1,4 +1,5 @@
-use std::arch::x86_64::{__m128i, _mm_loadu_si128, _mm_setzero_si128, _mm_aesenc_si128, _mm_xor_si128, _mm_aesenclast_si128, _mm_storeu_si128, _mm_aesdec_si128, _mm_aesdeclast_si128, _mm_aesimc_si128};
+#![allow(non_snake_case)]
+use std::arch::x86_64::{__m128i, _mm_aesdec_si128, _mm_aesdeclast_si128, _mm_aesenc_si128, _mm_aesenclast_si128, _mm_aesimc_si128, _mm_aeskeygenassist_si128, _mm_loadu_si128, _mm_setzero_si128, _mm_storeu_si128, _mm_xor_si128};
 
 
 // This is the AES substitution box. Source "NIST.FIPS.197-upd1.pdf"
@@ -160,6 +161,7 @@ fn GHASH(X: &[u8], hashkey: &[u8;16]) -> Vec<u8> {
     Y
 }
 
+#[inline]
 fn word_from_bytes(bytes: [u8;4]) -> u32 {
     ((bytes[0] as u32) << 24) |
     ((bytes[1] as u32) << 16) |
@@ -187,7 +189,7 @@ fn SUBWORD(a: u32) -> u32 {
     output
 }
 
-pub fn expand_key(key: &[u8;16]) -> [u8; 176] {
+pub fn expand_key_128(key: &[u8;16]) -> [u8; 176] {
     let mut i = 0;
     let Nk = 4;
     let Nr = 10;
@@ -227,12 +229,10 @@ pub fn expand_key(key: &[u8;16]) -> [u8; 176] {
 
 }
 
-
-
 // AES128 encryption
 fn encrypt_one_block_128(plaintext: [u8;16], key: &[u8;16]) -> [u8;16] {
     // println!("plaintext at start: {:x?}", plaintext);
-    let exp_key = expand_key(key);
+    let exp_key = expand_key_128(key);
     let mut round_keys: [__m128i;11] = unsafe { [_mm_setzero_si128();11] };
     let mut i = 0;
     // putting the expanded key into an array of 128bit words
@@ -265,7 +265,7 @@ fn encrypt_one_block_128(plaintext: [u8;16], key: &[u8;16]) -> [u8;16] {
 
 
 fn decrypt_one_block_128(ciphertext: [u8;16], key: &[u8;16]) -> [u8;16] {
-    let exp_key = expand_key(key);
+    let exp_key = expand_key_128(key);
     let mut round_keys: [__m128i;11] = unsafe { [_mm_setzero_si128();11] };
     let mut i = 0;
     // putting the expanded key into an array of 128bit words
@@ -530,7 +530,7 @@ mod tests {
             0xb6,0x63,0x0c,0xa6,
 
         ];
-        let ekey = expand_key(&key);
+        let ekey = expand_key_128(&key);
         
         assert_eq!(official_expanded_key, ekey);
 

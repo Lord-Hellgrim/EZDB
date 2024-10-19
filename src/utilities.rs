@@ -250,6 +250,8 @@ impl Connection {
         #[cfg(debug_assertions)]
         println!("calling: Connection::connect()");
 
+        
+
         if username.len() > 512 || password.len() > 512 {
             return Err(EzError::Authentication(AuthenticationError::TooLong))
         }
@@ -296,6 +298,8 @@ impl Connection {
 
     }
 }
+
+
 
 /// THe server side of the Connection exchange
 pub fn establish_connection(mut stream: TcpStream, server: Arc<Server>, db_ref: Arc<Database>) -> Result<Connection, EzError> {

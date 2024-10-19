@@ -28,6 +28,7 @@ x25519-dalek = { version = "2.0.0", features = ["getrandom", "static_secrets"] }
 ezcbor = {git = "https://github.com/lord-hellgrim/ezcbor", branch = "master"}
 sha2 = "0.10.8"
 snow = { version = "0.9.6", features = ["ring", "ring-accelerated"] }
+eznoise = "0.0.1"
 
 [dev-dependencies]
 criterion = "0.5.1"
