@@ -14,6 +14,7 @@ use std::{usize, fmt};
 use std::arch::x86_64::{self, __m128};
 
 use ezcbor::cbor::CborError;
+use eznoise::HandshakeState;
 use fnv::FnvHashMap;
 use x25519_dalek::{EphemeralSecret, PublicKey};
 use aes_gcm::aead;
@@ -24,7 +25,7 @@ use crate::auth::AuthenticationError;
 use crate::compression;
 use crate::db_structure::{KeyString, StrictError};
 use crate::ezql::QueryError;
-use crate::server_networking::{Database, Server};
+use crate::server_networking::Database;
 
 
 pub const INSTRUCTION_BUFFER: usize = 1024;
@@ -147,6 +148,16 @@ impl From<FromUtf8Error> for EzError {
     }
 }
 
+impl From<eznoise::NoiseError> for EzError {
+    fn from(e: eznoise::NoiseError) -> Self {
+        match e {
+            eznoise::NoiseError::Ring => EzError::Crypto("".to_owned()),
+            eznoise::NoiseError::WrongState => EzError::Crypto("Noise error. Noise is in wrong state".to_owned()),
+            eznoise::NoiseError::Io => EzError::Io(ErrorKind::BrokenPipe),
+        }
+    }
+}
+
 
 /// An enum that lists the possible instructions that the database can receive.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -237,164 +248,44 @@ impl From<Utf8Error> for InstructionError {
 }
 
 
-/// A connection to a peer. The client side uses the same struct.
-pub struct Connection {
-    pub stream: TcpStream,
-    pub user: String,
-    pub aes_key: [u8;32],   
-}
-
-impl Connection {
-    /// Initialize a connection. This means doing diffie hellman key exchange and establishing a shared secret
-    pub fn connect(address: &str, username: &str, password: &str) -> Result<Connection, EzError> {
-        #[cfg(debug_assertions)]
-        println!("calling: Connection::connect()");
-
-        if username.len() > 512 || password.len() > 512 {
-            return Err(EzError::Authentication(AuthenticationError::TooLong))
-        }
-
-        let client_private_key = EphemeralSecret::random();
-        let client_public_key = PublicKey::from(&client_private_key);
-
-        let mut stream = TcpStream::connect(address)?;
-        let mut key_buffer: [u8; 32] = [0u8;32];
-        stream.read_exact(&mut key_buffer)?;
-        let server_public_key = PublicKey::from(key_buffer);
-        stream.write_all(client_public_key.as_bytes())?;
-        let shared_secret = client_private_key.diffie_hellman(&server_public_key);
-        let aes_key = ez_hash(&shared_secret.to_bytes());
-
-        let mut auth_buffer = [0u8; 1024];
-        auth_buffer[0..username.len()].copy_from_slice(username.as_bytes());
-        auth_buffer[512..512+password.len()].copy_from_slice(password.as_bytes());
-        // println!("auth_buffer: {:x?}", auth_buffer);
-        
-        let (encrypted_data, data_nonce) = encrypt_aes256(&auth_buffer, &aes_key);
-        println!("data_nonce: {:x?}", data_nonce);
-        // The reason for the +28 in the length checker is that it accounts for the length of the nonce (IV) and the authentication tag
-        // in the aes-gcm encryption. The nonce is 12 bytes and the auth tag is 16 bytes
-        let mut encrypted_data_block = Vec::with_capacity(encrypted_data.len() + 28);
-        encrypted_data_block.extend_from_slice(&data_nonce);
-        encrypted_data_block.extend_from_slice(&encrypted_data);
-        // println!("Encrypted auth string: {:x?}", encrypted_data_block);
-        // println!("Encrypted auth string.len(): {}", encrypted_data_block.len());
-        
-        // println!("Sending data...");
-        stream.write_all(&encrypted_data_block)?;
-        stream.flush()?;
-        stream.set_read_timeout(Some(Duration::from_secs(20)))?;
-
-        let user = username.to_owned();
-        Ok(
-            Connection {
-                stream: stream,
-                user: user,
-                aes_key: aes_key,
-            }
-        )
-
-    }
-}
-
 /// THe server side of the Connection exchange
-pub fn establish_connection(mut stream: TcpStream, server: Arc<Server>, db_ref: Arc<Database>) -> Result<Connection, EzError> {
+pub fn establish_connection(handshakestate: &mut HandshakeState, stream: TcpStream, db_ref: Arc<Database>) -> Result<(eznoise::Connection, String), EzError> {
     #[cfg(debug_assertions)]
     println!("calling: establish_connection()");
 
-    stream.set_read_timeout(Some(Duration::from_secs(5)))?;
-    // println!("server_public key: {:?}", server.public_key.as_bytes());
-    let server_private_key = EphemeralSecret::random();
-    let server_public_key = PublicKey::from(&server_private_key);
-    match stream.write(server_public_key.as_bytes()) {
-        Ok(_) => (),
-        Err(e) => {
-            println!("failed to write server public key because: {}", e);
-            return Err(EzError::Io(e.kind()));
-        }
-    }
-    println!("About to get crypto");
-    let mut buffer: [u8; 32] = [0; 32];
-    
-    match stream.read_exact(&mut buffer){
-        Ok(_) => (),
-        Err(e) => {
-            println!("failed to read client public key because: {}", e);
-            return Err(EzError::Io(e.kind()));
-        }
-    }
-    
-    let client_public_key = PublicKey::from(buffer);
-    let shared_secret = server_private_key.diffie_hellman(&client_public_key);
-    // println!("Shared secret: {:?}", shared_secret.as_bytes());
-    let aes_key = ez_hash(shared_secret.as_bytes());
+    let mut connection = eznoise::establish_connection(handshakestate, stream)?;
+    let auth_buffer = connection.receive()?;
 
-    let mut auth_buffer = [0u8; 1052];
-    println!("About to read auth string");
-    match stream.read_exact(&mut auth_buffer) {
-        Ok(_) => (),
-        Err(e) => {
-            println!("failed to read auth_string because: {}", e);
-            return Err(EzError::Io(e.kind()));
-        }
-    }
-    // println!("encrypted auth_buffer: {:x?}", auth_buffer);
-    // println!("Encrypted auth_buffer.len(): {}", auth_buffer.len());
-
-    let (ciphertext, nonce) = (&auth_buffer[12..], &auth_buffer[..12]);
-    println!("About to decrypt auth string");
-    let auth_string = match decrypt_aes256(ciphertext, &aes_key, nonce) {
-        Ok(s) => s,
-        Err(e) => {
-            println!("failed to decrypt auth string because: {}", e);
-            return Err(e);
-        }
-    };
     println!("About to parse auth_string");
-    let username = match bytes_to_str(&auth_string[0..512]) {
+    let username = match bytes_to_str(&auth_buffer[0..512]) {
         Ok(s) => s,
         Err(e) => {
             println!("failed to read auth_string from bytes because: {}", e);
             return Err(EzError::Utf8(e));
         }
     };
-    let password = &auth_string[512..];
-    // println!("password: {:?}", password);
-
-    // println!("username: {}\npassword: {:x?}", username, password);
+    let password = &auth_buffer[512..];
     let password = ez_hash(bytes_to_str(password).unwrap().as_bytes());
-    // println!("password: {:?}", password);
-    // println!("password_hash: {:x?}", password);
     println!("About to verify username and password");
 
-    {
-        let users_lock = db_ref.users.read().unwrap();
-        if !users_lock.contains_key(&KeyString::from(username)) {
-            println!("printing keys..");
+    let users_lock = db_ref.users.read().unwrap();
+    if !users_lock.contains_key(&KeyString::from(username)) {
+        println!("printing keys..");
 
-            for key in users_lock.keys() {
-                println!("key: '{}'", key);
-            }
-            println!("Username:\n\t'{}'\n...is wrong", username);
-            return Err(EzError::Authentication(AuthenticationError::WrongUser(format!("Username: '{}' does not exist", username))));
-        } else if db_ref.users.read().unwrap()[&KeyString::from(username)].read().unwrap().password != password {
-            // println!("thread_users_lock[username].password: {:?}", user_lock.password);
-            // println!("password: {:?}", password);
-            // println!("Password hash:\n\t{:?}\n...is wrong", password);
-            return Err(EzError::Authentication(AuthenticationError::WrongPassword));
+        for key in users_lock.keys() {
+            println!("key: '{}'", key);
         }
-        Ok(
-            Connection {
-                stream: stream, 
-                user: username.to_owned(), 
-                aes_key: aes_key
-            }
-        )
+        println!("Username:\n\t'{}'\n...is wrong", username);
+        return Err(EzError::Authentication(AuthenticationError::WrongUser(format!("Username: '{}' does not exist", username))));
+    } else if db_ref.users.read().unwrap()[&KeyString::from(username)].read().unwrap().password != password {
+        // println!("thread_users_lock[username].password: {:?}", user_lock.password);
+        // println!("password: {:?}", password);
+        // println!("Password hash:\n\t{:?}\n...is wrong", password);
+        return Err(EzError::Authentication(AuthenticationError::WrongPassword));
     }
+    Ok((connection, username.to_owned()))
 
 }
-
-
 
 
 /// Just a hash.
@@ -1054,32 +945,6 @@ pub fn bytes_from_strings(strings: &[&str]) -> Vec<u8> {
     v
 }
 
-
-
-pub fn instruction_send_and_confirm(instruction: Instruction, connection: &mut Connection) -> Result<String, EzError> {
-    #[cfg(debug_assertions)]
-    println!("calling: instruction_send_and_confirm()");
-
-    let instruction = instruction.to_bytes(&connection.user);
-
-    println!("{:x?}", instruction);
-
-    send_compressed_encrypted(&instruction, connection)?;
-    
-    let response = receive_decrypt_decompress(connection)?;
-    let response = match String::from_utf8(response) {
-        Ok(s) => s,
-        Err(e) => return Err(e.utf8_error().into()),
-    };
-    println!("repsonse: {}", response);
-    
-
-    Ok(response.to_owned())
-
-}
-
-
-
 /// Helper function that parses a response from instruction_send_and_confirm().
 #[inline]
 pub fn parse_response(response: &str, username: &str, table_name: &str) -> Result<(), EzError> {
@@ -1099,153 +964,6 @@ pub fn parse_response(response: &str, username: &str, table_name: &str) -> Resul
     }
 
 }
-
-/// This is the function primarily responsible for transmitting data.
-/// It compresses, encrypts, sends, and confirms receipt of the data.
-/// Used by both client and server.
-pub fn data_send_and_confirm(connection: &mut Connection, data: &[u8]) -> Result<String, EzError> {
-    #[cfg(debug_assertions)]
-    println!("calling: data_send_and_confirm()");
-
-
-    // // println!("data: {:x?}", data);
-
-    send_compressed_encrypted(data, connection)?;
-    
-    println!("data sent");
-    let buffer = receive_decrypt_decompress(connection)?;
-    
-    let confirmation = bytes_to_str(&buffer).unwrap_or("corrupt data");
-    Ok(confirmation.to_owned())
-
-}
-
-
-
-pub fn send_compressed_encrypted(data: &[u8], connection: &mut Connection) -> Result<(), EzError> {
-    println!("calling: send_compressed_encrypted()");
-
-    
-    let data = compression::miniz_compress(data)?;
-    let encrypted_data = encrypt_aes256_nonce_prefixed(&data, &connection.aes_key);
-
-    let mut encrypted_data_block = Vec::with_capacity(data.len() + 28);
-    encrypted_data_block.extend_from_slice(&encrypted_data);
-
-
-    // The reason for the +28 in the length checker is that it accounts for the length of the nonce (IV) and the authentication tag
-    // in the aes-gcm encryption. The nonce is 12 bytes and the auth tag is 16 bytes
-    let mut block = Vec::from(&(data.len() + 28).to_le_bytes());
-    block.extend_from_slice(&encrypted_data_block);
-    println!("About to send the encrypted data");
-    connection.stream.write_all(&block)?;
-    connection.stream.flush()?;
-    println!("DATA SENT!");
-
-
-    Ok(())
-}
-
-pub fn receive_decrypt_decompress(connection: &mut Connection) -> Result<Vec<u8>, EzError> {
-    println!("calling: receive_decrypt_decompress()");
-
-
-    let mut size_buffer: [u8; 8] = [0; 8];
-    connection.stream.read_exact(&mut size_buffer)?;
-
-    let data_len = usize::from_le_bytes(size_buffer);
-    println!("data_len: {}", data_len);
-    if data_len > MAX_DATA_LEN {
-        return Err(EzError::OversizedData)
-    }
-    println!("About to receive_data!");
-    let mut data = Vec::with_capacity(data_len);
-    let mut buffer = [0; DATA_BUFFER];
-    let mut total_read: usize = 0;
-    
-    let mut i = 1;
-    while total_read < data_len {
-        let to_read = std::cmp::min(DATA_BUFFER, data_len - total_read);
-        let bytes_received = connection.stream.read(&mut buffer[..to_read])?;
-        if bytes_received == 0 {
-            return Err(EzError::Confirmation("Read failure".to_owned()));
-        }
-        data.extend_from_slice(&buffer[..bytes_received]);
-        total_read += bytes_received;
-        println!("Received {i} times");
-        i += 1;
-        println!("Total read: {}", total_read);
-    }
-
-    let csv = decrypt_aes256_with_prefixed_nonce(&data, &connection.aes_key)?;
-
-    let csv = compression::miniz_decompress(&csv)?;
-    Ok(csv)
-
-}
-
-pub fn send_encrypted(data: &[u8], connection: &mut Connection) -> Result<(), EzError> {
-    println!("calling: send_encrypted()");
-    println!("data: {:x?}", data);
-    let encrypted_data = encrypt_aes256_nonce_prefixed(&data, &connection.aes_key);
-
-    let mut encrypted_data_block = Vec::with_capacity(data.len() + 28);
-    encrypted_data_block.extend_from_slice(&encrypted_data);
-
-
-    // The reason for the +28 in the length checker is that it accounts for the length of the nonce (IV) and the authentication tag
-    // in the aes-gcm encryption. The nonce is 12 bytes and the auth tag is 16 bytes
-    let mut block = Vec::from(&(data.len() + 28).to_le_bytes());
-    block.extend_from_slice(&encrypted_data_block);
-    println!("About to send the encrypted data: {:x?}", block);
-    connection.stream.write_all(&block)?;
-    // connection.stream.flush()?;
-    println!("DATA SENT!");
-
-
-    Ok(())
-}
-
-pub fn receive_decrypt(connection: &mut Connection) -> Result<Vec<u8>, EzError> {
-    println!("calling: receive_decrypt()");
-
-
-    let mut size_buffer: [u8; 8] = [0; 8];
-    connection.stream.read_exact(&mut size_buffer)?;
-
-    let data_len = usize::from_le_bytes(size_buffer);
-    println!("data_len: {}", data_len);
-    if data_len > MAX_DATA_LEN {
-        return Err(EzError::OversizedData)
-    }
-    println!("About to receive_data!");
-    let mut data = Vec::with_capacity(data_len);
-    let mut buffer = [0; 1024];
-    let mut total_read: usize = 0;
-    
-    let mut i = 1;
-    while total_read < data_len {
-        let to_read = std::cmp::min(1024, data_len - total_read);
-        let bytes_received = connection.stream.read(&mut buffer[..to_read])?;
-        if bytes_received == 0 {
-            return Err(EzError::Confirmation("Read failure".to_owned()));
-        }
-        data.extend_from_slice(&buffer[..bytes_received]);
-        total_read += bytes_received;
-        println!("Received {i} times");
-        i += 1;
-        println!("Total read: {}", total_read);
-    }
-
-    println!("data: {:x?}", data);
-
-    let data = decrypt_aes256_with_prefixed_nonce(&data, &connection.aes_key)?;
-
-    Ok(data)
-
-}
-
-
 
 #[cfg(test)]
 mod tests {

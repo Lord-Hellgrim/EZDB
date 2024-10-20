@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::io::{Write, Read};
+use std::io::Write;
 use std::net::TcpListener;
 use std::sync::{Arc, RwLock};
 use std::str::{self};
@@ -7,14 +7,12 @@ use std::time::Duration;
 use std::convert::{TryFrom, From};
 
 use ezcbor::cbor::{decode_cbor, Cbor};
-use x25519_dalek::{StaticSecret, PublicKey};
+use eznoise::{HandshakeState, KeyPair};
 
-use crate::aes_temp_crypto::{decrypt_aes256, decrypt_aes256_with_prefixed_nonce};
 use crate::auth::{user_has_permission, AuthenticationError, Permission, User};
 use crate::disk_utilities::{BufferPool, MAX_BUFFERPOOL_SIZE};
-use crate::http_interface::{check_if_http_request, handle_http_connection};
 use crate::logging::Logger;
-use crate::utilities::{bytes_to_str, establish_connection, receive_decrypt_decompress, send_compressed_encrypted, Connection, EzError, Instruction, InstructionError, INSTRUCTION_BUFFER};
+use crate::utilities::{establish_connection, EzError, Instruction, InstructionError};
 use crate::db_structure::KeyString;
 use crate::handlers::*;
 use crate::PATH_SEP;
@@ -28,13 +26,6 @@ pub const PROCESS_MESSAGES_INTERVAL: u64 = 10;   // The number of seconds that p
 
 // Need to redesign the server multithreading before I continue. If I have to lock the "table of tables" for each query,
 // then there's no point to multithreading.
-
-
-/// The struct that carries data relevant to the running server. 
-/// Am trying to think of ways to reduce reliance on Arc<RwLock<T>>
-pub struct Server {
-    pub listener: TcpListener,
-}
 
 pub struct Database {
     pub buffer_pool: BufferPool,
@@ -87,14 +78,13 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
     println!("Starting server...\n###########################");
     
     println!("Binding to address: {address}");
-    let l = match TcpListener::bind(address) {
+    let listener = match TcpListener::bind(address) {
         Ok(value) => value,
         Err(e) => {return Err(EzError::Io(e.kind()));},
     };
 
-    let server = Arc::new(Server {
-        listener: l,
-    });
+    let s = KeyPair::random();
+    let mut handshakestate = HandshakeState::Initialize(false, &[], s, KeyPair::empty(), None, None);
 
     if !std::path::Path::new("EZconfig").is_dir() {
         println!("config does not exist");
@@ -176,41 +166,32 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
 
         loop {
             // Reading instructions
-            let (stream, client_address) = match server.listener.accept() {
+            let (stream, client_address) = match listener.accept() {
                 Ok((n,m)) => (n, m),
                 Err(e) => {return Err(EzError::Io(e.kind()));},
             };
             println!("Accepted connection from: {}", client_address);
+
+            let db_con = database.clone();
+            let (mut connection, username) = match establish_connection(&mut handshakestate, stream, db_con) {
+                Ok(c) => c,
+                Err(e) => continue,
+            };
+
+            let instructions = match connection.receive() {
+                Ok(ins) => ins,
+                Err(_) => continue,
+            };
             
-            let thread_server = server.clone();
             let db_ref = database.clone();
             // Spawn a thread to handle establishing connections
             outer_scope.spawn(move || {
                 
-                // ###### ESTABLISHING ENCRYPTED CONNECTION ##########################################################################################################
-                if check_if_http_request(&stream) {
-                    handle_http_connection();
-                }
 
-                let mut connection = establish_connection(stream, thread_server, db_ref.clone())?;
-                
-                // ###### END OF ESTABLISHING ENCRYPTED CONNECTION ###################################################################################
-                
-                
-                // ############################ HANDLING REQUESTS ###########################################################################################################
-                let mut instruction_buffer = [0u8;INSTRUCTION_LENGTH];
-                // std::thread::sleep(Duration::from_secs(1));
-                connection.stream.read_exact(&mut instruction_buffer)?;
-                println!("HAHAHAHAHAHAHA");
-                let instructions = match decrypt_aes256_with_prefixed_nonce(&instruction_buffer, &connection.aes_key) {
-                    Ok(bytes) => bytes,
-                    Err(_) => panic!("failed to decrypt instructions.\nIntruction bytes: {:x?}", &instruction_buffer),
-                };
                 println!("Parsing instructions...");
                 match parse_instruction(
                     &instructions, 
                     db_ref.clone(),
-                    &mut connection
                 ) {
                     Ok(i) => match i {
                         
@@ -232,7 +213,8 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                             match handle_upload_request(
                                 &mut connection,
                                 db_ref.clone(),
-                                name.as_str()
+                                name.as_str(),
+                                &username,
                             ) {
                                 Ok(_) => {
                                     println!("Operation finished!");
@@ -260,6 +242,7 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                             match handle_query_request(
                                 &mut connection,
                                 db_ref.clone(),
+                                &username
                             ) {
                                 Ok(_) => {
                                     println!("Operation finished!");
@@ -302,6 +285,7 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                                 &mut connection, 
                                 table_name.as_str(),
                                 db_ref.clone(),
+                                &username,
                             ) {
                                 Ok(_) => {
                                     println!("Operation finished!");
@@ -316,6 +300,7 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                                 &mut connection, 
                                 table_name.as_str(), 
                                 db_ref.clone(),
+                                &username,
                             ) {
                                 Ok(_) => {
                                     println!("Operation finished!");
@@ -383,7 +368,7 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                     
                     Err(e) => {
                         println!("Failed to serve request because: {e}");
-                        send_compressed_encrypted(e.to_string().as_bytes(), &mut connection)?;
+                        connection.send(e.to_string().as_bytes());
                         println!("Thread finished on error: {e}");
                     },
                     
@@ -407,7 +392,6 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
 pub fn parse_instruction(
     instructions: &[u8], 
     database: Arc<Database>,
-    connection: &mut Connection,
 ) -> Result<Instruction, EzError> {
     println!("calling: parse_instruction()");
 

@@ -2,18 +2,33 @@ use std::io::Write;
 use std::str::{self};
 
 use ezcbor::cbor::Cbor;
+use eznoise::{initiate_connection, Connection};
 
 use crate::aes_temp_crypto::encrypt_aes256_nonce_prefixed;
-use crate::auth::User;
+use crate::auth::{AuthenticationError, User};
 use crate::compression::miniz_compress;
 use crate::db_structure::{ColumnTable, KeyString};
-use crate::utilities::{bytes_to_str, instruction_send_and_confirm, parse_response, receive_decrypt, receive_decrypt_decompress, Connection, EzError, Instruction};
+use crate::utilities::{bytes_to_str, parse_response, EzError, Instruction};
 use crate::PATH_SEP;
 
 
 pub enum Response {
     Message(String),
     Table(ColumnTable),
+}
+
+pub fn make_connection(address: &str, username: &str, password: &str) -> Result<Connection, EzError> {
+    let mut connection = initiate_connection(address)?;
+    let mut auth_buffer = [0u8;1024];
+    if username.len() > 512 || password.len() > 512 {
+        return Err(EzError::Authentication(AuthenticationError::TooLong))
+}
+    auth_buffer[0..username.len()].copy_from_slice(username.as_bytes());
+    auth_buffer[512..password.len()].copy_from_slice(username.as_bytes());
+
+    connection.send(&auth_buffer)?;
+
+    Ok(connection)
 }
 
 /// downloads a table as a csv String from the EZDB server at the given address.
@@ -25,12 +40,12 @@ pub fn download_table(
 ) -> Result<ColumnTable, EzError> {
     println!("calling: download_table()");
 
-    let mut connection = Connection::connect(address, username, password)?;
+    let mut connection = make_connection(address, username, password)?;
 
-    let instruction = encrypt_aes256_nonce_prefixed(&Instruction::Download(KeyString::from(table_name)).to_bytes(username), &connection.aes_key);
-    connection.stream.write_all(&instruction)?;    
+    let instruction = Instruction::Download(KeyString::from(table_name)).to_bytes(username);
+    connection.send(&instruction)?;
 
-    let response = receive_decrypt_decompress(&mut connection)?;
+    let response = connection.receive()?;
 
     let output = match ColumnTable::from_binary(table_name, &response) {
         Ok(table) => Ok(table),
@@ -51,12 +66,12 @@ pub fn upload_csv(
 ) -> Result<(), EzError> {
     println!("calling: upload_csv()");
 
-    let mut connection = Connection::connect(address, username, password)?;
+    let mut connection = make_connection(address, username, password)?;
 
     let instruction = Instruction::Upload(KeyString::from(table_name));
     send_instruction_with_associated_data(instruction, username, csv.as_bytes(), &mut connection)?;
 
-    let response = receive_decrypt(&mut connection)?;
+    let response = connection.receive()?;
     let response = String::from_utf8(response)?;
 
     parse_response(&response, username, table_name)
@@ -76,24 +91,13 @@ pub fn update_table(
 ) -> Result<(), EzError> {
     println!("calling: upload_csv()");
 
-    let mut connection = Connection::connect(address, username, password)?;
+    let mut connection = make_connection(address, username, password)?;
 
     let instruction = Instruction::Update(KeyString::from(table_name));
-    let instruction = encrypt_aes256_nonce_prefixed(&instruction.to_bytes(username), &connection.aes_key);
-    println!("instruction lnght: {} bytes", instruction.len());
     
-    let table_data = miniz_compress(csv.as_bytes())?;
-    let table_data = encrypt_aes256_nonce_prefixed(&table_data, &connection.aes_key);
-    println!("table_data.len(): {}", table_data.len());
-    let mut package = Vec::new();
-    package.extend_from_slice(&instruction);
-    package.extend_from_slice(&(table_data.len()).to_le_bytes());
-    package.extend_from_slice(&table_data);
-    println!("package len: {}", package.len()-284);
-
-    connection.stream.write_all(&package)?;
-
-    let response = receive_decrypt(&mut connection)?;
+    send_instruction_with_associated_data(instruction, username, csv.as_bytes(), &mut connection)?;
+    
+    let response = connection.receive()?;
     let response = String::from_utf8(response)?;
 
     parse_response(&response, username, table_name)
@@ -108,12 +112,12 @@ pub fn send_query(
 ) -> Result<ColumnTable, EzError> {
     println!("calling: send_query()");
 
-    let mut connection = Connection::connect(address, username, password)?;
+    let mut connection = make_connection(address, username, password)?;
 
     let instruction = Instruction::Query;
     send_instruction_with_associated_data(instruction, username, query.as_bytes(), &mut connection)?;
 
-    let response = receive_decrypt_decompress(&mut connection)?;
+    let response = connection.receive()?;
 
     match ColumnTable::from_binary("RESULT", &response) {
         Ok(table) => Ok(table),
@@ -131,12 +135,13 @@ pub fn delete_table(
     println!("calling: delete_table()");
 
 
-    let mut connection = Connection::connect(address, username, password)?;
+    let mut connection = make_connection(address, username, password)?;
 
-    let instruction = encrypt_aes256_nonce_prefixed(&Instruction::Delete(KeyString::from(table_name)).to_bytes(username), &connection.aes_key);
-    connection.stream.write_all(&instruction)?;   
+    let instruction = Instruction::Delete(KeyString::from(table_name));
 
-    let response = receive_decrypt(&mut connection)?;
+    connection.send(&instruction.to_bytes(username))?;
+
+    let response = connection.receive()?;
     let response = String::from_utf8(response)?;
 
     parse_response(&response, username, table_name)
@@ -152,12 +157,12 @@ pub fn kv_upload(
 ) -> Result<(), EzError> {
     println!("calling: kv_upload()");
 
-    let mut connection = Connection::connect(address, username, password)?;
+    let mut connection = make_connection(address, username, password)?;
 
     let instruction = Instruction::KvUpload(KeyString::from(key));
     send_instruction_with_associated_data(instruction, username, value, &mut connection)?;
 
-    let response = receive_decrypt(&mut connection)?;
+    let response = connection.receive()?;
     let response = String::from_utf8(response)?;
 
     parse_response(&response, username, key)
@@ -172,12 +177,12 @@ pub fn kv_download(
 ) -> Result<Vec<u8>, EzError> {
     println!("calling: kv_download()");
 
-    let mut connection = Connection::connect(address, username, password)?;
+    let mut connection = make_connection(address, username, password)?;
 
-    let instruction = encrypt_aes256_nonce_prefixed(&Instruction::KvDownload(KeyString::from(key)).to_bytes(username), &connection.aes_key);
-    connection.stream.write_all(&instruction)?;    
+    let instruction = Instruction::KvDownload(KeyString::from(key));
+    connection.send(&instruction.to_bytes(username))?;    
 
-    let response = receive_decrypt_decompress(&mut connection)?;
+    let response = connection.receive()?;
 
     Ok(response)
 }
@@ -192,12 +197,12 @@ pub fn kv_update(
 ) -> Result<(), EzError> {
     println!("calling: kv_update()");
 
-    let mut connection = Connection::connect(address, username, password)?;
+    let mut connection = make_connection(address, username, password)?;
 
     let instruction = Instruction::KvUpdate(KeyString::from(key));
     send_instruction_with_associated_data(instruction, username, value, &mut connection)?;
 
-    let response = receive_decrypt(&mut connection)?;
+    let response = connection.receive()?;
     let response = String::from_utf8(response)?;
 
     parse_response(&response, username, key)
@@ -212,12 +217,12 @@ pub fn kv_delete(
 ) -> Result<(), EzError> {
     println!("calling: kv_delete()");
 
-    let mut connection = Connection::connect(address, username, password)?;
+    let mut connection = make_connection(address, username, password)?;
 
-    let instruction = encrypt_aes256_nonce_prefixed(&Instruction::KvDelete(KeyString::from(key)).to_bytes(username), &connection.aes_key);
-    connection.stream.write_all(&instruction)?;   
+    let instruction = Instruction::KvDelete(KeyString::from(key));
+    connection.send(&instruction.to_bytes(username))?;   
 
-    let response = receive_decrypt(&mut connection)?;
+    let response = connection.receive()?;
     let response = String::from_utf8(response)?;
 
     parse_response(&response, username, key)
@@ -231,12 +236,12 @@ pub fn meta_list_tables(
 ) -> Result<String, EzError> {
     println!("calling: meta_list_tables()");
 
-    let mut connection = Connection::connect(address, username, password)?;
+    let mut connection = make_connection(address, username, password)?;
 
-    let instruction = encrypt_aes256_nonce_prefixed(&Instruction::MetaListTables.to_bytes(username), &connection.aes_key);
-    connection.stream.write_all(&instruction)?;   
+    let instruction = Instruction::MetaListTables.to_bytes(username);
+    connection.send(&instruction)?;   
 
-    let value = receive_decrypt_decompress(&mut connection)?;
+    let value = connection.receive()?;
     let table_list = bytes_to_str(&value)?;
 
     Ok(table_list.to_owned())
@@ -250,12 +255,12 @@ pub fn meta_list_key_values(
 ) -> Result<String, EzError> {
     println!("calling: meta_list_key_values()");
 
-    let mut connection = Connection::connect(address, username, password)?;
+    let mut connection = make_connection(address, username, password)?;
 
-    let instruction = encrypt_aes256_nonce_prefixed(&Instruction::MetaListKeyValues.to_bytes(username), &connection.aes_key);
-    connection.stream.write_all(&instruction)?;   
+    let instruction = Instruction::MetaListKeyValues.to_bytes(username);
+    connection.send(&instruction)?;   
 
-    let value = receive_decrypt_decompress(&mut connection)?;
+    let value = connection.receive()?;
     let table_list = bytes_to_str(&value)?;
 
     Ok(table_list.to_owned())
@@ -269,35 +274,25 @@ pub fn meta_create_new_user(
 ) -> Result<(), EzError> {
     println!("calling: meta_create_new_user()");
 
-    let mut connection = Connection::connect(address, username, password)?;
+    let mut connection = make_connection(address, username, password)?;
 
     let instruction = Instruction::NewUser;
     send_instruction_with_associated_data(instruction, username, &user.to_cbor_bytes(), &mut connection)?;
 
-    let response = receive_decrypt(&mut connection)?;
+    let response = connection.receive()?;
     let response = String::from_utf8(response)?;
 
     parse_response(&response, username, &user.username)
 }
 
-
 fn send_instruction_with_associated_data(instruction: Instruction, username: &str, associated_data: &[u8], connection: &mut Connection) -> Result<(), EzError> {
-    let instruction = encrypt_aes256_nonce_prefixed(&instruction.to_bytes(username), &connection.aes_key);
+    let instruction = instruction.to_bytes(username);
     println!("instruction lnght: {} bytes", instruction.len());
-    
-    let associated_data = miniz_compress(associated_data)?;
-    let associated_data = encrypt_aes256_nonce_prefixed(&associated_data, &connection.aes_key);
-    println!("associated_data.len(): {}", associated_data.len());
-    let mut package = Vec::new();
-    package.extend_from_slice(&(associated_data.len()).to_le_bytes());
-    package.extend_from_slice(&associated_data);
-    
-    connection.stream.write_all(&instruction)?;
-    connection.stream.write_all(&package)?;
+    connection.send(&instruction)?;
+    connection.send(&associated_data)?;
 
     Ok(())
 }
-
 
 #[cfg(test)]
 mod tests {
