@@ -256,6 +256,77 @@ impl Query {
             Query::FULL_JOIN => todo!(),
         }
     }
+
+    pub fn to_binary(&self) -> Vec<u8> {
+        let mut binary = Vec::with_capacity(1024);
+        match self {
+            Query::SELECT { table_name, primary_keys, columns, conditions } => {
+                binary.extend_from_slice(KeyString::from("SELECT").raw());
+                binary.extend_from_slice(table_name.raw());
+                binary.extend_from_slice(&primary_keys.to_binary());
+                binary.extend_from_slice(&columns.len().to_le_bytes());
+                for col in columns {
+                    binary.extend_from_slice(col.raw());
+                }
+                binary.extend_from_slice(&conditions.len().to_le_bytes());
+                for condition in conditions {
+                    match condition {
+                        OpOrCond::Cond(condition) => {
+                            binary.extend_from_slice(condition.attribute.raw());
+                            binary.extend_from_slice(&condition.test.to_binary());
+                            
+                            
+                        },
+                        OpOrCond::Op(operator) => binary.extend_from_slice(operator.to_keystring().raw()),
+                    }
+                };
+            },
+            Query::LEFT_JOIN { left_table_name, right_table_name, match_columns, primary_keys } => {
+                binary.extend_from_slice(KeyString::from("LEFT_JOIN").raw());
+                binary.extend_from_slice(left_table_name.raw());
+                binary.extend_from_slice(right_table_name.raw());
+                binary.extend_from_slice(match_columns.0.raw());
+                binary.extend_from_slice(match_columns.1.raw());
+                binary.extend_from_slice(&primary_keys.to_binary());
+
+            },
+            Query::INNER_JOIN => todo!(),
+            Query::RIGHT_JOIN => todo!(),
+            Query::FULL_JOIN => todo!(),
+            Query::UPDATE { table_name, primary_keys, conditions, updates } => {
+                binary.extend_from_slice(KeyString::from("UPDATE").raw());
+                binary.extend_from_slice(table_name.raw());
+                binary.extend_from_slice(&primary_keys.to_binary());
+                binary.extend_from_slice(&conditions.len().to_le_bytes());
+                for condition in conditions {
+                    match condition {
+                        OpOrCond::Cond(condition) => {
+                            binary.extend_from_slice(condition.attribute.raw());
+                            binary.extend_from_slice(&condition.test.to_binary());
+                            
+                            
+                        },
+                        OpOrCond::Op(operator) => binary.extend_from_slice(operator.to_keystring().raw()),
+                    }
+                }
+                binary.extend_from_slice(&updates.len().to_le_bytes());
+                for update in updates {
+                    binary.extend_from_slice(update.attribute.raw());
+                    binary.extend_from_slice(update.operator.to_keystring().raw());
+                    binary.extend_from_slice(update.value.raw());
+                }
+            },
+            Query::INSERT { table_name, inserts } => {
+                binary.extend_from_slice(KeyString::from("INSERT").raw());
+                binary.extend_from_slice(table_name.raw());
+                
+
+            },
+            Query::DELETE { primary_keys, table_name, conditions } => todo!(),
+            Query::SUMMARY { table_name, columns } => todo!(),
+        }
+        binary
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -377,6 +448,17 @@ impl UpdateOp {
             _ => Err(QueryError::InvalidUpdate),
         }
     }
+
+    pub fn to_keystring(&self) -> KeyString {
+        match self {
+            UpdateOp::Assign => KeyString::from("Assign"),
+            UpdateOp::PlusEquals => KeyString::from("PlusEquals"),
+            UpdateOp::MinusEquals => KeyString::from("MinusEquals"),
+            UpdateOp::TimesEquals => KeyString::from("TimesEquals"),
+            UpdateOp::Append => KeyString::from("Append"),
+            UpdateOp::Prepend => KeyString::from("Prepend"),
+        }
+    }
 }
 
 
@@ -406,6 +488,31 @@ impl Display for RangeOrListOrAll {
             RangeOrListOrAll::All => printer.push('*'),
         };
         write!(f, "{}", printer)
+    }
+}
+
+impl RangeOrListOrAll {
+    pub fn to_binary(&self) -> Vec<u8> {
+        let mut binary = Vec::new();
+        match self {
+            RangeOrListOrAll::Range(from, to) => {
+                binary.extend_from_slice(KeyString::from("RANGE").raw());
+                binary.extend_from_slice(from.raw());
+                binary.extend_from_slice(to.raw());
+            },
+            RangeOrListOrAll::List(vec) => {
+                binary.extend_from_slice(KeyString::from("LIST").raw());
+                binary.extend_from_slice(&vec.len().to_le_bytes());
+                for s in vec {
+                    binary.extend_from_slice(s.raw());
+
+                }
+            },
+            RangeOrListOrAll::All => {
+                binary.extend_from_slice(KeyString::from("ALL").raw());
+            },
+        };
+        binary
     }
 }
 
@@ -511,6 +618,15 @@ pub enum Operator {
     OR,
 }
 
+impl Operator {
+    pub fn to_keystring(&self) -> KeyString {
+        match self {
+            Operator::AND => KeyString::from("AND"),
+            Operator::OR => KeyString::from("OR"),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum OpOrCond {
     Cond(Condition),
@@ -575,6 +691,41 @@ impl Test {
             "contains" => Test::Contains(KeyString::from(bar)),
             _ => todo!(),
         }
+    }
+
+    pub fn to_binary(&self) -> Vec<u8> {
+        let mut binary = Vec::new();
+        match self {
+            Test::Equals(key_string) => {
+                binary.extend_from_slice(KeyString::from("EQUALS").raw());
+                binary.extend_from_slice(key_string.raw());
+            },
+            Test::NotEquals(key_string) => {
+                binary.extend_from_slice(KeyString::from("NOT_EQUALS").raw());
+                binary.extend_from_slice(key_string.raw());    
+            },
+            Test::Less(key_string) => {
+                binary.extend_from_slice(KeyString::from("LESS_THAN").raw());
+                binary.extend_from_slice(key_string.raw());    
+            },
+            Test::Greater(key_string) => {
+                binary.extend_from_slice(KeyString::from("GREATER_THAN").raw());
+                binary.extend_from_slice(key_string.raw());    
+            },
+            Test::Starts(key_string) => {
+                binary.extend_from_slice(KeyString::from("STARTS_WITH").raw());
+                binary.extend_from_slice(key_string.raw());    
+            },
+            Test::Ends(key_string) => {
+                binary.extend_from_slice(KeyString::from("ENDS_WITH").raw());
+                binary.extend_from_slice(key_string.raw());    
+            },
+            Test::Contains(key_string) => {
+                binary.extend_from_slice(KeyString::from("CONTAINS").raw());
+                binary.extend_from_slice(key_string.raw());    
+            },
+        }
+        binary
     }
 }
 

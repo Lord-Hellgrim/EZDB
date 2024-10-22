@@ -67,6 +67,10 @@ impl Database {
     }
 }
 
+pub fn get_server_static_keys() -> KeyPair {
+    KeyPair::random()
+}
+
 /// The main loop of the server. Checks for incoming connections, parses their instructions, and handles them
 /// Also writes tables to disk in a super primitive way. Basically a separate thread writes all the tables to disk
 /// every 10 seconds. This will be improved but I would appreciate some advice here.
@@ -83,8 +87,7 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
         Err(e) => {return Err(EzError::Io(e.kind()));},
     };
 
-    let s = KeyPair::random();
-    let mut handshakestate = HandshakeState::Initialize(false, &[], s, KeyPair::empty(), None, None);
+    let s = get_server_static_keys();
 
     if !std::path::Path::new("EZconfig").is_dir() {
         println!("config does not exist");
@@ -162,7 +165,7 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
 
             }
         }); // Thread that writes in memory tables to disk
-
+        // ########################################################################################################################
 
         loop {
             // Reading instructions
@@ -173,12 +176,13 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
             println!("Accepted connection from: {}", client_address);
 
             let db_con = database.clone();
-            let (mut connection, username) = match establish_connection(&mut handshakestate, stream, db_con) {
+            let thread_s = s.clone();
+            let (mut connection, username) = match establish_connection(thread_s, stream, db_con) {
                 Ok(c) => c,
                 Err(e) => continue,
             };
 
-            let instructions = match connection.receive() {
+            let instructions = match connection.receive_c1() {
                 Ok(ins) => ins,
                 Err(_) => continue,
             };
@@ -195,68 +199,11 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                 ) {
                     Ok(i) => match i {
                         
-                        Instruction::Download(name) => {
-                            match handle_download_request(
-                                &mut connection, 
-                                name.as_str(), 
-                                db_ref.clone(),
-                            ) {
-                                Ok(_) => {
-                                    println!("Operation finished!");
-                                },
-                                Err(e) => {
-                                    println!("Operation failed because: {}", e);
-                                }
-                            }
-                        },
-                        Instruction::Upload(name) => {
-                            match handle_upload_request(
-                                &mut connection,
-                                db_ref.clone(),
-                                name.as_str(),
-                                &username,
-                            ) {
-                                Ok(_) => {
-                                    println!("Operation finished!");
-                                },
-                                Err(e) => {
-                                    println!("Operation failed because: {}", e);
-                                }
-                            }
-                        },
-                        Instruction::Update(name) => {
-                            match handle_update_request(
-                                &mut connection, 
-                                name.as_str(), 
-                                db_ref.clone(),
-                            ) {
-                                Ok(_) => {
-                                    println!("Operation finished!");
-                                },
-                                Err(e) => {
-                                    println!("Operation failed because: {}", e);
-                                },
-                            }
-                        },
                         Instruction::Query => {
                             match handle_query_request(
                                 &mut connection,
                                 db_ref.clone(),
                                 &username
-                            ) {
-                                Ok(_) => {
-                                    println!("Operation finished!");
-                                },
-                                Err(e) => {
-                                    println!("Operation failed because: {}", e);
-                                },
-                            }
-                        },
-                        Instruction::Delete(table_name) => {
-                            match handle_delete_request(
-                                &mut connection, 
-                                table_name.as_str(),
-                                db_ref.clone(),
                             ) {
                                 Ok(_) => {
                                     println!("Operation finished!");
@@ -279,64 +226,6 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                                 },
                             }
                             
-                        },
-                        Instruction::KvUpload(table_name) => {
-                            match handle_kv_upload(
-                                &mut connection, 
-                                table_name.as_str(),
-                                db_ref.clone(),
-                                &username,
-                            ) {
-                                Ok(_) => {
-                                    println!("Operation finished!");
-                                },
-                                Err(e) => {
-                                    println!("Operation failed because: {}", e);
-                                },
-                            }
-                        },
-                        Instruction::KvUpdate(table_name) => {
-                            match handle_kv_update(
-                                &mut connection, 
-                                table_name.as_str(), 
-                                db_ref.clone(),
-                                &username,
-                            ) {
-                                Ok(_) => {
-                                    println!("Operation finished!");
-                                },
-                                Err(e) => {
-                                    println!("Operation failed because: {}", e);
-                                },
-                            }
-                        },
-                        Instruction::KvDelete(table_name) => {
-                            match handle_kv_delete(
-                                &mut connection, 
-                                table_name.as_str(), 
-                                db_ref.clone(),
-                            ) {
-                                Ok(_) => {
-                                    println!("Operation finished!");
-                                },
-                                Err(e) => {
-                                    println!("Operation failed because: {}", e);
-                                },
-                            }
-                        },
-                        Instruction::KvDownload(table_name) => {
-                            match handle_kv_download(
-                                &mut connection, 
-                                table_name.as_str(), 
-                                db_ref.clone(),
-                            ) {
-                                Ok(_) => {
-                                    println!("Operation finished!");
-                                },
-                                Err(e) => {
-                                    println!("Operation failed because: {}", e);
-                                },
-                            }
                         },
                         Instruction::MetaListTables => {
                             match handle_meta_list_tables(
@@ -368,7 +257,7 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                     
                     Err(e) => {
                         println!("Failed to serve request because: {e}");
-                        connection.send(e.to_string().as_bytes());
+                        connection.send_c2(e.to_string().as_bytes())?;
                         println!("Thread finished on error: {e}");
                     },
                     
@@ -412,83 +301,6 @@ pub fn parse_instruction(
             Ok(Instruction::Query)
             
         }
-        "Uploading" => {
-            if user_has_permission(table_name.as_str(), Permission::Upload, username.as_str(), database.users.clone()) {
-                Ok(Instruction::Upload(table_name))
-            } else {
-                Err(EzError::Authentication(AuthenticationError::Permission))
-            }
-        } 
-        "Downloading" => {
-            if database.buffer_pool.tables.read().unwrap().contains_key(&KeyString::from(table_name)) 
-            && 
-            user_has_permission(table_name.as_str(), Permission::Read, username.as_str(), database.users.clone()) 
-            {
-                Ok(Instruction::Download(table_name))
-            } else {
-                Err(EzError::Instruction(InstructionError::InvalidTable(table_name.to_string())))
-            }
-        },
-        "Updating" => {
-            if database.buffer_pool.tables.read().unwrap().contains_key(&KeyString::from(table_name)) 
-            && 
-            user_has_permission(table_name.as_str(), Permission::Write, username.as_str(), database.users.clone())
-            { 
-                Ok(Instruction::Update(table_name))
-            } else {
-                Err(EzError::Instruction(InstructionError::InvalidTable(table_name.to_string())))
-            }
-        },
-        "Deleting" => {
-            if database.buffer_pool.tables.read().unwrap().contains_key(&KeyString::from(table_name)) 
-            && 
-            user_has_permission(table_name.as_str(), Permission::Write, username.as_str(), database.users.clone())
-            {
-                Ok(Instruction::Delete(table_name))
-            } else {
-                Err(EzError::Instruction(InstructionError::InvalidTable(table_name.to_string())))
-            }
-        }
-        "KvUpload" => {
-            if database.buffer_pool.tables.read().unwrap().contains_key(&KeyString::from(table_name)) 
-            && 
-            user_has_permission(table_name.as_str(), Permission::Upload, username.as_str(), database.users.clone())
-            {
-                Err(EzError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' already exists. Use 'update' instead", table_name))))
-            } else {
-                Ok(Instruction::KvUpload(table_name))
-            }
-        },
-        "KvUpdate" => {
-            if database.buffer_pool.values.read().unwrap().contains_key(&KeyString::from(table_name)) 
-            && 
-            user_has_permission(table_name.as_str(), Permission::Write, username.as_str(), database.users.clone())
-            {
-                Ok(Instruction::KvUpdate(table_name))
-            } else {
-                Err(EzError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' does not exist. Use 'upload' instead", table_name))))
-            }
-        },
-        "KvDelete" => {
-            if database.buffer_pool.values.read().unwrap().contains_key(&KeyString::from(table_name)) 
-            && 
-            user_has_permission(table_name.as_str(), Permission::Write, username.as_str(), database.users.clone())
-            {
-                Ok(Instruction::KvDelete(table_name))
-            } else {
-                Err(EzError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' does not exist. Use 'upload' instead", table_name))))
-            }
-        },
-        "KvDownload" => {
-            if database.buffer_pool.values.read().unwrap().contains_key(&KeyString::from(table_name)) 
-            && 
-            user_has_permission(table_name.as_str(), Permission::Read, username.as_str(), database.users.clone())
-            {
-                Ok(Instruction::KvDownload(table_name))
-            } else {
-                Err(EzError::Instruction(InstructionError::InvalidTable(format!("Entry '{}' does not exist. Use 'upload' instead", table_name))))
-            }
-        },
         "MetaListTables" => {
             if user_has_permission(table_name.as_str(), Permission::Read, username.as_str(), database.users.clone()) {
                 Ok(Instruction::MetaListTables)

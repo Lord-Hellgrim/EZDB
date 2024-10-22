@@ -13,7 +13,6 @@ readme = "README.md"
 [dependencies]
 aes-gcm = "0.10.2"
 bit-vec = "0.6.3"
-# blake3 = "1.5.0"
 bumpalo = { version = "3.15.4", features = ["collections", "std", "boxed"] }
 brotli = "3.4.0"
 fnv = "1.0.7"
@@ -21,13 +20,11 @@ rand = "0.8.5"
 http = "1.1.0"
 miniz_oxide = "0.7.1"
 # rayon = "1.8.0"
-# ron = "0.8.1"
-# serde = { version = "1.0.192", features = ["derive", "alloc"] }
 siphasher = "1.0.1"
 x25519-dalek = { version = "2.0.0", features = ["getrandom", "static_secrets"] }
 ezcbor = {git = "https://github.com/lord-hellgrim/ezcbor", branch = "master"}
 sha2 = "0.10.8"
-eznoise = "0.0.1"
+eznoise = "0.0.2"
 
 [dev-dependencies]
 criterion = "0.5.1"

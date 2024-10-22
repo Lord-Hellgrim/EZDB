@@ -1,8 +1,9 @@
-Client and server perform diffie hellman key exchange with x25519 amd a sha256 hash of the shared secret
-client writes their auth info as 1024 bytes, encrypted with aes256gcm (+12 byte IV and 16 byte TAG). The first 512 bytes are the username, the last 512 bytes are the password.
-If the client is authenticated, continue, else the server writes an error to the stream, encrypted but uncompressed, and closes the stream.
+Client and server perform noise XX handshake
+client writes their auth info as 1024 bytes, encrypted with aes256gcm. The first 512 bytes are the username, the last 512 bytes are the password.
+If the client is authenticated, continue, else the server writes an error to the stream, encrypted, and closes the stream.
 
-If authenticated the client will write their instructions followed by any associated data. The instructions are 256 bytes and are encrypted but not compressed so the first 284 bytes of the clients message will be IV + instructions + TAG.
+If authenticated the client will write their instructions followed by any associated data. 
+The instructions are 256 bytes and are encrypted.
 
 The server reads the INSTRUCTION_SIZE bytes from the stream
     server decrypts the instructions
@@ -11,65 +12,25 @@ The server reads the INSTRUCTION_SIZE bytes from the stream
         if the client is not authorized, write proper error code, encrypted, not compressed, to the client. The server closes the stream
 
 INSTRUCTIONS:
-    1. Upload(Associated data: Table),
-    2. Download,
-    3. Update,
     4. Query(Associated data: Query),
-    5. Delete,
     6. NewUser(Associated data: user_string),
-    7. KvUpload,
-    8. KvUpdate,
-    9. KvDelete,
-    10. KvDownload,
     11. MetaListTables,
     12. MetaListKeyValues,
 
-    1. Upload
-        Server read the table data, compressed and encrypted, from the rest of the stream. Server processes the table data.
-            If the table data is somehow invalid, the server writes an error to the stream, encrypted but not compressed
-            If the table data is correct, the server writes "OK", encrypted but not compressed, to the stream
-        Server closes the stream
-    2. Download
-        Server writes the requested binary table data, compressed and encrypted, to the stream.
-        Server closes the stream.
-    3. Update (Associated data: Table)
-        Same process as upload
-    4. Query(Associated data: Query)
+    
+    1. Query(Associated data: Query)
         Server reads the query data, compressed and encrypted, from the stream.
             If the query is valid, the server writes the query response, compressed and encrypted to the stream.
             If the query is invalid, the server writes the proper error code, compressed and encrypted, to the stream.
         Server closes the stream
-    5. Delete
-        Server attempts to delete the table from the database
-            If it was successful, the server writes "OK", encrypted but not compressed, to the stream
-            If it was unsuccessful, the server writes the proper error code, encrypted but not compressed, to the stream.
-        Server closes the stream
-    6. NewUser(Associated data: user_string)
+    2. NewUser(Associated data: user_string)
         Server reads the user_string, compressed and encrypted, from the stream.
             If the user_string is valid, the server writes "OK", encrypted but not compressed.
             If the user_string is invalid, the server writes the proper error code, compressed and encrypted, to the stream.
         Server closes the stream
-    7. KvUpload(Associated data: Value)
-        Server reads the value, compressed and encrypted, from the stream.
-            The server decrypts, but does not decompress the value. It does not verify the value.
-        Server writes "OK", encrypted but not compressed, to the stream.
-        Server closes the stream
-    8. KvUpdate
-        Server reads the value, compressed and encrypted, from the stream.
-            The server decrypts, but does not decompress the value. It does not verify the value.
-        Server writes "OK", encrypted but not compressed, to the stream.
-        Server closes the stream
-    9. KvDelete
-        Server attempts to delete the value from the database
-            If it was successful, the server writes "OK", encrypted but not compressed, to the stream
-            If it was unsuccessful, the server writes the proper error code, encrypted but not compressed, to the stream.
-        Server closes the stream
-    10. KvDownload
-        Server writes the requested binary value data, encrypted but not compressed (the value is already compressed in the database), to the stream.
-        Server closes the stream.
-    11. MetaListTables
+    3. MetaListTables
         Server writes the list of tables, encrypted and compressed, to the stream.
         Server closes the stream.
-    12. MetaListKeyValues
+    4. MetaListKeyValues
         Server writes the list of key value pairs, encrypted and compressed, to the stream.
         Server closes the stream.

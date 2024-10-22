@@ -162,16 +162,8 @@ impl From<eznoise::NoiseError> for EzError {
 /// An enum that lists the possible instructions that the database can receive.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Instruction {
-    Upload(KeyString),
-    Download(KeyString),
-    Update(KeyString),
     Query,
-    Delete(KeyString),
     NewUser,
-    KvUpload(KeyString),
-    KvUpdate(KeyString),
-    KvDelete(KeyString),
-    KvDownload(KeyString),
     MetaListTables,
     MetaListKeyValues,
 }
@@ -182,37 +174,10 @@ impl Display for Instruction {
         println!("calling: Instruction::fmt()");
 
         match self {
-            Instruction::Upload(s) => write!(f, "Upload({})", s),
-            Instruction::Download(s) => write!(f, "Download({})", s),
-            Instruction::Update(s) => write!(f, "Update({})", s),
             Instruction::Query => write!(f, "Query()"),
-            Instruction::Delete(s) => write!(f, "Delete({})", s),
             Instruction::NewUser => write!(f, "NewUser()"),
-            Instruction::KvUpload(s) => write!(f, "KvUpload({})", s),
-            Instruction::KvUpdate(s) => write!(f, "KvUpdate({})", s),
-            Instruction::KvDelete(s) => write!(f, "KvDelete({})", s),
-            Instruction::KvDownload(s) => write!(f, "KvDownload({})", s),
             Instruction::MetaListTables => write!(f, "MetaListTables"),
             Instruction::MetaListKeyValues => write!(f, "MetaListKeyValues"),
-        }
-    }
-}
-
-impl Instruction {
-    pub fn to_bytes(&self, username: &str) -> Vec<u8> {
-        match self {
-            Instruction::Download(table_name) => bytes_from_strings(&[username, "Downloading", &table_name.as_str(),"blank", ]),
-            Instruction::Upload(table_name) => bytes_from_strings(&[username, "Uploading", &table_name.as_str(),"blank", ]), 
-            Instruction::Update(table_name) => bytes_from_strings(&[username, "Updating", &table_name.as_str(),"blank", ]), 
-            Instruction::Query => bytes_from_strings(&[username, "Querying", "blank", "blank"]),
-            Instruction::Delete(table_name) => bytes_from_strings(&[username, "Deleting", &table_name.as_str(),"blank", ]), 
-            Instruction::NewUser => bytes_from_strings(&[username, "NewUser", "blank"]),
-            Instruction::KvUpload(table_name) => bytes_from_strings(&[username, "KvUpload", &table_name.as_str(),"blank", ]), 
-            Instruction::KvUpdate(table_name) => bytes_from_strings(&[username, "KvUpdate", &table_name.as_str(),"blank", ]),
-            Instruction::KvDelete(table_name) => bytes_from_strings(&[username, "KvDelete", &table_name.as_str(),"blank", ]),
-            Instruction::KvDownload(table_name) => bytes_from_strings(&[username, "KvDownload", &table_name.as_str(),"blank", ]), 
-            Instruction::MetaListTables => bytes_from_strings(&[username, "MetaListTables", "blank","blank", ]), 
-            Instruction::MetaListKeyValues => bytes_from_strings(&[username, "MetaListKeyValues", "blank","blank", ]), 
         }
     }
 }
@@ -249,12 +214,12 @@ impl From<Utf8Error> for InstructionError {
 
 
 /// THe server side of the Connection exchange
-pub fn establish_connection(handshakestate: &mut HandshakeState, stream: TcpStream, db_ref: Arc<Database>) -> Result<(eznoise::Connection, String), EzError> {
+pub fn establish_connection(s: eznoise::KeyPair, stream: TcpStream, db_ref: Arc<Database>) -> Result<(eznoise::Connection, String), EzError> {
     #[cfg(debug_assertions)]
     println!("calling: establish_connection()");
 
-    let mut connection = eznoise::establish_connection(handshakestate, stream)?;
-    let auth_buffer = connection.receive()?;
+    let mut connection = eznoise::establish_connection(stream, s.clone())?;
+    let auth_buffer = connection.receive_c1()?;
 
     println!("About to parse auth_string");
     let username = match bytes_to_str(&auth_buffer[0..512]) {
