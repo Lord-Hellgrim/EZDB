@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fmt::Display, str::FromStr, sync::Arc};
 
-use crate::{db_structure::{remove_indices, DbColumn, ColumnTable, KeyString, StrictError}, utilities::{mean_f32_slice, mean_i32_slice, median_f32_slice, median_i32_slice, mode_i32_slice, mode_string_slice, print_sep_list, stdev_f32_slice, stdev_i32_slice, sum_f32_slice, sum_i32_slice, EzError}, server_networking::Database};
+use crate::{db_structure::{remove_indices, table_from_inserts, ColumnTable, DbColumn, KeyString, StrictError}, server_networking::Database, utilities::{mean_f32_slice, mean_i32_slice, median_f32_slice, median_i32_slice, mode_i32_slice, mode_string_slice, print_sep_list, stdev_f32_slice, stdev_i32_slice, sum_f32_slice, sum_i32_slice, u64_from_le_slice, EzError}};
 
 use crate::PATH_SEP;
 
@@ -14,6 +14,12 @@ pub enum QueryError {
     TableNameTooLong,
     Unknown,
     InvalidQueryStructure(String),
+}
+
+impl From<StrictError> for QueryError {
+    fn from(e: StrictError) -> Self {
+        QueryError::InvalidQueryStructure(e.to_string())
+    }
 }
 
 impl Display for QueryError {
@@ -39,11 +45,11 @@ pub struct Join {
     pub join_column: (KeyString, KeyString),
 }
 
-#[derive(Clone, Debug, PartialEq, PartialOrd, Default, Eq, Ord)]
-pub struct Inserts {
-    pub value_columns: Vec<KeyString>,
-    pub new_values: String,
-}
+// #[derive(Clone, Debug, PartialEq, PartialOrd, Default, Eq, Ord)]
+// pub struct Inserts {
+//     pub value_columns: Vec<KeyString>,
+//     pub new_values: String,
+// }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord)]
 pub enum Statistic{
@@ -110,7 +116,7 @@ impl FromStr for Statistic {
 
 
 /// A database query that has already been parsed from EZQL (see EZQL.txt)
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
 #[allow(non_camel_case_types)]
 pub enum Query {
     SELECT{table_name: KeyString, primary_keys: RangeOrListOrAll, columns: Vec<KeyString>, conditions: Vec<OpOrCond>},
@@ -119,7 +125,7 @@ pub enum Query {
     RIGHT_JOIN,
     FULL_JOIN,
     UPDATE{table_name: KeyString, primary_keys: RangeOrListOrAll, conditions: Vec<OpOrCond>, updates: Vec<Update>},
-    INSERT{table_name: KeyString, inserts: Inserts},
+    INSERT{table_name: KeyString, inserts: ColumnTable},
     DELETE{primary_keys: RangeOrListOrAll, table_name: KeyString, conditions: Vec<OpOrCond>},
     SUMMARY{table_name: KeyString, columns: Vec<Statistic>},
 }
@@ -158,7 +164,7 @@ impl Display for Query {
             },
             Query::INSERT{ table_name, inserts } => {
 
-                let new_values = inserts.new_values.clone().replace(';', ", ");
+                let new_values = inserts.to_string();
                 let mut temp = String::from("");
                 for line in new_values.lines() {
                     temp.push_str(&format!("({line}), "));
@@ -166,10 +172,10 @@ impl Display for Query {
                 temp.pop();
                 temp.pop();
                 
-
+                let value_columns = inserts.header.iter().map(|n| n.name).collect::<Vec<KeyString>>();
                 printer.push_str(&format!("INSERT(table_name: {}, value_columns: ({}), new_values: ({}))",
                         table_name,
-                        print_sep_list(&inserts.value_columns, ", "),
+                        print_sep_list(&value_columns, ", "),
                         temp,
                 ));
             },
@@ -217,7 +223,7 @@ impl Query {
         println!("calling: Query::blank()");
 
         match keyword {
-            "INSERT" => Ok(Query::INSERT{ table_name: KeyString::new(), inserts: Inserts{value_columns: Vec::new(), new_values: String::new()} }),
+            "INSERT" => Ok(Query::INSERT{ table_name: KeyString::new(), inserts: ColumnTable::blank(&Vec::new(), KeyString::new(), "blank") }),
             "SELECT" => Ok(Query::SELECT{ table_name: KeyString::new(), primary_keys: RangeOrListOrAll::All, columns: Vec::new(), conditions: Vec::new()  }),
             "UPDATE" => Ok(Query::UPDATE{ table_name: KeyString::new(), primary_keys: RangeOrListOrAll::All, conditions: Vec::new(), updates: Vec::new() }),
             "DELETE" => Ok(Query::DELETE{ table_name: KeyString::new(), primary_keys: RangeOrListOrAll::All, conditions: Vec::new() }),
@@ -274,8 +280,6 @@ impl Query {
                         OpOrCond::Cond(condition) => {
                             binary.extend_from_slice(condition.attribute.raw());
                             binary.extend_from_slice(&condition.test.to_binary());
-                            
-                            
                         },
                         OpOrCond::Op(operator) => binary.extend_from_slice(operator.to_keystring().raw()),
                     }
@@ -319,13 +323,132 @@ impl Query {
             Query::INSERT { table_name, inserts } => {
                 binary.extend_from_slice(KeyString::from("INSERT").raw());
                 binary.extend_from_slice(table_name.raw());
-                
+                binary.extend_from_slice(&inserts.write_to_binary());
 
             },
-            Query::DELETE { primary_keys, table_name, conditions } => todo!(),
-            Query::SUMMARY { table_name, columns } => todo!(),
+            Query::DELETE { primary_keys, table_name, conditions } => {
+                binary.extend_from_slice(KeyString::from("DELETE").raw());
+                binary.extend_from_slice(table_name.raw());
+                binary.extend_from_slice(&primary_keys.to_binary());
+                for condition in conditions {
+                    match condition {
+                        OpOrCond::Cond(condition) => {
+                            binary.extend_from_slice(condition.attribute.raw());
+                            binary.extend_from_slice(&condition.test.to_binary());
+                        },
+                        OpOrCond::Op(operator) => binary.extend_from_slice(operator.to_keystring().raw()),
+                    }
+                };
+
+            },
+            Query::SUMMARY { table_name, columns } => {
+                binary.extend_from_slice(KeyString::from("SUMMARY").raw());
+                binary.extend_from_slice(table_name.raw());
+                for stat in columns {
+                    match stat {
+                        Statistic::SUM(key_string) => {
+                            binary.extend_from_slice(KeyString::from("SUM").raw());
+                            binary.extend_from_slice(key_string.raw());
+
+                        },
+                        Statistic::MEAN(key_string) => {
+                            binary.extend_from_slice(KeyString::from("MEAN").raw());
+                            binary.extend_from_slice(key_string.raw());
+                        },
+                        Statistic::MEDIAN(key_string) => {
+                            binary.extend_from_slice(KeyString::from("MEDIAN").raw());
+                            binary.extend_from_slice(key_string.raw());
+                        },
+                        Statistic::MODE(key_string) => {
+                            binary.extend_from_slice(KeyString::from("MODE").raw());
+                            binary.extend_from_slice(key_string.raw());
+                        },
+                        Statistic::STDEV(key_string) => {
+                            binary.extend_from_slice(KeyString::from("STDEV").raw());
+                            binary.extend_from_slice(key_string.raw());
+                        },
+                    }
+                }
+            },
         }
         binary
+    }
+
+    pub fn from_binary(binary: &[u8]) -> Result<Query, QueryError> {
+        let query_type = KeyString::try_from(&binary[0..64])?;
+        let table_name = KeyString::try_from(&binary[64..128])?;
+        match query_type.as_str() {
+            "INSERT" => {
+                let inserts = ColumnTable::from_binary("inserts", &binary[128..])?;
+                Ok(Query::INSERT { table_name, inserts })
+            },
+            "SELECT" => {
+                let primary_keys: RangeOrListOrAll;
+                let pk_type = KeyString::try_from(&binary[128..192])?;
+                let mut pointer = 192;
+                match pk_type.as_str() {
+                    "RANGE" => {
+                        let from = KeyString::try_from(&binary[192..256])?;
+                        let to = KeyString::try_from(&binary[256..320])?;
+                        pointer = 320;
+                        primary_keys = RangeOrListOrAll::Range(from, to);
+                    },
+                    "LIST" => {
+                        let length = u64_from_le_slice(&binary[192..200]) as usize;
+                        pointer += length * 64 + 8;
+                        let mut list = Vec::new();
+                        for i in 0..length {
+                            list.push(KeyString::try_from(&binary[200+i*64..200+(i+1)*64])?);
+                        }
+                        primary_keys = RangeOrListOrAll::List(list);
+                    },
+                    "ALL" => {
+                        pointer = 256;
+                        primary_keys = RangeOrListOrAll::All;
+                    },
+                    _ => return Err(QueryError::InvalidQuery)
+                };
+                let length = u64_from_le_slice(&binary[pointer..pointer+8]) as usize;
+                let mut columns = Vec::new();
+                for i in 1..length+1 {
+                    columns.push(KeyString::try_from(&binary[pointer..pointer + i*64])?);
+                }
+                pointer += length*64 + 8;
+
+                let mut conditions = Vec::new();
+                let length = u64_from_le_slice(&binary[pointer..pointer+8]) as usize;
+                for i in 1..length+1 {
+                    if i%2 == 0 {
+                        match KeyString::from(&binary[pointer..pointer + 64conditions.push(OpOrCond::Op())
+                    } else {
+                        conditions.push(OpOrCond::Cond(Condition::from_binary(&binary[pointer..pointer + i*192])?));
+                    }
+                } 
+
+                Ok(Query::SELECT { table_name, primary_keys, columns, conditions })
+
+            },
+            "UPDATE" => {
+                todo!()
+            },
+            "DELETE" => {
+                todo!()
+            },
+            "LEFT_JOIN" => {
+                todo!()
+            },
+            "FULL_JOIN" => {
+                todo!()
+            },
+            "INNER_JOIN" => {
+                todo!()
+            },
+            "SUMMARY" => {
+                todo!()
+            },
+            _ => return Err(QueryError::InvalidQuery),
+        }
+
     }
 }
 
@@ -600,6 +723,12 @@ impl Condition {
         Ok(output)
     }
 
+    pub fn from_binary(binary: &[u8]) -> Result<Self, QueryError> {
+        let attribute = KeyString::try_from(&binary[0..64])?;
+        let test = Test::from_binary(&binary[64..192])?;
+        Ok( Condition {attribute, test} )
+    }
+
     pub fn blank() -> Self {
         println!("calling: Condition::blank()");
 
@@ -726,6 +855,22 @@ impl Test {
             },
         }
         binary
+    }
+
+    pub fn from_binary(binary: &[u8]) -> Result<Self, QueryError> {
+        let t = KeyString::try_from(&binary[0..64])?;
+        let v = KeyString::try_from(&binary[64..128])?;
+        let x = match t.as_str() {
+            "EQUALS" => Test::Equals(v),
+            "NOT_EQUALS" => Test::NotEquals(v), 
+            "LESS" => Test::Less(v),
+            "GREATER" => Test::Greater(v),
+            "STARTS" => Test::Starts(v),
+            "ENDS" => Test::Ends(v),
+            "CONTAINS" => Test::Contains(v),
+            _ => return Err(QueryError::InvalidQuery)
+        };
+        Ok(x)
     }
 }
 
@@ -909,7 +1054,10 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
                     acc.push('\n');
                 }
                 acc.pop();
-                *inserts = Inserts{value_columns: value_columns, new_values: acc};
+                *inserts = match table_from_inserts(&value_columns, &acc, "inserts") {
+                    Ok(x) => x,
+                    Err(e) => return Err(QueryError::InvalidQueryStructure(e.to_string())),
+                };
             }
 
         },

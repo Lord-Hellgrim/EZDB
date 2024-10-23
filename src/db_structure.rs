@@ -6,7 +6,7 @@ use std::{
 
 use ezcbor::cbor::{byteslice_from_cbor, byteslice_to_cbor, expected_data_item, Cbor, CborError, DataItem};
 
-use crate::{ezql::Inserts, utilities::*};
+use crate::{utilities::*};
 
 use crate::PATH_SEP;
 
@@ -696,6 +696,7 @@ impl Cbor for ColumnTable {
         println!("calling: ColumnTable::from_cbor_bytes()");
 
         let mut i = 0;
+        
         let (metadata, bytes_read) = <Metadata as Cbor>::from_cbor_bytes(&bytes[i..])?;
         i += bytes_read;
         let (name, bytes_read) = <KeyString as Cbor>::from_cbor_bytes(&bytes[i..])?;
@@ -1008,11 +1009,11 @@ impl ColumnTable {
         Ok(())
     }
 
-    pub fn insert(&mut self, inserts: Inserts) -> Result<(), StrictError> {
+    pub fn insert(&mut self, inserts: ColumnTable) -> Result<(), StrictError> {
         println!("calling: ColumnTable::insert()");
 
 
-        let mut input_table = table_from_inserts(&inserts, "inserts", &self)?;
+        let mut input_table = inserts;
 
         let mut losers = Vec::new();
 
@@ -2447,30 +2448,42 @@ pub fn subtable_from_keys(table: &ColumnTable, mut keys: Vec<KeyString>) -> Resu
     )
 }
 
-pub fn table_from_inserts(inserts: &Inserts, table_name: &str, template_table: &ColumnTable) -> Result<ColumnTable, StrictError> {
+pub fn table_from_inserts(value_columns: &[KeyString], values: &str, table_name: &str) -> Result<ColumnTable, StrictError> {
     println!("calling: table_from_inserts()");
 
     let mut new_header = Vec::new();
 
-        for item in &inserts.value_columns {
-            match template_table.header.iter().find(|x| &x.name == item) {
-                Some(x) => {
-                    new_header.push(x.clone());
-                },
-                None => return Err(StrictError::Query(format!("Headers do not match:\nOld:{:?}\nnew{:?}", print_sep_list(&template_table.header.iter().map(|x| x.name).collect::<Vec<KeyString>>(), ","), print_sep_list(&inserts.value_columns, ",")))),
-            }
-        }
+    let first_line = match values.split('\n').next() {
+        Some(x) => x,
+        None => return Err(StrictError::Empty),
+    };
 
-        let mut csv = print_sep_list(&new_header, ";");
-        csv.push('\n');
-        csv.push_str(&inserts.new_values);
-
-        let input_table = ColumnTable::from_csv_string(&csv, table_name, "inserts")?;
-        if template_table.header != input_table.header {
-            Err(StrictError::Query("Input table header does not match target table header".to_owned()))
+    let mut i = 0;
+    for value in first_line.split(';') {
+        let temp_key: TableKey;
+        if i == 0 {
+            temp_key = TableKey::Primary;
         } else {
-            Ok(input_table)
+            temp_key = TableKey::None;
         }
+        if value.parse::<f32>().is_ok() {
+            new_header.push(HeaderItem{name: value_columns[i], kind: DbType::Float, key: temp_key})
+        } else if value.parse::<i32>().is_ok() {
+            new_header.push(HeaderItem{name: value_columns[i], kind: DbType::Int, key: temp_key})
+        } else if value.len() <= 64 {
+            new_header.push(HeaderItem{name: value_columns[i], kind: DbType::Text, key: temp_key})
+        } else {
+            return Err(StrictError::WrongType)
+        }
+        i += 1;
+    }
+
+    let mut csv = print_sep_list(&new_header, ";");
+    csv.push('\n');
+    csv.push_str(values);
+
+    let input_table = ColumnTable::from_csv_string(&csv, table_name, "inserts")?;
+    Ok(input_table)
 }
 
 

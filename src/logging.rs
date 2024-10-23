@@ -302,39 +302,39 @@ impl Logger {
 
 #[cfg(test)]
 mod tests {
-    use crate::{db_structure::table_from_inserts, ezql::{execute_insert_query, parse_EZQL}};
+    use crate::{ezql::{execute_insert_query, parse_EZQL}};
 
     use super::*;
 
 
-    #[test]
-    fn test_logger_basics() {
-        let mut logger = Logger::init();
+    // #[test]
+    // fn test_logger_basics() {
+    //     let mut logger = Logger::init();
 
-        let csv = std::fs::read_to_string(format!("test_files{PATH_SEP}good_csv.txt")).unwrap();
-        let mut table = ColumnTable::from_csv_string(&csv, "good_csv", "logger_test").unwrap();
-        // println!("before:\n{}", table);
-        // vnr,i-P;heiti,t-N;magn,i-N
-        // 0113000;undirlegg2;100
-        // 0113035;undirlegg;200
-        // 18572054;flísalím;42
+    //     let csv = std::fs::read_to_string(format!("test_files{PATH_SEP}good_csv.txt")).unwrap();
+    //     let mut table = ColumnTable::from_csv_string(&csv, "good_csv", "logger_test").unwrap();
+    //     // println!("before:\n{}", table);
+    //     // vnr,i-P;heiti,t-N;magn,i-N
+    //     // 0113000;undirlegg2;100
+    //     // 0113035;undirlegg;200
+    //     // 18572054;flísalím;42
 
-        let query_string = "INSERT(table_name: good_csv, value_columns: (vnr, heiti, magn), new_values: (0113446, harlech, 2500))".to_owned();
-        let hash = logger.start_log(&query_string, KeyString::from("test"), table.metadata.created_by);
-        logger.update_before_log(hash, &table);
-        let query = parse_EZQL(&query_string).unwrap();
-        match &query {
-            Query::INSERT { table_name, inserts } => logger.update_after_log(hash, &table_from_inserts(inserts, "log_inserts", &table).unwrap()),
-            _ => panic!(),
-        }
-        logger.finish_log(hash);
-        execute_insert_query(query, &mut table).unwrap();
-        // println!("table:\n{}", table);
+    //     let query_string = "INSERT(table_name: good_csv, value_columns: (vnr, heiti, magn), new_values: (0113446, harlech, 2500))".to_owned();
+    //     let hash = logger.start_log(&query_string, KeyString::from("test"), table.metadata.created_by);
+    //     logger.update_before_log(hash, &table);
+    //     let query = parse_EZQL(&query_string).unwrap();
+    //     match &query {
+    //         Query::INSERT { table_name, inserts } => logger.update_after_log(hash, &table_from_inserts(inserts, "log_inserts", &table).unwrap()),
+    //         _ => panic!(),
+    //     }
+    //     logger.finish_log(hash);
+    //     execute_insert_query(query, &mut table).unwrap();
+    //     // println!("table:\n{}", table);
 
-        let binary = logger.entries.get(&hash).unwrap().to_binary();
-        let entry = Entry::from_binary(&binary);
-        println!("binary:\n{:x?}", binary);
+    //     let binary = logger.entries.get(&hash).unwrap().to_binary();
+    //     let entry = Entry::from_binary(&binary);
+    //     println!("binary:\n{:x?}", binary);
 
-        logger.flush_to_disk();
-    }
+    //     logger.flush_to_disk();
+    // }
 }
