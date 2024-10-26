@@ -24,7 +24,7 @@ impl From<StrictError> for QueryError {
 
 impl Display for QueryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        println!("calling: QueryError::fmt()");
+        // println!("calling: QueryError::fmt()");
 
         match self {
             QueryError::InvalidQuery => write!(f, "InvalidQuery,"),
@@ -62,7 +62,7 @@ pub enum Statistic{
 
 impl Display for Statistic {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        println!("calling: Statistic::fmt()");
+        // println!("calling: Statistic::fmt()");
 
         match self {
             Statistic::SUM(x) => write!(f, "(SUM {x})"),
@@ -76,7 +76,7 @@ impl Display for Statistic {
 
 impl Default for Statistic {
     fn default() -> Self {
-        println!("calling: Statistic::fmt()");
+        // println!("calling: Statistic::fmt()");
 
         Statistic::SUM(KeyString::from("id"))
     }
@@ -86,7 +86,7 @@ impl FromStr for Statistic {
     type Err = QueryError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        println!("calling: Statistic::from_str()");
+        // println!("calling: Statistic::from_str()");
 
         let split = s.split_whitespace();
         if split.count() != 2 {
@@ -106,6 +106,70 @@ impl FromStr for Statistic {
         }
     }
 }
+
+pub fn statistics_to_binary(statistics: &[Statistic]) -> Vec<u8> {
+    let mut stats = Vec::new();
+    for stat in statistics {
+        match stat {
+            Statistic::SUM(key_string) => {
+                stats.extend_from_slice(KeyString::from("SUM").raw());
+                stats.extend_from_slice(key_string.raw());
+                
+            },
+            Statistic::MEAN(key_string) => {
+                stats.extend_from_slice(KeyString::from("MEAN").raw());
+                stats.extend_from_slice(key_string.raw());
+            },
+            Statistic::MEDIAN(key_string) => {
+                stats.extend_from_slice(KeyString::from("MEDIAN").raw());
+                stats.extend_from_slice(key_string.raw());
+            },
+            Statistic::MODE(key_string) => {
+                stats.extend_from_slice(KeyString::from("MODE").raw());
+                stats.extend_from_slice(key_string.raw());
+            },
+            Statistic::STDEV(key_string) => {
+                stats.extend_from_slice(KeyString::from("STDEV").raw());
+                stats.extend_from_slice(key_string.raw());
+            },
+        }
+    }
+    
+    stats
+}
+
+pub fn statistics_from_binary(binary: &[u8]) -> Result<Vec<Statistic>, QueryError> {
+    let mut stats = Vec::new();
+
+    for chunk in binary.chunks(128) {
+        let stat = KeyString::try_from(&chunk[0..64])?;
+        let name = KeyString::try_from(&chunk[64..128])?;
+        match stat.as_str() {
+            "SUM" => stats.push(Statistic::SUM(name)),
+            "MEAN" => stats.push(Statistic::MEAN(name)),
+            "MODE" => stats.push(Statistic::MODE(name)),
+            "MEDIAN" => stats.push(Statistic::MEDIAN(name)),
+            "STDEV" => stats.push(Statistic::STDEV(name)),
+            _ => return Err(QueryError::InvalidQuery)
+        }
+    }
+
+    Ok(stats)
+
+}
+
+#[derive(Clone, Copy, Debug, PartialOrd, Ord, Eq, Hash)]
+pub struct FatHandle {
+    start: u32,
+    length: u32,
+}
+
+impl PartialEq for FatHandle {
+    fn eq(&self, other: &Self) -> bool {
+        self.start == other.start && self.length == other.length
+    }
+}
+
 
 //  - INSERT(table_name: products, value_columns: (id, stock, location, price), new_values: ((0113035, 500, LAG15, 995), (0113000, 100, LAG30, 495)))
 //  - SELECT(table_name: products, primary_keys: *, columns: (price, stock), conditions: ((price greater-than 500) AND (stock less-than 1000)))
@@ -132,7 +196,7 @@ pub enum Query {
 
 impl Display for Query {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        println!("calling: Query::fmt()");
+        // println!("calling: Query::fmt()");
 
         let mut printer = String::new();
         match self {
@@ -209,7 +273,7 @@ impl Default for Query {
 
 impl Query {
     pub fn new() -> Self {
-        println!("calling: Query::new()");
+        // println!("calling: Query::new()");
 
         Query::SELECT {
             table_name: KeyString::from("__RESULT__"),
@@ -220,7 +284,7 @@ impl Query {
     }
 
     pub fn blank(keyword: &str) -> Result<Query, QueryError> {
-        println!("calling: Query::blank()");
+        // println!("calling: Query::blank()");
 
         match keyword {
             "INSERT" => Ok(Query::INSERT{ table_name: KeyString::new(), inserts: ColumnTable::blank(&Vec::new(), KeyString::new(), "blank") }),
@@ -236,7 +300,7 @@ impl Query {
     }
 
     pub fn get_primary_keys_ref(&self) -> Option<&RangeOrListOrAll> {
-        println!("calling: Query::get_primary_keys_ref()");
+        // println!("calling: Query::get_primary_keys_ref()");
 
         match self {
             Query::SELECT { table_name: _, primary_keys, columns: _, conditions: _ } => Some(primary_keys),
@@ -248,7 +312,7 @@ impl Query {
     }
 
     pub fn get_table_name(&self) -> KeyString {
-        println!("calling: Query::get_table_name()");
+        // println!("calling: Query::get_table_name()");
 
         match self {
             Query::SELECT { table_name, primary_keys: _, columns: _, conditions: _ } => *table_name,
@@ -265,177 +329,140 @@ impl Query {
 
     pub fn to_binary(&self) -> Vec<u8> {
         let mut binary = Vec::with_capacity(1024);
+        let mut handles = [0u8;32];
         match self {
             Query::SELECT { table_name, primary_keys, columns, conditions } => {
+                let binary_primary_keys = primary_keys.to_binary();
+                let binary_columns = columns.iter().map(|n| n.raw().to_vec()).flatten().collect::<Vec<u8>>();
+                let binary_conditions = conditions.iter().map(|n| n.to_binary()).flatten().collect::<Vec<u8>>();
+                handles[0..8].copy_from_slice(&binary_primary_keys.len().to_le_bytes());
+                handles[8..16].copy_from_slice(&binary_columns.len().to_le_bytes());
+                handles[16..24].copy_from_slice(&binary_conditions.len().to_le_bytes());
+                binary.extend_from_slice(&handles);
                 binary.extend_from_slice(KeyString::from("SELECT").raw());
                 binary.extend_from_slice(table_name.raw());
-                binary.extend_from_slice(&primary_keys.to_binary());
-                binary.extend_from_slice(&columns.len().to_le_bytes());
-                for col in columns {
-                    binary.extend_from_slice(col.raw());
-                }
-                binary.extend_from_slice(&conditions.len().to_le_bytes());
-                for condition in conditions {
-                    match condition {
-                        OpOrCond::Cond(condition) => {
-                            binary.extend_from_slice(condition.attribute.raw());
-                            binary.extend_from_slice(&condition.test.to_binary());
-                        },
-                        OpOrCond::Op(operator) => binary.extend_from_slice(operator.to_keystring().raw()),
-                    }
-                };
+                binary.extend_from_slice(&binary_primary_keys);
+                binary.extend_from_slice(&binary_columns);
+                binary.extend_from_slice(&binary_conditions);
             },
             Query::LEFT_JOIN { left_table_name, right_table_name, match_columns, primary_keys } => {
+                let binary_primary_keys = primary_keys.to_binary();
+                handles[0..8].copy_from_slice(&binary_primary_keys.len().to_le_bytes());
+                binary.extend_from_slice(&handles);
                 binary.extend_from_slice(KeyString::from("LEFT_JOIN").raw());
                 binary.extend_from_slice(left_table_name.raw());
                 binary.extend_from_slice(right_table_name.raw());
                 binary.extend_from_slice(match_columns.0.raw());
                 binary.extend_from_slice(match_columns.1.raw());
-                binary.extend_from_slice(&primary_keys.to_binary());
+                binary.extend_from_slice(&binary_primary_keys);
 
             },
             Query::INNER_JOIN => todo!(),
             Query::RIGHT_JOIN => todo!(),
             Query::FULL_JOIN => todo!(),
             Query::UPDATE { table_name, primary_keys, conditions, updates } => {
+                let binary_primary_keys = primary_keys.to_binary();
+                let binary_updates = updates_to_binary(updates);
+                let binary_conditions = conditions.iter().map(|n| n.to_binary()).flatten().collect::<Vec<u8>>();
+                handles[0..8].copy_from_slice(&binary_primary_keys.len().to_le_bytes());
+                handles[8..16].copy_from_slice(&binary_conditions.len().to_le_bytes());
+                handles[16..24].copy_from_slice(&binary_updates.len().to_le_bytes());
+                binary.extend_from_slice(&handles);
                 binary.extend_from_slice(KeyString::from("UPDATE").raw());
                 binary.extend_from_slice(table_name.raw());
-                binary.extend_from_slice(&primary_keys.to_binary());
-                binary.extend_from_slice(&conditions.len().to_le_bytes());
-                for condition in conditions {
-                    match condition {
-                        OpOrCond::Cond(condition) => {
-                            binary.extend_from_slice(condition.attribute.raw());
-                            binary.extend_from_slice(&condition.test.to_binary());
-                            
-                            
-                        },
-                        OpOrCond::Op(operator) => binary.extend_from_slice(operator.to_keystring().raw()),
-                    }
-                }
-                binary.extend_from_slice(&updates.len().to_le_bytes());
-                for update in updates {
-                    binary.extend_from_slice(update.attribute.raw());
-                    binary.extend_from_slice(update.operator.to_keystring().raw());
-                    binary.extend_from_slice(update.value.raw());
-                }
+                binary.extend_from_slice(&binary_primary_keys);
+                binary.extend_from_slice(&binary_conditions);
+                binary.extend_from_slice(&binary_updates);
             },
             Query::INSERT { table_name, inserts } => {
+                let table = inserts.write_to_binary();
+                handles[0..8].copy_from_slice(&table.len().to_le_bytes());
+                binary.extend_from_slice(&handles);
                 binary.extend_from_slice(KeyString::from("INSERT").raw());
                 binary.extend_from_slice(table_name.raw());
-                binary.extend_from_slice(&inserts.write_to_binary());
+                binary.extend_from_slice(&table);
 
             },
             Query::DELETE { primary_keys, table_name, conditions } => {
-                binary.extend_from_slice(KeyString::from("DELETE").raw());
+                let binary_primary_keys = primary_keys.to_binary();
+                let binary_conditions = conditions.iter().map(|n| n.to_binary()).flatten().collect::<Vec<u8>>();
+                handles[0..8].copy_from_slice(&binary_primary_keys.len().to_le_bytes());
+                handles[8..16].copy_from_slice(&binary_conditions.len().to_le_bytes());
+                binary.extend_from_slice(&handles);
+                binary.extend_from_slice(KeyString::from("SELECT").raw());
                 binary.extend_from_slice(table_name.raw());
-                binary.extend_from_slice(&primary_keys.to_binary());
-                for condition in conditions {
-                    match condition {
-                        OpOrCond::Cond(condition) => {
-                            binary.extend_from_slice(condition.attribute.raw());
-                            binary.extend_from_slice(&condition.test.to_binary());
-                        },
-                        OpOrCond::Op(operator) => binary.extend_from_slice(operator.to_keystring().raw()),
-                    }
-                };
+                binary.extend_from_slice(&binary_primary_keys);
+                binary.extend_from_slice(&binary_conditions);
 
             },
             Query::SUMMARY { table_name, columns } => {
+                let stats = statistics_to_binary(columns);
+                handles[0..8].copy_from_slice(&stats.len().to_le_bytes());
+                binary.extend_from_slice(&handles);
                 binary.extend_from_slice(KeyString::from("SUMMARY").raw());
                 binary.extend_from_slice(table_name.raw());
-                for stat in columns {
-                    match stat {
-                        Statistic::SUM(key_string) => {
-                            binary.extend_from_slice(KeyString::from("SUM").raw());
-                            binary.extend_from_slice(key_string.raw());
-
-                        },
-                        Statistic::MEAN(key_string) => {
-                            binary.extend_from_slice(KeyString::from("MEAN").raw());
-                            binary.extend_from_slice(key_string.raw());
-                        },
-                        Statistic::MEDIAN(key_string) => {
-                            binary.extend_from_slice(KeyString::from("MEDIAN").raw());
-                            binary.extend_from_slice(key_string.raw());
-                        },
-                        Statistic::MODE(key_string) => {
-                            binary.extend_from_slice(KeyString::from("MODE").raw());
-                            binary.extend_from_slice(key_string.raw());
-                        },
-                        Statistic::STDEV(key_string) => {
-                            binary.extend_from_slice(KeyString::from("STDEV").raw());
-                            binary.extend_from_slice(key_string.raw());
-                        },
-                    }
-                }
+                
             },
         }
         binary
     }
 
     pub fn from_binary(binary: &[u8]) -> Result<Query, QueryError> {
-        let query_type = KeyString::try_from(&binary[0..64])?;
-        let table_name = KeyString::try_from(&binary[64..128])?;
+        if binary.len() < 128 { // TODO: Check actual minimum
+            return Err(QueryError::InvalidQuery)
+        }
+        let handles = &binary[0..32];
+        let body = &binary[32..];
+        let query_type = KeyString::try_from(&body[0..64]).unwrap();
+        let table_name = KeyString::try_from(&body[64..128]).unwrap();
         match query_type.as_str() {
             "INSERT" => {
-                let inserts = ColumnTable::from_binary("inserts", &binary[128..])?;
-                Ok(Query::INSERT { table_name, inserts })
+                let inserts_len = u64_from_le_slice(&handles[0..8]) as usize;
+                let inserts = ColumnTable::from_binary("inserts", &body[128..inserts_len])?;
+                Ok( Query::INSERT { table_name, inserts })
             },
             "SELECT" => {
-                let primary_keys: RangeOrListOrAll;
-                let pk_type = KeyString::try_from(&binary[128..192])?;
-                let mut pointer = 192;
-                match pk_type.as_str() {
-                    "RANGE" => {
-                        let from = KeyString::try_from(&binary[192..256])?;
-                        let to = KeyString::try_from(&binary[256..320])?;
-                        pointer = 320;
-                        primary_keys = RangeOrListOrAll::Range(from, to);
-                    },
-                    "LIST" => {
-                        let length = u64_from_le_slice(&binary[192..200]) as usize;
-                        pointer += length * 64 + 8;
-                        let mut list = Vec::new();
-                        for i in 0..length {
-                            list.push(KeyString::try_from(&binary[200+i*64..200+(i+1)*64])?);
-                        }
-                        primary_keys = RangeOrListOrAll::List(list);
-                    },
-                    "ALL" => {
-                        pointer = 256;
-                        primary_keys = RangeOrListOrAll::All;
-                    },
-                    _ => return Err(QueryError::InvalidQuery)
-                };
-                let length = u64_from_le_slice(&binary[pointer..pointer+8]) as usize;
+                let pk_length = u64_from_le_slice(&handles[0..8]) as usize;
+                let cols_length = u64_from_le_slice(&handles[8..16]) as usize;
+                let conds_length = u64_from_le_slice(&handles[16..24]) as usize;
+                let primary_keys = RangeOrListOrAll::from_binary(&body[128..128+pk_length]).unwrap();
                 let mut columns = Vec::new();
-                for i in 1..length+1 {
-                    columns.push(KeyString::try_from(&binary[pointer..pointer + i*64])?);
+                for chunk in body[128+pk_length..128+pk_length+cols_length].chunks(64) {
+                    columns.push(KeyString::try_from(chunk).unwrap());
                 }
-                pointer += length*64 + 8;
-
-                let mut conditions = Vec::new();
-                let length = u64_from_le_slice(&binary[pointer..pointer+8]) as usize;
-                for i in 1..length+1 {
-                    if i%2 == 0 {
-                        match KeyString::from(&binary[pointer..pointer + 64conditions.push(OpOrCond::Op())
-                    } else {
-                        conditions.push(OpOrCond::Cond(Condition::from_binary(&binary[pointer..pointer + i*192])?));
-                    }
-                } 
+                let conditions = conditions_from_binary(&body[128+pk_length+cols_length..128+pk_length+cols_length+conds_length]).unwrap();
 
                 Ok(Query::SELECT { table_name, primary_keys, columns, conditions })
 
             },
             "UPDATE" => {
-                todo!()
+                let pk_length = u64_from_le_slice(&handles[0..8]) as usize;
+                let conds_length = u64_from_le_slice(&handles[8..16]) as usize;
+                let updates_len = u64_from_le_slice(&handles[16..24]) as usize;
+                let primary_keys = RangeOrListOrAll::from_binary(&body[128..128+pk_length])?;
+                let conditions = conditions_from_binary(&body[128+pk_length..128+pk_length+conds_length])?;
+                let updates = updates_from_binary(&body[128+pk_length+conds_length..128+pk_length+conds_length+updates_len])?;
+                Ok( Query::UPDATE { table_name, primary_keys, conditions, updates } )
             },
             "DELETE" => {
-                todo!()
+                
+                let pk_length = u64_from_le_slice(&handles[0..8]) as usize;
+                let conds_length = u64_from_le_slice(&handles[8..16]) as usize;
+                let primary_keys = RangeOrListOrAll::from_binary(&body[128..128+pk_length]).unwrap();
+                let conditions = conditions_from_binary(&body[128+pk_length..128+pk_length+conds_length]).unwrap();
+
+                Ok(Query::DELETE { table_name, primary_keys, conditions })
             },
             "LEFT_JOIN" => {
-                todo!()
+                
+                let pk_len = u64_from_le_slice(&handles[0..8]) as usize;
+                let right_table_name = KeyString::try_from(&body[128..192])?;
+                let match1 = KeyString::try_from(&body[192..256])?;
+                let match2 = KeyString::try_from(&body[256..320])?;
+                let match_columns = (match1, match2);
+                let primary_keys = RangeOrListOrAll::from_binary(&body[320..320+pk_len])?;
+                
+                Ok( Query::LEFT_JOIN { left_table_name: table_name, right_table_name, match_columns, primary_keys } )
             },
             "FULL_JOIN" => {
                 todo!()
@@ -444,7 +471,11 @@ impl Query {
                 todo!()
             },
             "SUMMARY" => {
-                todo!()
+                let stat_len = u64_from_le_slice(&handles[0..8]) as usize;
+                let columns = statistics_from_binary(&body[128..stat_len])?;
+
+                Ok( Query::SUMMARY { table_name, columns } )
+
             },
             _ => return Err(QueryError::InvalidQuery),
         }
@@ -461,7 +492,7 @@ pub struct Update {
 
 impl Display for Update {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        println!("calling: Update::fmt()");
+        // println!("calling: Update::fmt()");
 
         let op = match self.operator {
             UpdateOp::Assign => "=",
@@ -479,7 +510,7 @@ impl FromStr for Update {
     type Err = QueryError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        println!("calling: Update::from_str()");
+        // println!("calling: Update::from_str()");
 
         let output: Update;
         let mut t = s.split_whitespace();
@@ -536,7 +567,7 @@ impl FromStr for Update {
 impl Update {
 
     pub fn blank() -> Self{
-        println!("calling: Update::blank()");
+        // println!("calling: Update::blank()");
 
         Update {
             attribute: KeyString::new(),
@@ -544,7 +575,45 @@ impl Update {
             value: KeyString::new(),
         }
     }
+
+    pub fn to_binary(&self) -> Vec<u8> {
+        let mut binary = Vec::new();
+        binary.extend_from_slice(self.attribute.raw());
+        binary.extend_from_slice(self.operator.to_keystring().raw());
+        binary.extend_from_slice(self.value.raw());
+        binary
+    }
+
+    pub fn from_binary(binary: &[u8]) -> Result<Update, QueryError> {
+        let attribute = KeyString::try_from(&binary[0..64])?;
+        let operator = UpdateOp::from_binary(&binary[64..128])?;
+        let value = KeyString::try_from(&binary[128..192])?;
+        Ok(Update{ attribute, operator, value })
+    }
 }
+
+pub fn updates_to_binary(updates: &[Update]) -> Vec<u8> {
+    let mut binary = Vec::new();
+
+    for update in updates {
+        binary.extend_from_slice(&update.to_binary());
+    }
+
+    binary
+}
+
+pub fn updates_from_binary(binary: &[u8]) -> Result<Vec<Update>, QueryError> {
+    let mut updates = Vec::new();
+
+    for chunk in binary.chunks(192) {
+
+        updates.push(Update::from_binary(&chunk)?);
+
+    }
+
+    Ok(updates)
+}
+
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum UpdateOp {
@@ -558,7 +627,7 @@ pub enum UpdateOp {
 
 impl UpdateOp {
     fn from_str(s: &str) -> Result<Self, QueryError> {
-        println!("calling: UpdateOp::from_str()");
+        // println!("calling: UpdateOp::from_str()");
 
         match s {
             "=" => Ok(UpdateOp::Assign),
@@ -582,6 +651,24 @@ impl UpdateOp {
             UpdateOp::Prepend => KeyString::from("Prepend"),
         }
     }
+
+    pub fn from_binary(binary: &[u8]) -> Result<UpdateOp, QueryError> {
+        if binary.len() != 64 {
+            return Err(QueryError::InvalidQuery)
+        }
+        match KeyString::try_from(binary) {
+            Ok(s) => match s.as_str() {
+                    "Assign" => Ok(UpdateOp::Assign),
+                    "PlusEquals" => Ok(UpdateOp::PlusEquals),
+                    "MinusEquals" => Ok(UpdateOp::MinusEquals),
+                    "TimesEquals" => Ok(UpdateOp::TimesEquals),
+                    "Append" => Ok(UpdateOp::Append),
+                    "Prepend" => Ok(UpdateOp::Prepend),
+                    _ => return Err(QueryError::InvalidQueryStructure(format!("Nu such operator as {}", s))) 
+                }
+            Err(e) => Err(QueryError::InvalidQueryStructure(e.to_string()))
+        }
+    }
 }
 
 
@@ -598,7 +685,7 @@ pub enum RangeOrListOrAll {
 
 impl Display for RangeOrListOrAll {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        println!("calling: RangeOrListOrAll::fmt()");
+        // println!("calling: RangeOrListOrAll::fmt()");
 
         let mut printer = String::new();
         match &self {
@@ -637,6 +724,37 @@ impl RangeOrListOrAll {
         };
         binary
     }
+
+    pub fn from_binary(binary: &[u8]) -> Result<Self, QueryError> {
+        if binary.len() < 64 {
+            return Err(QueryError::InvalidQuery)
+        }
+        let first = KeyString::try_from(&binary[0..64]).unwrap();
+        match first.as_str() {
+            "RANGE" => {
+                if binary.len() < 192 {
+                    return Err(QueryError::InvalidQuery)
+                }
+                let from = KeyString::try_from(&binary[64..128]).unwrap();
+                let to = KeyString::try_from(&binary[128..192]).unwrap();
+                Ok(RangeOrListOrAll::Range(from, to))
+            }
+            "LIST" => {
+                if binary[64..].len() % 64 != 0 {
+                    return Err(QueryError::InvalidQuery)
+                }
+                let mut list = Vec::new();
+                for chunk in binary[64..].chunks(64) {
+                    list.push(KeyString::try_from(chunk).unwrap());
+                }
+                Ok(RangeOrListOrAll::List(list))
+            }
+            "ALL" => {
+                Ok(RangeOrListOrAll::All)
+            }
+            _ => return Err(QueryError::InvalidQuery)
+        }
+    }
 }
 
 /// Represents the condition a item must pass to be included in the result
@@ -648,7 +766,7 @@ pub struct Condition {
 
 impl Display for Condition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        println!("calling: Condition::fmt()");
+        // println!("calling: Condition::fmt()");
 
         write!(f, "{} - {}", self.attribute, self.test)
     }
@@ -657,7 +775,7 @@ impl Display for Condition {
 impl Condition {
 
     pub fn new(attribute: &str, test: &str, bar: &str) -> Result<Self, QueryError> {
-        println!("calling: Condition::new()");
+        // println!("calling: Condition::new()");
 
         let test = match test {
             "equals" => Test::Equals(KeyString::from(bar)),
@@ -676,7 +794,7 @@ impl Condition {
     }
 
     fn from_str(s: &str) -> Result<Self, QueryError> {
-        println!("calling: Condition::from_str()");
+        // println!("calling: Condition::from_str()");
 
         let output: Condition;
         let mut t = s.split_whitespace();
@@ -730,7 +848,7 @@ impl Condition {
     }
 
     pub fn blank() -> Self {
-        println!("calling: Condition::blank()");
+        // println!("calling: Condition::blank()");
 
         Condition {
             attribute: KeyString::from(""),
@@ -764,7 +882,7 @@ pub enum OpOrCond {
 
 impl Display for OpOrCond {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        println!("calling: OpOrCond::fmt()");
+        // println!("calling: OpOrCond::fmt()");
 
         match self {
             OpOrCond::Cond(cond) => write!(f, "({} {})", cond.attribute, cond.test),
@@ -776,6 +894,72 @@ impl Display for OpOrCond {
     }
 }
 
+impl OpOrCond {
+    pub fn to_binary(&self) -> Vec<u8> {
+        let mut binary = Vec::new();
+        match self {
+            OpOrCond::Cond(condition) => {
+                binary.extend_from_slice(condition.attribute.raw());
+                binary.extend_from_slice(&condition.test.to_binary());
+            },
+            OpOrCond::Op(operator) => binary.extend_from_slice(operator.to_keystring().raw()),
+        }
+        binary
+    }
+
+    pub fn from_binary(binary: &[u8]) -> Result<OpOrCond, QueryError> {
+        if binary.len() < 64 {
+            return Err(QueryError::InvalidQuery)
+        }
+
+        let first = KeyString::try_from(&binary[0..64])?;
+        match first.as_str() {
+            "AND" => Ok(OpOrCond::Op(Operator::AND)),
+            "OR" => Ok(OpOrCond::Op(Operator::OR)),
+            _ => {
+                if binary.len() < 128 {
+                    return Err(QueryError::InvalidQuery)
+                }
+                let second = KeyString::try_from(&binary[64..128])?;
+                let third = KeyString::try_from(&binary[128..192])?;
+                match second.as_str() {
+                    "Equals" => Ok(OpOrCond::Cond(Condition {attribute: first, test: Test::Equals(third)})),
+                    "NotEquals" => Ok(OpOrCond::Cond(Condition {attribute: first, test: Test::NotEquals(third)})),
+                    "Less" => Ok(OpOrCond::Cond(Condition {attribute: first, test: Test::Less(third)})),
+                    "Greater" => Ok(OpOrCond::Cond(Condition {attribute: first, test: Test::Greater(third)})),
+                    "Starts" => Ok(OpOrCond::Cond(Condition {attribute: first, test: Test::Starts(third)})),
+                    "Ends" => Ok(OpOrCond::Cond(Condition {attribute: first, test: Test::Ends(third)})),
+                    "Contains" => Ok(OpOrCond::Cond(Condition {attribute: first, test: Test::Contains(third)})),
+                    _ => return Err(QueryError::InvalidQuery)
+                }
+            }
+        }
+
+    }
+}
+
+
+pub fn conditions_from_binary(binary: &[u8]) -> Result<Vec<OpOrCond>, QueryError> {
+    if binary.len() < 192 {
+        return Err(QueryError::InvalidQuery)
+    }
+    let mut conditions = Vec::new();
+
+    let mut offset = 0;
+    let mut i = 1;
+    while offset < binary.len() {
+        if i % 2 == 0 {
+            conditions.push(OpOrCond::from_binary(&binary[offset..offset+64])?);
+            offset += 64;
+        } else {
+            conditions.push(OpOrCond::from_binary(&binary[offset..offset+192])?);
+            offset += 192;
+        }
+        i += 1;
+    }
+
+    Ok(conditions)
+}
 
 /// Represents the currenlty implemented tests
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -792,7 +976,7 @@ pub enum Test {
 
 impl Display for Test {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        println!("calling: Test::fmt()");
+        // println!("calling: Test::fmt()");
 
         match self {
             Test::Equals(value) => write!(f, "equals {}", value),
@@ -808,16 +992,16 @@ impl Display for Test {
 
 impl Test {
     pub fn new(input: &str, bar: &str) -> Self {
-        println!("calling: Test::new()");
+        // println!("calling: Test::new()");
 
         match input.to_lowercase().as_str() {
-            "equals" => Test::Equals(KeyString::from(bar)),
-            "not_equals" => Test::NotEquals(KeyString::from(bar)),
-            "less_than" => Test::Less(KeyString::from(bar)),
-            "greater_than" => Test::Greater(KeyString::from(bar)),
-            "starts_with" => Test::Starts(KeyString::from(bar)),
-            "ends_with" => Test::Ends(KeyString::from(bar)),
-            "contains" => Test::Contains(KeyString::from(bar)),
+            "Equals" | "equals"  => Test::Equals(KeyString::from(bar)),
+            "NotEquals" | "not_equals" => Test::NotEquals(KeyString::from(bar)),
+            "Less" | "less_than" => Test::Less(KeyString::from(bar)),
+            "Greater" | "greater_than" => Test::Greater(KeyString::from(bar)),
+            "Starts" | "starts_with" => Test::Starts(KeyString::from(bar)),
+            "Ends" | "ends_with" => Test::Ends(KeyString::from(bar)),
+            "Contains" | "contains"=> Test::Contains(KeyString::from(bar)),
             _ => todo!(),
         }
     }
@@ -826,31 +1010,31 @@ impl Test {
         let mut binary = Vec::new();
         match self {
             Test::Equals(key_string) => {
-                binary.extend_from_slice(KeyString::from("EQUALS").raw());
+                binary.extend_from_slice(KeyString::from("Equals").raw());
                 binary.extend_from_slice(key_string.raw());
             },
             Test::NotEquals(key_string) => {
-                binary.extend_from_slice(KeyString::from("NOT_EQUALS").raw());
+                binary.extend_from_slice(KeyString::from("NotEquals").raw());
                 binary.extend_from_slice(key_string.raw());    
             },
             Test::Less(key_string) => {
-                binary.extend_from_slice(KeyString::from("LESS_THAN").raw());
+                binary.extend_from_slice(KeyString::from("Less").raw());
                 binary.extend_from_slice(key_string.raw());    
             },
             Test::Greater(key_string) => {
-                binary.extend_from_slice(KeyString::from("GREATER_THAN").raw());
+                binary.extend_from_slice(KeyString::from("Greater").raw());
                 binary.extend_from_slice(key_string.raw());    
             },
             Test::Starts(key_string) => {
-                binary.extend_from_slice(KeyString::from("STARTS_WITH").raw());
+                binary.extend_from_slice(KeyString::from("Starts").raw());
                 binary.extend_from_slice(key_string.raw());    
             },
             Test::Ends(key_string) => {
-                binary.extend_from_slice(KeyString::from("ENDS_WITH").raw());
+                binary.extend_from_slice(KeyString::from("Ends").raw());
                 binary.extend_from_slice(key_string.raw());    
             },
             Test::Contains(key_string) => {
-                binary.extend_from_slice(KeyString::from("CONTAINS").raw());
+                binary.extend_from_slice(KeyString::from("Contains").raw());
                 binary.extend_from_slice(key_string.raw());    
             },
         }
@@ -915,7 +1099,7 @@ Refer to the EZ-FORMAT section of the documentation for information of the diffe
 */
 
 pub fn parse_serial_query(query_string: &str) -> Result<Vec<Query>, QueryError> {
-    println!("calling: parse_serial_query()");
+    // println!("calling: parse_serial_query()");
 
     let mut result = Vec::new();
 
@@ -935,7 +1119,7 @@ pub struct ParserState {
 
 #[allow(non_snake_case)]
 pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
-    println!("calling: parse_EZQL()");
+    // println!("calling: parse_EZQL()");
 
 
     let mut state = ParserState {
@@ -1190,7 +1374,7 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
 }
 
 fn fill_fields(args: &HashMap<String, Vec<String>>) -> Result<(KeyString, Vec<OpOrCond>, RangeOrListOrAll), QueryError> {
-    println!("calling: fill_fields()");
+    // println!("calling: fill_fields()");
 
     let table_name = match args.get("table_name") {
         Some(x) => {
@@ -1281,7 +1465,7 @@ fn fill_fields(args: &HashMap<String, Vec<String>>) -> Result<(KeyString, Vec<Op
 
 
 pub fn subsplitter(s: &str) -> Vec<Vec<&str>> {
-    println!("calling: subsplitter()");
+    // println!("calling: subsplitter()");
 
 
     let mut temp = Vec::new();
@@ -1295,14 +1479,14 @@ pub fn subsplitter(s: &str) -> Vec<Vec<&str>> {
 
 #[inline]
 pub fn is_even(x: usize) -> bool {
-    println!("calling: is_even()");
+    // println!("calling: is_even()");
 
     0 == (x & 1)
 }
 
 
 pub fn parse_contained_token(s: &str, container_open: char, container_close: char) -> Option<&str> {
-    println!("calling: parse_contained_token()");
+    // println!("calling: parse_contained_token()");
 
     let mut start = std::usize::MAX;
     let mut stop = 0;
@@ -1351,7 +1535,7 @@ pub fn parse_contained_token(s: &str, container_open: char, container_close: cha
 
 #[allow(non_snake_case)]
 pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Result<Option<ColumnTable>, EzError> {
-    println!("calling: execute_EZQL_queries()");
+    // println!("calling: execute_EZQL_queries()");
 
 
     let mut result_table = None;
@@ -1464,7 +1648,7 @@ pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Res
 
 
 pub fn execute_delete_query(query: Query, table: &mut ColumnTable) -> Result<Option<ColumnTable>, EzError> {
-    println!("calling: execute_delete_query()");
+    // println!("calling: execute_delete_query()");
     
     match query {
         Query::DELETE { primary_keys, table_name: _, conditions } => {
@@ -1481,7 +1665,7 @@ pub fn execute_delete_query(query: Query, table: &mut ColumnTable) -> Result<Opt
 }
 
 pub fn execute_left_join_query(query: Query, left_table: &ColumnTable, right_table: &ColumnTable) -> Result<Option<ColumnTable>, EzError> {
-    println!("calling: execute_left_join_query()");
+    // println!("calling: execute_left_join_query()");
     
     match query {
         Query::LEFT_JOIN { left_table_name: _, right_table_name: _, match_columns, primary_keys } => {
@@ -1497,7 +1681,7 @@ pub fn execute_left_join_query(query: Query, left_table: &ColumnTable, right_tab
 }
 
 pub fn execute_update_query(query: Query, table: &mut ColumnTable) -> Result<Option<ColumnTable>, EzError> {
-    println!("calling: execute_update_query()");
+    // println!("calling: execute_update_query()");
     
     match query {
         Query::UPDATE { table_name: _, primary_keys, conditions, updates } => {
@@ -1570,7 +1754,7 @@ pub fn execute_update_query(query: Query, table: &mut ColumnTable) -> Result<Opt
 }
 
 pub fn execute_insert_query(query: Query, table: &mut ColumnTable) -> Result<Option<ColumnTable>, EzError> {
-    println!("calling: execute_insert_query()");
+    // println!("calling: execute_insert_query()");
 
     match query {
         Query::INSERT { table_name: _, inserts } => {
@@ -1586,7 +1770,7 @@ pub fn execute_insert_query(query: Query, table: &mut ColumnTable) -> Result<Opt
 }
 
 pub fn execute_select_query(query: Query, table: &ColumnTable) -> Result<Option<ColumnTable>, EzError> {
-    println!("calling: execute_select_query()");
+    // println!("calling: execute_select_query()");
 
     match query {
         Query::SELECT { table_name: _, primary_keys, columns, conditions } => {
@@ -1605,7 +1789,7 @@ pub fn execute_select_query(query: Query, table: &ColumnTable) -> Result<Option<
 }
 
 pub fn execute_summary_query(query: Query, table: &ColumnTable) -> Result<Option<ColumnTable>, EzError> {
-    println!("calling: execute_summary_query()");
+    // println!("calling: execute_summary_query()");
 
     match query {
         Query::SUMMARY { table_name: _, columns } => {
@@ -1682,7 +1866,7 @@ pub fn execute_summary_query(query: Query, table: &ColumnTable) -> Result<Option
 }
 
 pub fn execute_inner_join_query(query: Query, database: Arc<Database>) -> Result<Option<ColumnTable>, EzError> {
-    println!("calling: execute_inner_join_query()");
+    // println!("calling: execute_inner_join_query()");
     
     // let tables = database.buffer_pool.tables.read().unwrap();
     // let table = tables.get(&query.table).unwrap().read().unwrap();
@@ -1692,7 +1876,7 @@ pub fn execute_inner_join_query(query: Query, database: Arc<Database>) -> Result
 }
 
 pub fn execute_right_join_query(query: Query, database: Arc<Database>) -> Result<Option<ColumnTable>, EzError> {
-    println!("calling: execute_right_join_query()");
+    // println!("calling: execute_right_join_query()");
 
     // let tables = database.buffer_pool.tables.read().unwrap();
     // let table = tables.get(&query.table).unwrap().read().unwrap();
@@ -1702,7 +1886,7 @@ pub fn execute_right_join_query(query: Query, database: Arc<Database>) -> Result
 }
 
 pub fn execute_full_join_query(query: Query, database: Arc<Database>) -> Result<Option<ColumnTable>, EzError> {
-    println!("calling: execute_full_join_query()");
+    // println!("calling: execute_full_join_query()");
 
     // let tables = database.buffer_pool.tables.read().unwrap();
     // let table = tables.get(&query.table).unwrap().read().unwrap();
@@ -1712,7 +1896,7 @@ pub fn execute_full_join_query(query: Query, database: Arc<Database>) -> Result<
 }
 
 pub fn keys_to_indexes(table: &ColumnTable, keys: &RangeOrListOrAll) -> Result<Vec<usize>, StrictError> {
-    println!("calling: keys_to_indexes()");
+    // println!("calling: keys_to_indexes()");
 
     let mut indexes = Vec::new();
 
@@ -1789,7 +1973,7 @@ pub fn keys_to_indexes(table: &ColumnTable, keys: &RangeOrListOrAll) -> Result<V
 
 
 pub fn filter_keepers(conditions: &Vec<OpOrCond>, primary_keys: &RangeOrListOrAll, table: &ColumnTable) -> Result<Vec<usize>, EzError> {
-    println!("calling: filter_keepers()");
+    // println!("calling: filter_keepers()");
 
     let indexes = keys_to_indexes(table, primary_keys)?;
     
@@ -1934,6 +2118,8 @@ mod tests {
 
     use std::default;
 
+    use crate::utilities::ksf;
+
     use super::*;
 
     #[test]
@@ -2023,6 +2209,19 @@ mod tests {
     }
 
     #[test]
+    fn test_alt_select() {
+        let query = Query::SELECT { 
+            table_name: KeyString::from("test"), 
+            primary_keys: RangeOrListOrAll::All, 
+            columns: vec![KeyString::from("id")], 
+            conditions: vec![OpOrCond::Cond(Condition{ attribute: KeyString::from("id"), test: Test::Equals(KeyString::from("0113035")) })] 
+        };
+        let binary_query = query.to_binary();
+        let parsed_query = Query::from_binary(&binary_query).unwrap();
+        assert_eq!(query, parsed_query);
+    }
+
+    #[test]
     fn test_SELECT() {
         let table_string = std::fs::read_to_string(format!("test_files{PATH_SEP}good_csv.txt")).unwrap();
         let table = ColumnTable::from_csv_string(&table_string, "good_csv", "test").unwrap();
@@ -2031,6 +2230,19 @@ mod tests {
         let result = execute_select_query(parsed[0].clone(), &table).unwrap().unwrap();
         println!("{}", result);
         assert_eq!("heiti,t-N;magn,i-N;vnr,i-P\nundirlegg2;100;113000\nundirlegg;200;113035\nflísalím;42;18572054", result.to_string());
+    }
+
+    #[test]
+    fn test_alt_left_join() {
+        let query = Query::LEFT_JOIN {
+            left_table_name: KeyString::from("Left"),
+            right_table_name: KeyString::from("Right"),
+            match_columns: (KeyString::from("idl"), KeyString::from("idr")),
+            primary_keys: RangeOrListOrAll::All,
+        };
+        let binary_query = query.to_binary();
+        let parsed_query = Query::from_binary(&binary_query).unwrap();
+        assert_eq!(query, parsed_query);
     }
 
     #[test]
@@ -2073,6 +2285,19 @@ mod tests {
     }
 
     #[test]
+    fn test_alt_update() {
+        let query = Query::UPDATE { 
+            table_name: ksf("Test"), 
+            primary_keys: RangeOrListOrAll::All, 
+            conditions: vec![OpOrCond::Cond(Condition{ attribute: ksf("id"), test: Test::Equals(KeyString::from("0113035")) })], 
+            updates: vec![Update{ attribute: ksf("id"), operator: UpdateOp::Assign, value: ksf("0113036") }],
+        };
+        let binary_query = query.to_binary();
+        let parsed_query = Query::from_binary(&binary_query).unwrap();
+        assert_eq!(query, parsed_query);
+    }
+
+    #[test]
     fn test_UPDATE() {
         let query = "UPDATE(table_name: products, primary_keys: *, conditions: ((id starts_with 011)), updates: ((price += 100), (stock -= 100)))";
         let parsed = parse_EZQL(query).unwrap();
@@ -2085,6 +2310,19 @@ mod tests {
 
         let expected_table = "id,t-P;location,t-F;price,f-N;stock,i-N\n0113446;LAG12;2600;0\n18572054;LAG12;4500;42";
         assert_eq!(table.to_string(), expected_table);
+    }
+
+    #[test]
+    fn test_alt_insert() {
+        let google_docs_csv = std::fs::read_to_string(format!("test_files{PATH_SEP}test_csv_from_google_sheets_combined_sorted.csv")).unwrap();
+        let mut t = ColumnTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
+        let query = Query::INSERT { 
+            table_name: KeyString::from("test"),  
+            inserts: t,
+        };
+        let binary_query = query.to_binary();
+        let parsed_query = Query::from_binary(&binary_query).unwrap();
+        assert_eq!(query, parsed_query);
     }
 
     #[test]
