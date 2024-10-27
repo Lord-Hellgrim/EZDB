@@ -28,7 +28,7 @@ pub fn handle_query_request(
     check_permission(&queries, user, database.users.clone())?;
     let requested_table = match execute_EZQL_queries(queries, database) {
         Ok(res) => match res {
-            Some(table) => table.write_to_binary(),
+            Some(table) => table.to_binary(),
             None => "None.".as_bytes().to_vec(),
         },
         Err(e) => format!("ERROR -> Could not process query because of error: '{}'", e.to_string()).as_bytes().to_vec(),

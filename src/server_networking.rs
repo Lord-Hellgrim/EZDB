@@ -148,7 +148,7 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                                 continue
                             },
                         };
-                        file.write(&table_lock.read().unwrap().write_to_binary()).expect(&format!("Panic of line: {} of server_networking. The backup file could not be written.", line!()));
+                        file.write(&table_lock.read().unwrap().to_binary()).expect(&format!("Panic of line: {} of server_networking. The backup file could not be written.", line!()));
                         table_naughty_list.remove(key);
                     }
                 }

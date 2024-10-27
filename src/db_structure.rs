@@ -248,25 +248,6 @@ pub struct Metadata {
     pub last_access: AtomicU64,
     pub times_accessed: AtomicU64,
     pub created_by: KeyString,
-    size_of_table: usize,
-    size_of_row: usize,   
-}
-
-impl PartialEq for Metadata {
-    fn eq(&self, other: &Self) -> bool {
-        self.size_of_table == other.size_of_table && self.size_of_row == other.size_of_row
-    }
-}
-
-impl PartialOrd for Metadata {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-
-        match self.size_of_table.partial_cmp(&other.size_of_table) {
-            Some(core::cmp::Ordering::Equal) => {}
-            ord => return ord,
-        }
-        self.size_of_row.partial_cmp(&other.size_of_row)
-    }
 }
 
 impl Clone for Metadata {
@@ -275,8 +256,6 @@ impl Clone for Metadata {
             last_access: AtomicU64::new(self.last_access.load(Ordering::Relaxed)),
             times_accessed: AtomicU64::new(self.times_accessed.load(Ordering::Relaxed).clone()),
             created_by: self.created_by.clone(),
-            size_of_table: self.size_of_table.clone(),
-            size_of_row: self.size_of_row.clone()
         }
     }
 }
@@ -300,8 +279,6 @@ impl Cbor for Metadata {
         bytes.extend_from_slice(&self.last_access.load(Ordering::Relaxed).to_cbor_bytes());
         bytes.extend_from_slice(&self.times_accessed.load(Ordering::Relaxed).to_cbor_bytes());
         bytes.extend_from_slice(&self.created_by.to_cbor_bytes());
-        bytes.extend_from_slice(&self.size_of_table.to_cbor_bytes());
-        bytes.extend_from_slice(&self.size_of_row.to_cbor_bytes());
         bytes
     }
 
@@ -318,16 +295,10 @@ impl Cbor for Metadata {
         i += bytes_read;
         let (created_by, bytes_read) = <KeyString as Cbor>::from_cbor_bytes(&bytes[i..])?;
         i += bytes_read;
-        let (size_of_table, bytes_read) = <usize as Cbor>::from_cbor_bytes(&bytes[i..])?;
-        i += bytes_read;
-        let (size_of_row, bytes_read) = <usize as Cbor>::from_cbor_bytes(&bytes[i..])?;
-        i += bytes_read;
         Ok((Self {
             last_access: AtomicU64::from(last_access),
             times_accessed: AtomicU64::from(times_accessed),
             created_by,
-            size_of_table,
-            size_of_row,
         }, i))
     }
 }
@@ -335,73 +306,12 @@ impl Cbor for Metadata {
 impl Metadata {
     pub fn new(client: &str) -> Metadata {
         
-
         Metadata {
             last_access: AtomicU64::new(get_current_time()),
             times_accessed: AtomicU64::new(0),
             created_by: KeyString::from(client),
-            size_of_table: 0,
-            size_of_row: 0,
         }
     }
-
-    pub fn from_table(client: &str, header: &[HeaderItem], table: &BTreeMap<KeyString, DbColumn>) -> Metadata {
-        
-
-        let size_of_row = header.iter().fold(0, |acc: usize, x| {
-            match x.kind {
-                DbType::Float => acc + 4,
-                DbType::Int => acc +4,
-                DbType::Text => acc + 64,
-            }
-        });
-
-        let size_of_table = table.iter().fold(0, |acc: usize, x| {
-            match x.1 {
-                DbColumn::Ints(v) => acc + v.len() * 4,
-                DbColumn::Floats(v) => acc + v.len() * 4,
-                DbColumn::Texts(v) => acc + v.len() * 64,
-            }
-        });
-
-        Metadata {
-            last_access: AtomicU64::new(get_current_time()),
-            times_accessed: AtomicU64::new(0),
-            created_by: KeyString::from(client),
-            size_of_table,
-            size_of_row,
-        }
-    }
-
-    #[inline]
-    pub fn update_size(&mut self, header: &[HeaderItem], table: &BTreeMap<KeyString, DbColumn>) {
-        
-
-        self.size_of_row = header.iter().fold(0, |acc: usize, x| {
-            match x.kind {
-                DbType::Float => acc + 4,
-                DbType::Int => acc +4,
-                DbType::Text => acc + 64,
-            }
-        });
-
-        self.size_of_table = table.iter().fold(0, |acc: usize, x| {
-            match x.1 {
-                DbColumn::Ints(v) => acc + v.len() * 4,
-                DbColumn::Floats(v) => acc + v.len() * 4,
-                DbColumn::Texts(v) => acc + v.len() * 64,
-            }
-        });
-    }
-
-    pub fn size_of_table(&self) -> usize {
-        self.size_of_table
-    }
-
-    pub fn size_of_row(&self) -> usize {
-        self.size_of_row
-    }
-
 }
 
 
@@ -669,12 +579,32 @@ impl Cbor for TableKey {
 
 
 /// This is the main data structure of EZDB. It represents a table as a list of columns.
-#[derive(Clone, Debug, PartialOrd)]
+#[derive(Clone, Debug)]
 pub struct ColumnTable {
     pub metadata: Metadata,
     pub name: KeyString,
     pub header: Vec<HeaderItem>,
     pub columns: BTreeMap<KeyString, DbColumn>,
+}
+
+impl PartialOrd for ColumnTable {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        match self.name.partial_cmp(&other.name) {
+            Some(core::cmp::Ordering::Equal) => {}
+            ord => return ord,
+        }
+        match self.header.partial_cmp(&other.header) {
+            Some(core::cmp::Ordering::Equal) => {}
+            ord => return ord,
+        }
+        self.columns.partial_cmp(&other.columns)
+    }
+}
+
+impl PartialEq for ColumnTable {
+    fn eq(&self, other: &Self) -> bool {
+        self.header == other.header && self.columns == other.columns
+    }
 }
 
 impl Cbor for ColumnTable {
@@ -713,13 +643,6 @@ impl Cbor for ColumnTable {
         )
     }
 }
-
-impl PartialEq for ColumnTable {
-    fn eq(&self, other: &Self) -> bool {
-        self.header == other.header && self.columns == other.columns
-    }
-}
-
 
 /// Prints the ColumnTable as a csv (separated by semicolons ;)
 impl Display for ColumnTable {
@@ -989,7 +912,7 @@ impl ColumnTable {
         header.sort_by_key(|x| x.name);
 
         let mut output = ColumnTable {
-            metadata: Metadata::from_table(created_by, &header, &result),
+            metadata: Metadata::new(created_by),
             name: KeyString::from(table_name),
             header: header,
             columns: result,
@@ -1179,8 +1102,6 @@ impl ColumnTable {
                 },
             }
         }
-
-        self.metadata.update_size(&self.header, &self.columns);
 
         Ok(())
     }
@@ -1441,7 +1362,7 @@ impl ColumnTable {
         if columns[0].as_str() == "*" || columns[0].as_str() == "*" {
             return Ok(
                 ColumnTable {
-                    metadata: Metadata::from_table("query", &self.header, &self.columns),
+                    metadata: Metadata::new("query"),
                     name: KeyString::from(new_name),
                     header: self.header.clone(),
                     columns: self.columns.clone(),
@@ -1466,7 +1387,7 @@ impl ColumnTable {
 
         Ok(
             ColumnTable {
-                metadata: Metadata::from_table("query", &new_table_header, &new_table_inner),
+                metadata: Metadata::new("query"),
                 name: KeyString::from(new_name),
                 header: new_table_header,
                 columns: new_table_inner,
@@ -1774,8 +1695,6 @@ impl ColumnTable {
             };
         }
 
-        self.metadata.update_size(&self.header, &self.columns);
-
         Ok(())
     }
 
@@ -1827,8 +1746,6 @@ impl ColumnTable {
                 }
             };
         }
-
-        self.metadata.update_size(&self.header, &self.columns);
 
         Ok(())
     }
@@ -1889,8 +1806,6 @@ impl ColumnTable {
                 }
             };
         }
-
-        self.metadata.update_size(&self.header, &self.columns);
 
         Ok(())
     }
@@ -2128,109 +2043,124 @@ impl ColumnTable {
         Ok(())
     }
 
+    pub fn size_of_table(&self) -> usize {
+        let mut acc = 128; // the table name and the packet type are 64 byte KeyStrings 
 
-    // /// Writes this table to disk as a csv.
-    // pub fn save_to_disk_csv(&self, path: &str) -> Result<(), StrictError> {
-    //     let file_name = &self.name;
+        acc += self.header.len() * 72;
 
-    //     let metadata = &self.metadata.to_string();
+        acc += 16 + 64; // Length of metadata
 
-    //     let table = &self.to_string();
+        for (_, col) in &self.columns {
+            acc += 64;
+            match col {
+                DbColumn::Ints(vec) => acc += vec.len() * 4,
+                DbColumn::Texts(vec) => acc += vec.len() * 64,
+                DbColumn::Floats(vec) => acc += vec.len() * 4,
+            }
+        }
 
-    //     let mut table_file =
-    //         match std::fs::File::create(format!("{}raw_tables/{}", path, file_name)) {
-    //             Ok(f) => f,
-    //             Err(e) => return Err(StrictError::Io(e)),
-    //         };
+        acc
+    }
 
-    //     let mut meta_file =
-    //         match std::fs::File::create(format!("{}raw_tables-metadata/{}", path, file_name)) {
-    //             Ok(f) => f,
-    //             Err(e) => return Err(StrictError::Io(e)),
-    //         };
+    pub fn size_of_row(&self) -> usize {
+        
+        let mut acc = 0;
+        
+        for (_, col) in &self.columns {
+            match col {
+                DbColumn::Ints(_) => acc += 4,
+                DbColumn::Texts(_) => acc += 64,
+                DbColumn::Floats(_) => acc += 4,
+            }
+        }
 
-    //     match table_file.write_all(table.as_bytes()) {
-    //         Ok(_) => (),
-    //         Err(e) => println!("Error while writing to disk. Error was:\n{}", e),
-    //     };
-    //     match meta_file.write_all(metadata.as_bytes()) {
-    //         Ok(_) => (),
-    //         Err(e) => println!("Error while writing to disk. Error was:\n{}", e),
-    //     };
-
-    //     Ok(())
-    // }
+        acc
+    }
 
     /// Writes to EZ binary format
-    pub fn write_to_binary(&self) -> Vec<u8> {
+    pub fn to_binary(&self) -> Vec<u8> {
         
-
-
-        let mut output: Vec<u8> = Vec::with_capacity(self.metadata.size_of_table());
+        let mut binary: Vec<u8> = Vec::with_capacity(self.size_of_table());
         
-        output.extend_from_slice("EZDB".as_bytes());
-
+        binary.extend_from_slice(ksf("EZDB_COLUMNTABLE").raw());
+        
+        // WRITING LENGTHS
+        binary.extend_from_slice(&self.header.len().to_le_bytes());
+        binary.extend_from_slice(&self.len().to_le_bytes());
+        
+        // WRITING TABLE NAME
+        binary.extend_from_slice(self.name.raw());
+        
         // WRITING HEADER
+        let mut keys_and_kinds = Vec::new();
+        let mut names = Vec::new();
         for item in &self.header {
             let kind = match item.kind {
                 DbType::Int => b'i',
                 DbType::Float => b'f',
                 DbType::Text => b't',
             };
-            output.push(kind);
-            let name = item.name.as_bytes();
-            output.extend_from_slice(name);
-            match &item.key {
-                TableKey::Primary => output.push(b'P'),
-                TableKey::None => output.push(b'N'),
-                TableKey::Foreign => output.push(b'F'),
-            }
-            output.push(b';');
+            let key_type = match &item.key {
+                TableKey::Primary => b'P',
+                TableKey::None => b'N',
+                TableKey::Foreign => b'F',
+            };
+            keys_and_kinds.extend_from_slice(&[0,0,0,kind,0,0,0,key_type]);
+            names.extend_from_slice(item.name.raw());
         }
-        output.pop();
-        output.push(b'\n');
-        output.extend_from_slice(&(self.len() as u32).to_le_bytes());
-
+        binary.extend_from_slice(&keys_and_kinds);
+        binary.extend_from_slice(&names);
+        
         // WRITING METADATA
-        output.extend_from_slice(self.metadata.created_by.raw());
-        output.extend_from_slice(&self.metadata.last_access.load(Ordering::Relaxed).to_le_bytes());
-        output.extend_from_slice(&self.metadata.times_accessed.load(Ordering::Relaxed).to_le_bytes());
-
+        binary.extend_from_slice(self.metadata.created_by.raw());
+        binary.extend_from_slice(&self.metadata.last_access.load(Ordering::Relaxed).to_le_bytes());
+        binary.extend_from_slice(&self.metadata.times_accessed.load(Ordering::Relaxed).to_le_bytes());
+        
         // WRITING COLUMNS
         for column in self.columns.values() {
             match &column {
                 DbColumn::Floats(col) => {
                     for item in col {
-                        output.extend_from_slice(&item.to_le_bytes());
+                        binary.extend_from_slice(&item.to_le_bytes());
                     }
                 }
                 &DbColumn::Ints(col) => {
                     for item in col {
                         // println!("item: {}", item);
-                        output.extend_from_slice(&item.to_le_bytes());
+                        binary.extend_from_slice(&item.to_le_bytes());
                     }
                 }
                 DbColumn::Texts(col) => {
                     for item in col {
-                        output.extend_from_slice(item.raw());
+                        binary.extend_from_slice(item.raw());
                     }
                 }
             };
         }
-        output
+        binary
     }
 
 
     /// Reads an EZ binary formatted file to a ColumnTable, checking for strictness.
     pub fn from_binary(name: &str, binary: &[u8]) -> Result<ColumnTable, StrictError> {
         
+        if binary.len() < 128 + 8 + 8 {
+            return Err(StrictError::BinaryRead("binary is less than 144 bytes".to_owned()));
+        }
 
-        if binary.len() < 4 {
-            return Err(StrictError::BinaryRead("binary is less than 4 bytes".to_owned()));
-        }
-        if &binary[0..4] != "EZDB".as_bytes() {
-            return Err(StrictError::BinaryRead("No EZDB prefix".to_owned()));
-        }
+        let packet_type = match KeyString::try_from(&binary[0..64]) {
+            Ok(x) => x,
+            Err(_) => return Err(StrictError::BinaryRead("Packet_type corrupted".to_owned())),
+        };
+
+        match packet_type.as_str() {
+            "EZDB_COLUMNTABLE" => (),
+            _ => return Err(StrictError::BinaryRead("Not ColumnTable".to_owned()))
+        };
+
+        let header_len = u64_from_le_slice(&binary[64..72]) as usize;
+        let column_len = u64_from_le_slice(&binary[72..80]) as usize;
+
         let binary = &binary[4..];
         let mut binter = binary.iter();
         let first_newline = binter.position(|n| *n == b'\n').expect(&format!("Reading the first newline should never fail unless the data is corrupted. The file that was being read is {name}"));
@@ -2319,21 +2249,6 @@ impl ColumnTable {
         let mut metadata = Metadata::new(metadata_created_by.as_str());
         metadata.last_access = AtomicU64::new(metadata_last_access);
         metadata.times_accessed = AtomicU64::new(metadata_times_accessed);
-        metadata.size_of_row = header.iter().fold(0, |acc: usize, x| {
-            match x.kind {
-                DbType::Float => acc + 4,
-                DbType::Int => acc +4,
-                DbType::Text => acc + 64,
-            }
-        });
-
-        metadata.size_of_table = table.iter().fold(0, |acc: usize, x| {
-            match x.1 {
-                DbColumn::Ints(v) => acc + v.len() * 4,
-                DbColumn::Floats(v) => acc + v.len() * 4,
-                DbColumn::Texts(v) => acc + v.len() * 64,
-            }
-        });
 
         header.sort_by_key(|x| x.name);
 
@@ -2624,7 +2539,7 @@ fn merge_in_order<T: Clone + Display>(one: &[T], two: &[T], record_vec: &[u8]) -
 }
 
 /// This is the struct that carries the binary blob of the key/value pairs along with some metadata
-#[derive(Clone, Debug, PartialEq, PartialOrd)]
+#[derive(Clone, Debug)]
 pub struct Value {
     pub name: KeyString,
     pub body: Vec<u8>,
@@ -2681,7 +2596,6 @@ impl Value {
         let mut metadata = Metadata::new(metadata_created_by.as_str());
         metadata.last_access = AtomicU64::new(metadata_last_access);
         metadata.times_accessed = AtomicU64::new(metadata_times_accessed);
-        metadata.size_of_row = 0;
 
         let body = &binary[80..];
 
@@ -2838,7 +2752,7 @@ mod tests {
         ))
         .unwrap();
         let t = ColumnTable::from_csv_string(&input, "test", "test").unwrap();
-        let bin_t = t.write_to_binary();
+        let bin_t = t.to_binary();
         let trans_t = ColumnTable::from_binary("test", &bin_t).unwrap();
         assert_eq!(t, trans_t);
     }

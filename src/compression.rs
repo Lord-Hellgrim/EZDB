@@ -92,7 +92,7 @@ mod tests {
     fn test_brotli() {
         let table_string = std::fs::read_to_string(&format!("test_files{PATH_SEP}test_csv_from_google_sheets_combined_sorted.csv")).unwrap();
         let table = ColumnTable::from_csv_string(&table_string, "basic_test", "test").unwrap();
-        let binary = table.write_to_binary();
+        let binary = table.to_binary();
         // let brotli_compressed_table = brotli_compress(&binary).unwrap();
         let miniz_compressed_table = miniz_compress(&binary).unwrap();
         // println!("brotli: {}", brotli_compressed_table.len());

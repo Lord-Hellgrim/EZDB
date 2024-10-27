@@ -260,9 +260,6 @@ pub fn ksf(s: &str) -> KeyString {
 #[inline]
 pub fn ez_hash(s: &[u8]) -> [u8;32]{
     
-    
-
-
     let mut hasher = Sha256::new();
     hasher.update(s);
     let result = hasher.finalize();
@@ -277,9 +274,6 @@ pub fn ez_hash(s: &[u8]) -> [u8;32]{
 #[inline]
 pub fn get_current_time() -> u64 {
     
-    
-
-
     std::time::SystemTime::now()
         .duration_since(std::time::SystemTime::UNIX_EPOCH)
         .unwrap()
@@ -342,8 +336,6 @@ pub fn time_print(s: &str, cycles: u64) {
 
 /// Removes the trailing 0 bytes from a str created from a byte buffer
 pub fn bytes_to_str(bytes: &[u8]) -> Result<&str, Utf8Error> {
-    
-    
 
     let mut index: usize = 0;
     let len = bytes.len();
@@ -380,18 +372,13 @@ pub fn bytes_to_str(bytes: &[u8]) -> Result<&str, Utf8Error> {
 /// Parses any 8 byte slice as a usize.
 #[inline]
 pub fn bytes_to_usize(bytes: [u8; 8]) -> usize {
-    
-    
 
-    
     std::primitive::usize::from_le_bytes(bytes)
 }
 
 /// Encodes a byte slice as a hexadecimal String
 pub fn encode_hex(bytes: &[u8]) -> String {
     
-    
-
     let mut s = String::new();
     for &b in bytes {
         s.push_str(&format!("{:02x}", b));
@@ -401,8 +388,6 @@ pub fn encode_hex(bytes: &[u8]) -> String {
 
 /// Decodes a hexadecimal String as a byte slice.
 pub fn decode_hex(s: &str) -> Result<Vec<u8>, ParseIntError> {
-    
-    
 
     // println!("s.len(): {}", s.len());
     (0..s.len())
@@ -413,8 +398,6 @@ pub fn decode_hex(s: &str) -> Result<Vec<u8>, ParseIntError> {
 
 pub fn decode_hex_to_arr32(s: &str) -> Result<[u8;32], ParseIntError> {
     
-    
-
     // println!("s.len(): {}", s.len());
     let mut arr = [0u8;32];
     let mut i = 0;
@@ -426,11 +409,7 @@ pub fn decode_hex_to_arr32(s: &str) -> Result<[u8;32], ParseIntError> {
     Ok(arr)
 }
 
-/// Just a blake3 hash
 pub fn hash_string(a: &str) -> [u8;32] {
-    
-    
-
 
     ez_hash(a.as_bytes())
 
@@ -440,8 +419,6 @@ pub fn hash_string(a: &str) -> [u8;32] {
 /// Creates a i32 from a &[u8] of length 4. Panics if len is different than 4. 
 #[inline]
 pub fn i32_from_le_slice(slice: &[u8]) -> i32 {
-    
-    
 
     assert!(slice.len() == 4);
     let l: [u8;4] = [slice[0], slice[1], slice[2], slice[3]];
@@ -451,8 +428,6 @@ pub fn i32_from_le_slice(slice: &[u8]) -> i32 {
 /// Creates a u32 from a &[u8] of length 4. Panics if len is different than 4.
 #[inline]
 pub fn u32_from_le_slice(slice: &[u8]) -> u32 {
-    
-    
 
     assert!(slice.len() == 4);
     let l: [u8;4] = [slice[0], slice[1], slice[2], slice[3]];
@@ -462,8 +437,6 @@ pub fn u32_from_le_slice(slice: &[u8]) -> u32 {
 /// Creates a u64 from a &[u8] of length 8. Panics if len is different than 8.
 #[inline]
 pub fn u64_from_le_slice(slice: &[u8]) -> u64 {
-    
-    
 
     assert!(slice.len() == 8);
     let l: [u8;8] = [ slice[0], slice[1], slice[2], slice[3], slice[4], slice[5], slice[6], slice[7] ];
@@ -473,8 +446,6 @@ pub fn u64_from_le_slice(slice: &[u8]) -> u64 {
 /// Creates a u32 from a &[u8] of length 4. Panics if len is different than 4.
 #[inline]
 pub fn f32_from_le_slice(slice: &[u8]) -> f32 {   
-    
-    
 
     assert!(slice.len() == 4);
     let l: [u8;4] = [slice[0], slice[1], slice[2], slice[3]];
@@ -484,8 +455,6 @@ pub fn f32_from_le_slice(slice: &[u8]) -> f32 {
 /// Creates a usize from a &[u8] of length 8. Panics if len is different than 8.
 #[inline]
 pub fn usize_from_le_slice(slice: &[u8]) -> usize {   
-    
-    
 
     assert!(slice.len() == 8);
     let l: [u8;8] = [slice[0], slice[1], slice[2], slice[3], slice[4], slice[5], slice[6], slice[7]];
@@ -496,8 +465,6 @@ pub fn usize_from_le_slice(slice: &[u8]) -> usize {
 #[inline]
 pub fn print_sep_list<T>(list: &[T], sep: &str) -> String 
 where T: Display  {
-    
-    
 
     let mut printer = String::with_capacity(64*list.len());
     for item in list {
@@ -514,8 +481,6 @@ where T: Display  {
 
 #[inline]
 pub fn chunk3_vec<T>(list: &[T]) -> Option<[&T;3]> {
-    
-    
 
     let mut i = list.iter();
     let one = match i.next() {
@@ -536,8 +501,6 @@ pub fn chunk3_vec<T>(list: &[T]) -> Option<[&T;3]> {
 
 #[inline]
 pub fn sum_i32_slice(slice: &[i32]) -> i32 {
-    
-    
 
 
     let mut suma = simd::i32x4::splat(0);
@@ -569,8 +532,6 @@ pub fn sum_i32_slice(slice: &[i32]) -> i32 {
 
 #[inline]
 pub fn sum_f32_slice(slice: &[f32]) -> f32 {
-    
-    
 
     let mut suma = simd::f32x4::splat(0.0);
     let mut sumb = simd::f32x4::splat(0.0);
@@ -604,8 +565,6 @@ pub fn sum_f32_slice(slice: &[f32]) -> f32 {
 }
 
 pub unsafe fn raw_sum_f32_slice(slice: &[f32]) -> f32 {
-    
-    
 
 
     let mut suma = x86_64::_mm_setzero_ps();
@@ -648,8 +607,6 @@ pub unsafe fn raw_sum_f32_slice(slice: &[f32]) -> f32 {
 
 #[inline]
 pub fn mean_i32_slice(slice: &[i32]) -> f32 {
-    
-    
 
     let mut suma = simd::f32x4::splat(0.0);
     let mut sumb = simd::f32x4::splat(0.0);
@@ -680,16 +637,12 @@ pub fn mean_i32_slice(slice: &[i32]) -> f32 {
 
 #[inline]
 pub fn mean_f32_slice(slice: &[f32]) -> f32 {
-    
-    
 
     sum_f32_slice(slice) / (slice.len() as f32)
 }
 
 #[inline]
 pub fn mode_i32_slice(slice: &[i32]) -> i32 {
-    
-    
 
 
     let mut map = FnvHashMap::default();
@@ -714,8 +667,6 @@ pub fn mode_i32_slice(slice: &[i32]) -> i32 {
 
 #[inline]
 pub fn mode_string_slice(slice: &[KeyString]) -> KeyString {
-    
-    
 
 
     let mut map = FnvHashMap::default();
@@ -740,8 +691,6 @@ pub fn mode_string_slice(slice: &[KeyString]) -> KeyString {
 
 #[inline]
 pub fn stdev_i32_slice(slice: &[i32]) -> f32 {
-    
-    
 
     let mean = mean_i32_slice(slice);
 
@@ -786,8 +735,6 @@ pub fn stdev_i32_slice(slice: &[i32]) -> f32 {
 
 #[inline]
 pub fn stdev_f32_slice(slice: &[f32]) -> f32 {
-    
-    
 
     let mean = mean_f32_slice(slice);
 
@@ -831,8 +778,6 @@ pub fn stdev_f32_slice(slice: &[f32]) -> f32 {
 
 #[inline]
 fn partition<T: Copy + PartialOrd>(data: &[T]) -> (Vec<T>, T, Vec<T>) {
-    
-    
 
     let (pivot_slice, tail) = data.split_at(1);
     let pivot = pivot_slice[0];
@@ -852,8 +797,6 @@ fn partition<T: Copy + PartialOrd>(data: &[T]) -> (Vec<T>, T, Vec<T>) {
 
 #[inline]
 fn select<T: Copy + PartialOrd>(data: &[T], k: usize) -> T {
-    
-    
 
 
     let (left, pivot, right) = partition(data);
@@ -869,8 +812,6 @@ fn select<T: Copy + PartialOrd>(data: &[T], k: usize) -> T {
 
 #[inline]
 pub fn median_i32_slice(data: &[i32]) -> f32 {
-    
-    
 
     match data.len() {
         even if even % 2 == 0 => {
@@ -885,8 +826,6 @@ pub fn median_i32_slice(data: &[i32]) -> f32 {
 
 #[inline]
 pub fn median_f32_slice(data: &[f32]) -> f32 {
-    
-    
 
 
     match data.len() {
@@ -902,8 +841,6 @@ pub fn median_f32_slice(data: &[f32]) -> f32 {
 
 #[inline]
 pub fn bytes_from_strings(strings: &[&str]) -> Vec<u8> {
-    
-    
 
     let mut v = Vec::with_capacity(strings.len()*64);
     for string in strings {
@@ -916,8 +853,6 @@ pub fn bytes_from_strings(strings: &[&str]) -> Vec<u8> {
 /// Helper function that parses a response from instruction_send_and_confirm().
 #[inline]
 pub fn parse_response(response: &str, username: &str, table_name: &str) -> Result<(), EzError> {
-    
-    
 
     if response == "OK" {
         Ok(())

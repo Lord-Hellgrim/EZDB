@@ -375,7 +375,7 @@ impl Query {
                 binary.extend_from_slice(&binary_updates);
             },
             Query::INSERT { table_name, inserts } => {
-                let table = inserts.write_to_binary();
+                let table = inserts.to_binary();
                 handles[0..8].copy_from_slice(&table.len().to_le_bytes());
                 binary.extend_from_slice(&handles);
                 binary.extend_from_slice(KeyString::from("INSERT").raw());

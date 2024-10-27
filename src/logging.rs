@@ -74,7 +74,7 @@ impl Entry {
             binary.push(b'B');
             entry_size += 1;
 
-            let table_binary = &table.write_to_binary();
+            let table_binary = &table.to_binary();
             binary.extend_from_slice(&(table_binary.len()).to_le_bytes());
             entry_size += 8;
 
@@ -89,7 +89,7 @@ impl Entry {
             binary.push(b'A');
             entry_size += 1;
 
-            let table_binary = &table.write_to_binary();
+            let table_binary = &table.to_binary();
             binary.extend_from_slice(&(table_binary.len()).to_le_bytes());
             entry_size += 8;
 
