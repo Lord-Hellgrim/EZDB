@@ -316,7 +316,7 @@ impl Metadata {
 
 
 /// Identifies a type of a DbVec
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum DbType {
     Int,
     Float,
@@ -459,7 +459,7 @@ impl DbColumn {
 
 /// The header of a database column. Identifies name, type, and whether it is the primary key,
 /// a forreign key or just a regular ol' entry
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct HeaderItem {
     pub name: KeyString,
     pub kind: DbType,
@@ -539,7 +539,7 @@ impl HeaderItem {
 
 
 /// The type of key a column can represent. Currently unused. I haven't implmented joins yet.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum TableKey {
     Primary,
     None,
@@ -609,7 +609,6 @@ impl PartialEq for ColumnTable {
 
 impl Cbor for ColumnTable {
     fn to_cbor_bytes(&self) -> Vec<u8> {
-        
 
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&self.metadata.to_cbor_bytes());
@@ -631,7 +630,7 @@ impl Cbor for ColumnTable {
         i += bytes_read;
         let (name, bytes_read) = <KeyString as Cbor>::from_cbor_bytes(&bytes[i..])?;
         i += bytes_read;
-        let (header, bytes_read) = <Vec<HeaderItem> as Cbor>::from_cbor_bytes(&bytes[i..])?;
+        let (header, bytes_read) = <BTreeSet<HeaderItem> as Cbor>::from_cbor_bytes(&bytes[i..])?;
         i += bytes_read;
         let (columns, bytes_read) = <BTreeMap<KeyString, DbColumn> as Cbor>::from_cbor_bytes(&bytes[i..])?;
         i += bytes_read;
@@ -689,9 +688,7 @@ impl Display for ColumnTable {
 
 impl ColumnTable {
 
-    pub fn blank(header: &Vec<HeaderItem>, name: KeyString, created_by: &str) -> ColumnTable {
-        
-
+    pub fn blank(header: &BTreeSet<HeaderItem>, name: KeyString, created_by: &str) -> ColumnTable {
 
         let mut columns = BTreeMap::new();
 
@@ -703,13 +700,10 @@ impl ColumnTable {
             };
         }
 
-        let mut new_header = header.clone();
-        new_header.sort_by_key(|n| n.name);
-
         ColumnTable {
             metadata: Metadata::new(created_by),
             name: name,
-            header: new_header,
+            header: header.clone(),
             columns,
         }
 
@@ -762,7 +756,7 @@ impl ColumnTable {
             return Err(StrictError::Empty);
         }
 
-        let mut header = Vec::new();
+        let mut header = BTreeSet::new();
         let mut primary_key_set = false;
 
         let first_line: Vec<&str> = s
@@ -802,17 +796,11 @@ impl ColumnTable {
                     _ => return Err(StrictError::WrongKey),
                 }
             }
-            header.push(header_item);
+            header.insert(header_item);
         }
 
         if !primary_key_set {
-            match header[0].kind {
-                DbType::Int => header[0].key = TableKey::Primary,
-                DbType::Text => header[0].key = TableKey::Primary,
-                _ => unreachable!(
-                    "Should already have a primary key or have been rejected for float primary key"
-                ),
-            };
+            panic!("You need to specify a primary key")
         }
 
         let mut line_index = 0;
@@ -835,7 +823,7 @@ impl ColumnTable {
 
         let mut result = BTreeMap::new();
         for (i, col) in data.into_iter().enumerate() {
-            let db_vec = match header[i].kind {
+            let db_vec = match header.iter().nth(i).unwrap().kind {
                 DbType::Float => {
                     let mut outvec = Vec::with_capacity(col.len());
                     for (index, cell) in col.iter().enumerate() {
@@ -872,7 +860,7 @@ impl ColumnTable {
                 }
             };
 
-            result.insert(header[i].name, db_vec);
+            result.insert(header.iter().nth(i).unwrap().name, db_vec);
         }
 
         let mut primary_key_index = None;
@@ -908,8 +896,6 @@ impl ColumnTable {
             }
             DbColumn::Floats(_) => unreachable!("Should never have a float primary key"),
         }
-
-        header.sort_by_key(|x| x.name);
 
         let mut output = ColumnTable {
             metadata: Metadata::new(created_by),
@@ -1353,7 +1339,7 @@ impl ColumnTable {
         
 
         let mut new_table_inner = BTreeMap::new();
-        let mut new_table_header = Vec::new();
+        let mut new_table_header = BTreeSet::new();
 
         if columns.is_empty() {
             return Err(StrictError::Query("No columns specified. If you want all columns, us '*'".to_owned()))
@@ -1379,7 +1365,7 @@ impl ColumnTable {
                         .find(|&x| x.name==*column)
                         .expect("This is safe since the header must always have a corresponding entry to the column name")
                         .clone();
-                    new_table_header.push(header_item);
+                    new_table_header.insert(header_item);
                 },
                 None => return Err(StrictError::Query(format!("No such column as {}", column))),
             };
@@ -1857,15 +1843,13 @@ impl ColumnTable {
 
     pub fn add_column(&mut self, name: KeyString, column: DbColumn) -> Result<(), StrictError> {
         
-
-
         let kind = match column {
             DbColumn::Ints(_) => DbType::Int,
             DbColumn::Texts(_) => DbType::Text,
             DbColumn::Floats(_) => DbType::Float,
         };
 
-        self.header.push(HeaderItem {
+        self.header.insert(HeaderItem {
             name: name,
             key: TableKey::None,
             kind: kind, 
@@ -1873,15 +1857,11 @@ impl ColumnTable {
 
         self.columns.insert(name, column);
 
-        self.header.sort_by_key(|x| x.name);
-
         Ok(())
     }
 
 
     pub fn alt_left_join(&mut self, right_table: &ColumnTable, predicate_column: &KeyString) -> Result<(), StrictError> {
-        
-
 
         match self.columns.keys().find(|x| **x == *predicate_column) {
             Some(_) => (),
@@ -2175,21 +2155,22 @@ impl ColumnTable {
                 b'P' => TableKey::Primary,
                 b'N' => TableKey::None,
                 b'F' => TableKey::Foreign,
+                _ => panic!("TODO: Make this a proper error"),
             };
             acc_kk.push((kind, key));
         }
 
         let header_names = &binary[80+header_len*8..80+header_len*8 + header_len*64];
         
-        let names = Vec::new();
+        let mut names = Vec::new();
         for chunk in header_names.chunks_exact(64) {
             names.push(KeyString::try_from(chunk).unwrap());
         }
 
-        let mut header = Vec::new();
+        let mut header = BTreeSet::new();
 
         for i in 0..header_len {
-            header.push(HeaderItem{name: names[i], kind: acc_kk[i].0, key: acc_kk[i].1 });
+            header.insert(HeaderItem{name: names[i], kind: acc_kk[i].0, key: acc_kk[i].1 });
         }
 
         let metadata_slice = &binary[80+header_len*8 + header_len*64..80+header_len*8 + header_len*64 + 80];
@@ -2197,52 +2178,45 @@ impl ColumnTable {
         let metadata_created_by = KeyString::try_from(&metadata_slice[0..64])?;
         let metadata_last_access = u64_from_le_slice(&metadata_slice[64..72]);
         let metadata_times_accessed = u64_from_le_slice(&metadata_slice[72..80]);
-
-        let mut total = 80;
-        let mut index = 0;
-        while index < header.len() {
-            // println!("total: {}", total);
-            match header[index].kind {
-                DbType::Int => {
-                    let blob = &bin_body[total..total + (bin_length * 4)];
-                    // println!("blob: {:x?}", blob);
-                    let v = blob.chunks(4).map(i32_from_le_slice).collect();
-                    // for x in &v {
-                    // println!("x: {}", x);
-                    // }
-                    total += bin_length * 4;
-                    table.insert(header[index].name, DbColumn::Ints(v));
-                    index += 1;
-                }
-                DbType::Float => {
-                    let blob = &bin_body[total..total + (bin_length * 4)];
-                    let v: Vec<f32> = blob.chunks(4).map(|n| f32_from_le_slice(n)).collect();
-                    total += bin_length * 4;
-                    table.insert(header[index].name, DbColumn::Floats(v));
-                    index += 1;
-                }
-                DbType::Text => {
-                    let blob = &bin_body[total..total + (bin_length * 64)];
-                    let v: Result<Vec<KeyString>, StrictError> = blob.chunks(64).map(KeyString::try_from).collect();
-                    let v = v?;
-                    total += bin_length * 64;
-                    table.insert(header[index].name, DbColumn::Texts(v));
-                    index += 1;
-                }
-            }
-        }
-
+        
         let mut metadata = Metadata::new(metadata_created_by.as_str());
         metadata.last_access = AtomicU64::new(metadata_last_access);
         metadata.times_accessed = AtomicU64::new(metadata_times_accessed);
 
-        header.sort_by_key(|x| x.name);
+        let mut columns = BTreeMap::new();
+
+        let mut pointer = 80+header_len*8 + header_len*64 + 80;
+        for item in &header {
+            match item.kind {
+                DbType::Int => {
+                    let blob = &binary[pointer..pointer + (column_len * 4)];
+                    let v = blob.chunks(4).map(i32_from_le_slice).collect();
+                    
+                    columns.insert(item.name, DbColumn::Ints(v));
+                    pointer += column_len*4;
+                }
+                DbType::Float => {
+                    let blob = &binary[pointer..pointer + (column_len * 4)];
+                    let v = blob.chunks(4).map(f32_from_le_slice).collect();
+                    
+                    columns.insert(item.name, DbColumn::Floats(v));
+                    pointer += column_len*4;
+                }
+                DbType::Text => {
+                    let blob = &binary[pointer..pointer + column_len*64];
+                    let v: Result<Vec<KeyString>, StrictError> = blob.chunks(64).map(KeyString::try_from).collect();
+                    let v = v?;
+                    pointer += column_len * 64;
+                    columns.insert(item.name, DbColumn::Texts(v));
+                }
+            }
+        }
 
         let new_table = ColumnTable {
             metadata,
             name: KeyString::from(name),
-            header: header,
-            columns: table,
+            header,
+            columns,
         };
 
         Ok(new_table)

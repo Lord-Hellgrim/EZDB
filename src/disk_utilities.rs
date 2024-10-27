@@ -124,8 +124,8 @@ impl BufferPool {
         println!("calling: BufferPool::add_table()");
 
 
-        if self.occupied_buffer() + table.metadata.size_of_table() as u64 > self.max_size() {
-            return Err(EzError::NoMoreBufferSpace(table.metadata.size_of_table()))
+        if self.occupied_buffer() + table.size_of_table() as u64 > self.max_size() {
+            return Err(EzError::NoMoreBufferSpace(table.size_of_table()))
         }
 
         self.tables.write().unwrap().insert(table.name, RwLock::new(table));

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Display, str::FromStr, sync::Arc};
+use std::{collections::{BTreeSet, HashMap}, fmt::Display, str::FromStr, sync::Arc};
 
 use crate::{db_structure::{remove_indices, table_from_inserts, ColumnTable, DbColumn, KeyString, StrictError}, server_networking::Database, utilities::{mean_f32_slice, mean_i32_slice, median_f32_slice, median_i32_slice, mode_i32_slice, mode_string_slice, print_sep_list, stdev_f32_slice, stdev_i32_slice, sum_f32_slice, sum_i32_slice, u64_from_le_slice, EzError}};
 
@@ -287,7 +287,7 @@ impl Query {
         // println!("calling: Query::blank()");
 
         match keyword {
-            "INSERT" => Ok(Query::INSERT{ table_name: KeyString::new(), inserts: ColumnTable::blank(&Vec::new(), KeyString::new(), "blank") }),
+            "INSERT" => Ok(Query::INSERT{ table_name: KeyString::new(), inserts: ColumnTable::blank(&BTreeSet::new(), KeyString::new(), "blank") }),
             "SELECT" => Ok(Query::SELECT{ table_name: KeyString::new(), primary_keys: RangeOrListOrAll::All, columns: Vec::new(), conditions: Vec::new()  }),
             "UPDATE" => Ok(Query::UPDATE{ table_name: KeyString::new(), primary_keys: RangeOrListOrAll::All, conditions: Vec::new(), updates: Vec::new() }),
             "DELETE" => Ok(Query::DELETE{ table_name: KeyString::new(), primary_keys: RangeOrListOrAll::All, conditions: Vec::new() }),
@@ -1793,7 +1793,7 @@ pub fn execute_summary_query(query: Query, table: &ColumnTable) -> Result<Option
 
     match query {
         Query::SUMMARY { table_name: _, columns } => {
-            let mut result = ColumnTable::blank(&Vec::new(), KeyString::from("RESULT"), "QUERY");
+            let mut result = ColumnTable::blank(&BTreeSet::new(), KeyString::from("RESULT"), "QUERY");
 
             for stat in columns {
                 let _ = match stat {
