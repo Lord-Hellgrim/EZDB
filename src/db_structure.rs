@@ -756,7 +756,7 @@ impl ColumnTable {
             return Err(StrictError::Empty);
         }
 
-        let mut header = BTreeSet::new();
+        let mut header = Vec::new();
         let mut primary_key_set = false;
 
         let first_line: Vec<&str> = s
@@ -796,7 +796,7 @@ impl ColumnTable {
                     _ => return Err(StrictError::WrongKey),
                 }
             }
-            header.insert(header_item);
+            header.push(header_item);
         }
 
         if !primary_key_set {
@@ -845,7 +845,10 @@ impl ColumnTable {
                         // println!("index: {} - cell: {}",index, cell);
                         let temp = match cell.parse::<i32>() {
                             Ok(x) => x,
-                            Err(_) => return Err(StrictError::Parse(index)),
+                            Err(_) => {
+                                println!("failes to parse int: {}", cell);
+                                return Err(StrictError::Parse(index))
+                            },
                         };
                         outvec.push(temp);
                     }
@@ -896,6 +899,8 @@ impl ColumnTable {
             }
             DbColumn::Floats(_) => unreachable!("Should never have a float primary key"),
         }
+
+        let header: BTreeSet<HeaderItem> = header.iter().cloned().collect();
 
         let mut output = ColumnTable {
             metadata: Metadata::new(created_by),
@@ -2063,13 +2068,13 @@ impl ColumnTable {
         let mut binary: Vec<u8> = Vec::with_capacity(self.size_of_table());
         
         binary.extend_from_slice(ksf("EZDB_COLUMNTABLE").raw());
+        binary.extend_from_slice(self.name.raw());
         
         // WRITING LENGTHS
         binary.extend_from_slice(&self.header.len().to_le_bytes());
         binary.extend_from_slice(&self.len().to_le_bytes());
         
         // WRITING TABLE NAME
-        binary.extend_from_slice(self.name.raw());
         
         // WRITING HEADER
         let mut keys_and_kinds = Vec::new();
@@ -2134,15 +2139,16 @@ impl ColumnTable {
             Err(_) => return Err(StrictError::BinaryRead("Packet_type corrupted".to_owned())),
         };
 
+        let table_name = KeyString::try_from(&binary[64..128])?;
         match packet_type.as_str() {
             "EZDB_COLUMNTABLE" => (),
             _ => return Err(StrictError::BinaryRead("Not ColumnTable".to_owned()))
         };
 
-        let header_len = u64_from_le_slice(&binary[64..72]) as usize;
-        let column_len = u64_from_le_slice(&binary[72..80]) as usize;
+        let header_len = u64_from_le_slice(&binary[128..136]) as usize;
+        let column_len = u64_from_le_slice(&binary[136..144]) as usize;
 
-        let keys_and_kinds = &binary[80..80+header_len*8];
+        let keys_and_kinds = &binary[144..144+header_len*8];
         let mut acc_kk = Vec::new();
         for chunk in keys_and_kinds.chunks(8) {
             let kind = match chunk[3] {
@@ -2160,7 +2166,7 @@ impl ColumnTable {
             acc_kk.push((kind, key));
         }
 
-        let header_names = &binary[80+header_len*8..80+header_len*8 + header_len*64];
+        let header_names = &binary[144+header_len*8..144+header_len*8 + header_len*64];
         
         let mut names = Vec::new();
         for chunk in header_names.chunks_exact(64) {
@@ -2173,7 +2179,9 @@ impl ColumnTable {
             header.insert(HeaderItem{name: names[i], kind: acc_kk[i].0, key: acc_kk[i].1 });
         }
 
-        let metadata_slice = &binary[80+header_len*8 + header_len*64..80+header_len*8 + header_len*64 + 80];
+        println!("HEADER: {:?}", header);
+
+        let metadata_slice = &binary[144+header_len*8 + header_len*64..144+header_len*8 + header_len*64 + 80];
 
         let metadata_created_by = KeyString::try_from(&metadata_slice[0..64])?;
         let metadata_last_access = u64_from_le_slice(&metadata_slice[64..72]);
@@ -2185,7 +2193,7 @@ impl ColumnTable {
 
         let mut columns = BTreeMap::new();
 
-        let mut pointer = 80+header_len*8 + header_len*64 + 80;
+        let mut pointer = 144+header_len*8 + header_len*64 + 80;
         for item in &header {
             match item.kind {
                 DbType::Int => {
@@ -2214,7 +2222,7 @@ impl ColumnTable {
 
         let new_table = ColumnTable {
             metadata,
-            name: KeyString::from(name),
+            name: table_name,
             header,
             columns,
         };
