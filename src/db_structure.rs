@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap, HashSet}, fmt::{self, Debug, Display}, num::{ParseFloatError, ParseIntError}, sync::atomic::{AtomicU64, Ordering}
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet}, fmt::{self, Debug, Display}, num::{ParseFloatError, ParseIntError}, sync::atomic::{AtomicU64, Ordering}
 };
 
 // use smartstring::{LazyCompact, SmartString, };
@@ -583,7 +583,7 @@ impl Cbor for TableKey {
 pub struct ColumnTable {
     pub metadata: Metadata,
     pub name: KeyString,
-    pub header: Vec<HeaderItem>,
+    pub header: BTreeSet<HeaderItem>,
     pub columns: BTreeMap<KeyString, DbColumn>,
 }
 
@@ -2120,6 +2120,7 @@ impl ColumnTable {
         for column in self.columns.values() {
             match &column {
                 DbColumn::Floats(col) => {
+
                     for item in col {
                         binary.extend_from_slice(&item.to_le_bytes());
                     }
@@ -2143,7 +2144,7 @@ impl ColumnTable {
 
     /// Reads an EZ binary formatted file to a ColumnTable, checking for strictness.
     pub fn from_binary(name: &str, binary: &[u8]) -> Result<ColumnTable, StrictError> {
-        
+
         if binary.len() < 128 + 8 + 8 {
             return Err(StrictError::BinaryRead("binary is less than 144 bytes".to_owned()));
         }
@@ -2161,56 +2162,41 @@ impl ColumnTable {
         let header_len = u64_from_le_slice(&binary[64..72]) as usize;
         let column_len = u64_from_le_slice(&binary[72..80]) as usize;
 
-        let binary = &binary[4..];
-        let mut binter = binary.iter();
-        let first_newline = binter.position(|n| *n == b'\n').expect(&format!("Reading the first newline should never fail unless the data is corrupted. The file that was being read is {name}"));
-        let bin_header = &binary[0..first_newline];
-        let bin_length = &binary[first_newline + 1..first_newline + 5];
-        let bin_body = &binary[first_newline + 5..];
-
-        let bin_length = u32_from_le_slice(bin_length) as usize;
-        // println!("bin_length: {}", bin_length);
-
-        let mut header = Vec::new();
-
-        for item in bin_header.split(|n| n == &b';') {
-            let kind = match item.first().unwrap() {
+        let keys_and_kinds = &binary[80..80+header_len*8];
+        let mut acc_kk = Vec::new();
+        for chunk in keys_and_kinds.chunks(8) {
+            let kind = match chunk[3] {
                 b'i' => DbType::Int,
                 b'f' => DbType::Float,
                 b't' => DbType::Text,
-                x => unreachable!("the first byte of a header item should never be {:x?}", x),
+                _ => panic!("TODO: Make this a proper error"),
             };
-            let key = match item.last().unwrap() {
+            let key = match chunk[7] {
                 b'P' => TableKey::Primary,
                 b'N' => TableKey::None,
                 b'F' => TableKey::Foreign,
-                x => unreachable!("The last byte of a header item should never be {:x?}", x),
             };
-            let name = match std::str::from_utf8(&item[1..item.len() - 1]) {
-                Ok(n) => n,
-                Err(e) => {
-                    return Err(StrictError::BinaryRead(format!(
-                        "Utf8 error while parsing header item name.\nError body: {}",
-                        e
-                    )))
-                }
-            };
-            let header_item = HeaderItem {
-                kind: kind,
-                name: KeyString::from(name),
-                key: key,
-            };
-
-            header.push(header_item);
+            acc_kk.push((kind, key));
         }
 
-        // dbg!(&header);
+        let header_names = &binary[80+header_len*8..80+header_len*8 + header_len*64];
+        
+        let names = Vec::new();
+        for chunk in header_names.chunks_exact(64) {
+            names.push(KeyString::try_from(chunk).unwrap());
+        }
 
-        let mut table = BTreeMap::new();
+        let mut header = Vec::new();
 
-        let metadata_created_by = KeyString::try_from(&bin_body[0..64])?;
-        let metadata_last_access = u64_from_le_slice(&bin_body[64..72]);
-        let metadata_times_accessed = u64_from_le_slice(&bin_body[72..80]);
+        for i in 0..header_len {
+            header.push(HeaderItem{name: names[i], kind: acc_kk[i].0, key: acc_kk[i].1 });
+        }
+
+        let metadata_slice = &binary[80+header_len*8 + header_len*64..80+header_len*8 + header_len*64 + 80];
+
+        let metadata_created_by = KeyString::try_from(&metadata_slice[0..64])?;
+        let metadata_last_access = u64_from_le_slice(&metadata_slice[64..72]);
+        let metadata_times_accessed = u64_from_le_slice(&metadata_slice[72..80]);
 
         let mut total = 80;
         let mut index = 0;
