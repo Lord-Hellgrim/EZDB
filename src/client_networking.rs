@@ -2,7 +2,7 @@ use std::str::{self};
 
 use eznoise::{initiate_connection, Connection};
 
-use crate::auth::{AuthenticationError, User};
+use crate::auth::User;
 use crate::db_structure::{ColumnTable, KeyString};
 use crate::ezql::Query;
 use crate::utilities::{bytes_to_str, parse_response, EzError, Instruction};
@@ -18,7 +18,7 @@ pub fn make_connection(address: &str, username: &str, password: &str) -> Result<
     let mut connection = initiate_connection(address)?;
     let mut auth_buffer = [0u8;1024];
     if username.len() > 512 || password.len() > 512 {
-        return Err(EzError::Authentication(AuthenticationError::TooLong))
+        return Err(EzError::Authentication("Username and password must each be less than 512 bytes".to_owned()))
 }
     auth_buffer[0..username.len()].copy_from_slice(username.as_bytes());
     auth_buffer[512..password.len()].copy_from_slice(username.as_bytes());
@@ -47,9 +47,9 @@ pub fn send_query(
     
     let response = connection.receive_c2()?;
 
-    match ColumnTable::from_binary("RESULT", &response) {
+    match ColumnTable::from_binary(Some("RESULT"), &response) {
         Ok(table) => Ok(table),
-        Err(e) => Err(EzError::Strict(e)),
+        Err(e) => Err(e),
     }
 
 }

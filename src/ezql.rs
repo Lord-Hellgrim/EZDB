@@ -1,43 +1,9 @@
 use std::{collections::{BTreeSet, HashMap}, fmt::Display, str::FromStr, sync::Arc};
 
-use crate::{db_structure::{remove_indices, table_from_inserts, ColumnTable, DbColumn, KeyString, StrictError}, server_networking::Database, utilities::{mean_f32_slice, mean_i32_slice, median_f32_slice, median_i32_slice, mode_i32_slice, mode_string_slice, print_sep_list, stdev_f32_slice, stdev_i32_slice, sum_f32_slice, sum_i32_slice, u64_from_le_slice, EzError}};
+use crate::{db_structure::{remove_indices, table_from_inserts, ColumnTable, DbColumn, KeyString}, server_networking::Database, utilities::{ksf, mean_f32_slice, mean_i32_slice, median_f32_slice, median_i32_slice, mode_i32_slice, mode_string_slice, print_sep_list, stdev_f32_slice, stdev_i32_slice, sum_f32_slice, sum_i32_slice, u64_from_le_slice, EzError}};
 
 use crate::PATH_SEP;
 
-#[derive(Debug, PartialEq)]
-pub enum QueryError {
-    InvalidQuery,
-    InvalidConditionFormat,
-    InvalidTest,
-    InvalidTO,
-    InvalidUpdate,
-    TableNameTooLong,
-    Unknown,
-    InvalidQueryStructure(String),
-}
-
-impl From<StrictError> for QueryError {
-    fn from(e: StrictError) -> Self {
-        QueryError::InvalidQueryStructure(e.to_string())
-    }
-}
-
-impl Display for QueryError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // println!("calling: QueryError::fmt()");
-
-        match self {
-            QueryError::InvalidQuery => write!(f, "InvalidQuery,"),
-            QueryError::InvalidConditionFormat => write!(f, "    InvalidConditionFormat,"),
-            QueryError::InvalidTest => write!(f, "InvalidTest,"),
-            QueryError::InvalidTO => write!(f, "InvalidTO,"),
-            QueryError::InvalidUpdate => write!(f, "InvalidUpdate,"),
-            QueryError::TableNameTooLong => write!(f, "TableNameTooLong,"),
-            QueryError::Unknown => write!(f, "Unknown,"),
-            QueryError::InvalidQueryStructure(s) => write!(f, "InvalidQueryStructure because of: {s},"),
-        }
-    }
-}
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Default)]
 pub struct Join {
@@ -83,14 +49,14 @@ impl Default for Statistic {
 }
 
 impl FromStr for Statistic {
-    type Err = QueryError;
+    type Err = EzError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         // println!("calling: Statistic::from_str()");
 
         let split = s.split_whitespace();
         if split.count() != 2 {
-            Err(QueryError::InvalidQueryStructure("Statistic must be 2 items separated by whitespace".to_owned()))
+            Err(EzError::Query("Statistic must be 2 items separated by whitespace".to_owned()))
         } else {
             let mut split = s.split_whitespace();
             let first = split.next().unwrap();
@@ -101,7 +67,7 @@ impl FromStr for Statistic {
                 "MODE" => Ok(Statistic::MODE(KeyString::from(second))),
                 "MEDIAN" => Ok(Statistic::MEDIAN(KeyString::from(second))),
                 "STDEV" => Ok(Statistic::STDEV(KeyString::from(second))),
-                _ => Err(QueryError::InvalidQueryStructure("First Statistic item must be SUM, MEAN, MODE, or STDEV".to_owned())),
+                _ => Err(EzError::Query("First Statistic item must be SUM, MEAN, MODE, or STDEV".to_owned())),
             }
         }
     }
@@ -138,7 +104,7 @@ pub fn statistics_to_binary(statistics: &[Statistic]) -> Vec<u8> {
     stats
 }
 
-pub fn statistics_from_binary(binary: &[u8]) -> Result<Vec<Statistic>, QueryError> {
+pub fn statistics_from_binary(binary: &[u8]) -> Result<Vec<Statistic>, EzError> {
     let mut stats = Vec::new();
 
     for chunk in binary.chunks(128) {
@@ -150,7 +116,7 @@ pub fn statistics_from_binary(binary: &[u8]) -> Result<Vec<Statistic>, QueryErro
             "MODE" => stats.push(Statistic::MODE(name)),
             "MEDIAN" => stats.push(Statistic::MEDIAN(name)),
             "STDEV" => stats.push(Statistic::STDEV(name)),
-            _ => return Err(QueryError::InvalidQuery)
+            _ => return Err(EzError::Query(format!("Statistic summary: '{}' is not supported", stat)))
         }
     }
 
@@ -283,7 +249,7 @@ impl Query {
         }
     }
 
-    pub fn blank(keyword: &str) -> Result<Query, QueryError> {
+    pub fn blank(keyword: &str) -> Result<Query, EzError> {
         // println!("calling: Query::blank()");
 
         match keyword {
@@ -295,7 +261,7 @@ impl Query {
             "FULL_JOIN" => Ok(Query::FULL_JOIN),
             "INNER_JOIN" => Ok(Query::INNER_JOIN),
             "SUMMARY" => Ok(Query::SUMMARY{ table_name: KeyString::new(), columns: Vec::new() }),
-            _ => return Err(QueryError::InvalidQuery),
+            _ => return Err(EzError::Query(format!("Query type: '{}' is not supported", keyword))),
         }
     }
 
@@ -407,9 +373,9 @@ impl Query {
         binary
     }
 
-    pub fn from_binary(binary: &[u8]) -> Result<Query, QueryError> {
-        if binary.len() < 128 { // TODO: Check actual minimum
-            return Err(QueryError::InvalidQuery)
+    pub fn from_binary(binary: &[u8]) -> Result<Query, EzError> {
+        if binary.len() < 160 { // TODO: Check actual minimum
+            return Err(EzError::Deserialization("Binary is smaller than minimum valid binary".to_owned()))
         }
         let handles = &binary[0..32];
         let body = &binary[32..];
@@ -418,7 +384,7 @@ impl Query {
         match query_type.as_str() {
             "INSERT" => {
                 let inserts_len = u64_from_le_slice(&handles[0..8]) as usize;
-                let inserts = ColumnTable::from_binary("inserts", &body[128..inserts_len])?;
+                let inserts = ColumnTable::from_binary(Some("inserts"), &body[128..inserts_len])?;
                 Ok( Query::INSERT { table_name, inserts })
             },
             "SELECT" => {
@@ -477,7 +443,7 @@ impl Query {
                 Ok( Query::SUMMARY { table_name, columns } )
 
             },
-            _ => return Err(QueryError::InvalidQuery),
+            _ => return Err(EzError::Query(format!("Query type '{}' is not supported", query_type))),
         }
 
     }
@@ -507,7 +473,7 @@ impl Display for Update {
 }
 
 impl FromStr for Update {
-    type Err = QueryError;
+    type Err = EzError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         // println!("calling: Update::from_str()");
@@ -515,7 +481,7 @@ impl FromStr for Update {
         let output: Update;
         let mut t = s.split_whitespace();
         if s.split_whitespace().count() < 3 {
-            return Err(QueryError::InvalidUpdate)
+            return Err(EzError::Query("Not enough values for an Update".to_owned()))
         }
         if s.split_whitespace().count() == 3 {
             output = Update {
@@ -556,7 +522,7 @@ impl FromStr for Update {
                     value: KeyString::from(acc[2].as_str()),
                 };
             } else {
-                return Err(QueryError::InvalidUpdate)
+                return Err(EzError::Query(format!("Update: '{}' could not be parsed from string", ksf(s))))
             }
         }
 
@@ -584,7 +550,7 @@ impl Update {
         binary
     }
 
-    pub fn from_binary(binary: &[u8]) -> Result<Update, QueryError> {
+    pub fn from_binary(binary: &[u8]) -> Result<Update, EzError> {
         let attribute = KeyString::try_from(&binary[0..64])?;
         let operator = UpdateOp::from_binary(&binary[64..128])?;
         let value = KeyString::try_from(&binary[128..192])?;
@@ -602,7 +568,7 @@ pub fn updates_to_binary(updates: &[Update]) -> Vec<u8> {
     binary
 }
 
-pub fn updates_from_binary(binary: &[u8]) -> Result<Vec<Update>, QueryError> {
+pub fn updates_from_binary(binary: &[u8]) -> Result<Vec<Update>, EzError> {
     let mut updates = Vec::new();
 
     for chunk in binary.chunks(192) {
@@ -626,7 +592,7 @@ pub enum UpdateOp {
 }
 
 impl UpdateOp {
-    fn from_str(s: &str) -> Result<Self, QueryError> {
+    fn from_str(s: &str) -> Result<Self, EzError> {
         // println!("calling: UpdateOp::from_str()");
 
         match s {
@@ -637,7 +603,7 @@ impl UpdateOp {
             "append" => Ok(UpdateOp::Append),
             "assign" => Ok(UpdateOp::Assign),
             "prepend" => Ok(UpdateOp::Prepend),
-            _ => Err(QueryError::InvalidUpdate),
+            _ => Err(EzError::Query(format!("'{}' is not a valid UpdateOp", s))),
         }
     }
 
@@ -652,9 +618,9 @@ impl UpdateOp {
         }
     }
 
-    pub fn from_binary(binary: &[u8]) -> Result<UpdateOp, QueryError> {
+    pub fn from_binary(binary: &[u8]) -> Result<UpdateOp, EzError> {
         if binary.len() != 64 {
-            return Err(QueryError::InvalidQuery)
+            return Err(EzError::Query("UpdateOp binary must be 64 bytes".to_owned()))
         }
         match KeyString::try_from(binary) {
             Ok(s) => match s.as_str() {
@@ -664,9 +630,9 @@ impl UpdateOp {
                     "TimesEquals" => Ok(UpdateOp::TimesEquals),
                     "Append" => Ok(UpdateOp::Append),
                     "Prepend" => Ok(UpdateOp::Prepend),
-                    _ => return Err(QueryError::InvalidQueryStructure(format!("Nu such operator as {}", s))) 
+                    _ => return Err(EzError::Query(format!("Nu such operator as {}", s))) 
                 }
-            Err(e) => Err(QueryError::InvalidQueryStructure(e.to_string()))
+            Err(e) => Err(EzError::Query(e.to_string()))
         }
     }
 }
@@ -725,15 +691,15 @@ impl RangeOrListOrAll {
         binary
     }
 
-    pub fn from_binary(binary: &[u8]) -> Result<Self, QueryError> {
+    pub fn from_binary(binary: &[u8]) -> Result<Self, EzError> {
         if binary.len() < 64 {
-            return Err(QueryError::InvalidQuery)
+            return Err(EzError::Query(format!("RangeOrListOrAll is always at least 64 bytes. Input binary is only '{}'", binary.len())))
         }
         let first = KeyString::try_from(&binary[0..64]).unwrap();
         match first.as_str() {
             "RANGE" => {
-                if binary.len() < 192 {
-                    return Err(QueryError::InvalidQuery)
+                if binary.len() != 192 {
+                    return Err(EzError::Query(format!("Range is always 192 bytes. Input binary is '{}'", binary.len())))
                 }
                 let from = KeyString::try_from(&binary[64..128]).unwrap();
                 let to = KeyString::try_from(&binary[128..192]).unwrap();
@@ -741,7 +707,7 @@ impl RangeOrListOrAll {
             }
             "LIST" => {
                 if binary[64..].len() % 64 != 0 {
-                    return Err(QueryError::InvalidQuery)
+                    return Err(EzError::Query(format!("List is always a multiple of 64 bytes. Input binary is {}", binary.len())))
                 }
                 let mut list = Vec::new();
                 for chunk in binary[64..].chunks(64) {
@@ -752,7 +718,7 @@ impl RangeOrListOrAll {
             "ALL" => {
                 Ok(RangeOrListOrAll::All)
             }
-            _ => return Err(QueryError::InvalidQuery)
+            _ => return Err(EzError::Query(format!("'{}' is neither 'RANGE' nor 'LIST' nor 'ALL'", first)))
         }
     }
 }
@@ -774,7 +740,7 @@ impl Display for Condition {
 
 impl Condition {
 
-    pub fn new(attribute: &str, test: &str, bar: &str) -> Result<Self, QueryError> {
+    pub fn new(attribute: &str, test: &str, bar: &str) -> Result<Self, EzError> {
         // println!("calling: Condition::new()");
 
         let test = match test {
@@ -784,7 +750,7 @@ impl Condition {
             "starts_with" => Test::Starts(KeyString::from(bar)),
             "ends_with" => Test::Ends(KeyString::from(bar)),
             "contains" => Test::Contains(KeyString::from(bar)),
-            _ => return Err(QueryError::InvalidTest)
+            _ => return Err(EzError::Query(format!("Test type '{}' is not supported", test)))
         };
 
         Ok(Condition {
@@ -793,13 +759,13 @@ impl Condition {
         })
     }
 
-    fn from_str(s: &str) -> Result<Self, QueryError> {
+    fn from_str(s: &str) -> Result<Self, EzError> {
         // println!("calling: Condition::from_str()");
 
         let output: Condition;
         let mut t = s.split_whitespace();
         if s.split_whitespace().count() < 3 {
-            return Err(QueryError::InvalidConditionFormat)
+            return Err(EzError::Query(format!("Condition type '{}' is invalid", ksf(s))))
         }
         if s.split_whitespace().count() == 3 {
             output = Condition {
@@ -834,14 +800,14 @@ impl Condition {
             if acc.len() == 3 {
                 output = Condition::new(&acc[0], &acc[1], &acc[2])?;
             } else {
-                return Err(QueryError::InvalidConditionFormat)
+                return Err(EzError::Query(format!("Condition: '{}' is incorreclty formatted", s)))
             }
         }
 
         Ok(output)
     }
 
-    pub fn from_binary(binary: &[u8]) -> Result<Self, QueryError> {
+    pub fn from_binary(binary: &[u8]) -> Result<Self, EzError> {
         let attribute = KeyString::try_from(&binary[0..64])?;
         let test = Test::from_binary(&binary[64..192])?;
         Ok( Condition {attribute, test} )
@@ -907,9 +873,9 @@ impl OpOrCond {
         binary
     }
 
-    pub fn from_binary(binary: &[u8]) -> Result<OpOrCond, QueryError> {
+    pub fn from_binary(binary: &[u8]) -> Result<OpOrCond, EzError> {
         if binary.len() < 64 {
-            return Err(QueryError::InvalidQuery)
+            return Err(EzError::Query(format!("OpOrCond is at least 64 bytes. Input binary is {}", binary.len())))
         }
 
         let first = KeyString::try_from(&binary[0..64])?;
@@ -918,7 +884,7 @@ impl OpOrCond {
             "OR" => Ok(OpOrCond::Op(Operator::OR)),
             _ => {
                 if binary.len() < 128 {
-                    return Err(QueryError::InvalidQuery)
+                    return Err(EzError::Query(format!("Cond is at least 128 bytes. Input binary is {}", binary.len())))
                 }
                 let second = KeyString::try_from(&binary[64..128])?;
                 let third = KeyString::try_from(&binary[128..192])?;
@@ -930,7 +896,7 @@ impl OpOrCond {
                     "Starts" => Ok(OpOrCond::Cond(Condition {attribute: first, test: Test::Starts(third)})),
                     "Ends" => Ok(OpOrCond::Cond(Condition {attribute: first, test: Test::Ends(third)})),
                     "Contains" => Ok(OpOrCond::Cond(Condition {attribute: first, test: Test::Contains(third)})),
-                    _ => return Err(QueryError::InvalidQuery)
+                    _ => return Err(EzError::Query(format!("Condition: '{}' is not supported", second)))
                 }
             }
         }
@@ -939,9 +905,10 @@ impl OpOrCond {
 }
 
 
-pub fn conditions_from_binary(binary: &[u8]) -> Result<Vec<OpOrCond>, QueryError> {
+pub fn conditions_from_binary(binary: &[u8]) -> Result<Vec<OpOrCond>, EzError> {
     if binary.len() < 192 {
-        return Err(QueryError::InvalidQuery)
+        return Err(EzError::Query(format!("Condition is at least 192 bytes. Input binary is {}", binary.len())))
+
     }
     let mut conditions = Vec::new();
 
@@ -1041,7 +1008,7 @@ impl Test {
         binary
     }
 
-    pub fn from_binary(binary: &[u8]) -> Result<Self, QueryError> {
+    pub fn from_binary(binary: &[u8]) -> Result<Self, EzError> {
         let t = KeyString::try_from(&binary[0..64])?;
         let v = KeyString::try_from(&binary[64..128])?;
         let x = match t.as_str() {
@@ -1052,7 +1019,7 @@ impl Test {
             "STARTS" => Test::Starts(v),
             "ENDS" => Test::Ends(v),
             "CONTAINS" => Test::Contains(v),
-            _ => return Err(QueryError::InvalidQuery)
+            _ => return Err(EzError::Query(format!("Test: '{}' is not supported", t)))
         };
         Ok(x)
     }
@@ -1098,7 +1065,7 @@ SUMMARY(table_name: products, columns: ((SUM stock), (MEAN price)))
 Refer to the EZ-FORMAT section of the documentation for information of the different data formats of EZDB
 */
 
-pub fn parse_serial_query(query_string: &str) -> Result<Vec<Query>, QueryError> {
+pub fn parse_serial_query(query_string: &str) -> Result<Vec<Query>, EzError> {
     // println!("calling: parse_serial_query()");
 
     let mut result = Vec::new();
@@ -1118,7 +1085,7 @@ pub struct ParserState {
 }
 
 #[allow(non_snake_case)]
-pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
+pub fn parse_EZQL(query_string: &str) -> Result<Query, EzError> {
     // println!("calling: parse_EZQL()");
 
 
@@ -1130,7 +1097,7 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
 
     let first_paren = match query_string.find('(') {
         Some(x) => x,
-        None => return Err(QueryError::InvalidQueryStructure("The arguments to the query must be surrounded by parentheses".to_owned()))
+        None => return Err(EzError::Query("The arguments to the query must be surrounded by parentheses".to_owned()))
     };
 
     let mut query = Query::blank(&query_string[0..first_paren])?;
@@ -1159,18 +1126,18 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
                             state.stack.pop();
                             state.depth -= 1;
                         }
-                        else {return Err(QueryError::InvalidQueryStructure("Parentheses do not match".to_owned()))}
+                        else {return Err(EzError::Query("Parentheses do not match".to_owned()))}
                     }
-                    None => return Err(QueryError::InvalidQueryStructure("Parentheses do not match".to_owned()))
+                    None => return Err(EzError::Query("Parentheses do not match".to_owned()))
                 }
             },
             b':' => {
                 let word = match String::from_utf8(state.word_buffer.clone()) {
                     Ok(s) => s.trim().to_owned(),
-                    Err(e) => return Err(QueryError::InvalidQueryStructure(format!("Invalid utf8 encountered\nERROR TEXT: {e}"))),
+                    Err(e) => return Err(EzError::Query(format!("Invalid utf8 encountered\nERROR TEXT: {e}"))),
                 };
                 if word.len() > 64 {
-                    return Err(QueryError::TableNameTooLong)
+                    return Err(EzError::Query("Table name longer than 64 bytes".to_owned()))
                 }
                 current_arg = word;
                 state.word_buffer.clear();
@@ -1179,7 +1146,7 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
             b',' => {
                 let word = match String::from_utf8(state.word_buffer.clone()) {
                     Ok(s) => s.trim().to_owned(),
-                    Err(e) => return Err(QueryError::InvalidQueryStructure(format!("Invalid utf8 encountered\nERROR TEXT: {e}"))),
+                    Err(e) => return Err(EzError::Query(format!("Invalid utf8 encountered\nERROR TEXT: {e}"))),
                 };
                 state.word_buffer.clear();
                 args.entry(current_arg.clone()).and_modify(|n| n.push(word.clone())).or_insert(vec![word.clone()]);
@@ -1192,12 +1159,12 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
     }
 
     if !state.stack.is_empty() {
-        return Err(QueryError::InvalidQueryStructure("Parentheses do not match".to_owned()))
+        return Err(EzError::Query("Parentheses do not match".to_owned()))
     }
 
     let word = match String::from_utf8(state.word_buffer.clone()) {
         Ok(s) => s.trim().to_owned(),
-        Err(e) => return Err(QueryError::InvalidQueryStructure(format!("Invalid utf8 encountered\nERROR TEXT: {e}"))),
+        Err(e) => return Err(EzError::Query(format!("Invalid utf8 encountered\nERROR TEXT: {e}"))),
     };
     state.word_buffer.clear();
     args.entry(current_arg.clone()).and_modify(|n| n.push(word.clone())).or_insert(vec![word.clone()]);
@@ -1208,25 +1175,25 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
                 Some(x) => {
                     let x = match x.first() {
                         Some(n) => n,
-                        None => return Err(QueryError::InvalidQueryStructure("Missing table_name".to_owned())),
+                        None => return Err(EzError::Query("Missing table_name".to_owned())),
                     };
                     KeyString::from(x.as_str())
                 },
-                None => return Err(QueryError::InvalidQueryStructure("Missing table_name".to_owned())),
+                None => return Err(EzError::Query("Missing table_name".to_owned())),
             };
             *table_name = KeyString::from(temp_table_name.as_str());
 
             let value_columns: Vec<KeyString> = match args.get("value_columns") {
                 Some(x) => x.iter().map(|n| KeyString::from(n.as_str())).collect(),
-                None => return Err(QueryError::InvalidQueryStructure("Missing value_columns".to_owned())),
+                None => return Err(EzError::Query("Missing value_columns".to_owned())),
             };
             let new_values = match args.get("new_values") {
                 Some(x) => x,
-                None => return Err(QueryError::InvalidQueryStructure("Missing new_values".to_owned())),
+                None => return Err(EzError::Query("Missing new_values".to_owned())),
             };
             
             if new_values.len() % value_columns.len() != 0 {
-                return Err(QueryError::InvalidQueryStructure("Number of values does not match number of columns".to_owned()));
+                return Err(EzError::Query("Number of values does not match number of columns".to_owned()));
             } else {
                 let mut acc = String::with_capacity(2*new_values.len()*new_values[0].len());
                 for tuple in new_values.chunks(value_columns.len()) {
@@ -1240,7 +1207,7 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
                 acc.pop();
                 *inserts = match table_from_inserts(&value_columns, &acc, "inserts") {
                     Ok(x) => x,
-                    Err(e) => return Err(QueryError::InvalidQueryStructure(e.to_string())),
+                    Err(e) => return Err(EzError::Query(e.to_string())),
                 };
             }
 
@@ -1251,7 +1218,7 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
     
             match args.get("columns") {
                 Some(x) => *columns = x.iter().map(|n| KeyString::from(n.as_str())).collect(),
-                None => return Err(QueryError::InvalidQueryStructure("Missing column list. To select all columns use * as the columns argument.".to_owned())),
+                None => return Err(EzError::Query("Missing column list. To select all columns use * as the columns argument.".to_owned())),
             };
         },
 
@@ -1260,7 +1227,7 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
 
             let temp_updates = match args.get("updates") {
                 Some(x) => x,
-                None => return Err(QueryError::InvalidQueryStructure("Missing updates".to_owned())),
+                None => return Err(EzError::Query("Missing updates".to_owned())),
             };
             let mut acc = Vec::with_capacity(updates.len());
             for update in temp_updates {
@@ -1279,27 +1246,27 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
             let temp_left_table_name = match args.get("left_table") {
                 Some(x) => match x.first() {
                     Some(n) => KeyString::from(n.as_str()),
-                    None => return Err(QueryError::InvalidQueryStructure("Missing argument for left_table".to_owned())),
+                    None => return Err(EzError::Query("Missing argument for left_table".to_owned())),
                 },
-                None => return Err(QueryError::InvalidQueryStructure("Missing left_table".to_owned())),
+                None => return Err(EzError::Query("Missing left_table".to_owned())),
             };
             *left_table = temp_left_table_name;
 
             *right_table = match args.get("right_table") {
                 Some(x) => match x.first() {
                     Some(n) => KeyString::from(n.as_str()),
-                    None => return Err(QueryError::InvalidQueryStructure("Missing argument for right_table".to_owned())),
+                    None => return Err(EzError::Query("Missing argument for right_table".to_owned())),
                 },
-                None => return Err(QueryError::InvalidQueryStructure("Missing right_table".to_owned())),
+                None => return Err(EzError::Query("Missing right_table".to_owned())),
             };
 
             let temp_primary_keys = match args.get("primary_keys") {
                 Some(x) => x,
-                None => return Err(QueryError::InvalidQueryStructure("Missing primary_keys".to_owned())),
+                None => return Err(EzError::Query("Missing primary_keys".to_owned())),
             };
 
             match temp_primary_keys.len() {
-                0 => return Err(QueryError::InvalidQueryStructure("Missing argumenr for primary_keys".to_owned())),
+                0 => return Err(EzError::Query("Missing argumenr for primary_keys".to_owned())),
                 1 => {
                     match temp_primary_keys[0].as_str() {
                         "*" => *primary_keys = RangeOrListOrAll::All,
@@ -1307,11 +1274,11 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
                             let mut split = x.split("..");
                             let start = match split.next() {
                                 Some(x) => KeyString::from(x),
-                                None => return Err(QueryError::InvalidQueryStructure("Ranges must have start and stop values".to_owned())),
+                                None => return Err(EzError::Query("Ranges must have start and stop values".to_owned())),
                             };
                             let stop = match split.next() {
                                 Some(x) => KeyString::from(x),
-                                None => return Err(QueryError::InvalidQueryStructure("Ranges must have start and stop values".to_owned())),
+                                None => return Err(EzError::Query("Ranges must have start and stop values".to_owned())),
                             };
                             *primary_keys = RangeOrListOrAll::Range(start, stop);
                         }
@@ -1325,11 +1292,11 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
 
             let temp_match_columns: Vec<KeyString> = match args.get("match_columns") {
                 Some(x) => x.iter().map(|s| KeyString::from(s.as_str())).collect(),
-                None => return Err(QueryError::InvalidQueryStructure("Missing match_columns".to_owned())),
+                None => return Err(EzError::Query("Missing match_columns".to_owned())),
             };
 
             if temp_match_columns.len() != 2 {
-                return Err(QueryError::InvalidQueryStructure("There should always be exactly two match columns, separated by a comma".to_owned()))
+                return Err(EzError::Query("There should always be exactly two match columns, separated by a comma".to_owned()))
             } else {
                 *match_columns = (temp_match_columns[0], temp_match_columns[1]);
             }
@@ -1341,18 +1308,18 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
                 Some(x) => {
                     let x = match x.first() {
                         Some(n) => n,
-                        None => return Err(QueryError::InvalidQueryStructure("Missing table_name".to_owned())),
+                        None => return Err(EzError::Query("Missing table_name".to_owned())),
                     };
                     KeyString::from(x.as_str())
                 },
-                None => return Err(QueryError::InvalidQueryStructure("Missing table_name".to_owned())),
+                None => return Err(EzError::Query("Missing table_name".to_owned())),
             };
             *table_name = KeyString::from(temp_table_name.as_str());
 
             // SUMMARY(table_name: products, columns: ((SUM stock), (MEAN price)))
             let summary = match args.get("columns") {
                 Some(x) => x,
-                None => return Err(QueryError::InvalidQueryStructure("Missing columns".to_owned())),
+                None => return Err(EzError::Query("Missing columns".to_owned())),
             };
 
             let mut temp = Vec::with_capacity(summary.len());
@@ -1373,28 +1340,28 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, QueryError> {
 
 }
 
-fn fill_fields(args: &HashMap<String, Vec<String>>) -> Result<(KeyString, Vec<OpOrCond>, RangeOrListOrAll), QueryError> {
+fn fill_fields(args: &HashMap<String, Vec<String>>) -> Result<(KeyString, Vec<OpOrCond>, RangeOrListOrAll), EzError> {
     // println!("calling: fill_fields()");
 
     let table_name = match args.get("table_name") {
         Some(x) => {
             let x = match x.first() {
                 Some(n) => n,
-                None => return Err(QueryError::InvalidQueryStructure("Missing table_name".to_owned())),
+                None => return Err(EzError::Query("Missing table_name".to_owned())),
             };
             KeyString::from(x.as_str())
         },
-        None => return Err(QueryError::InvalidQueryStructure("Missing table_name".to_owned())),
+        None => return Err(EzError::Query("Missing table_name".to_owned())),
     };
     let temp_conditions = match args.get("conditions") {
         Some(x) => {
             if x.len() != 1 {
-                return Err(QueryError::InvalidQueryStructure("Conditions should be enclosed in parentheses and separated by whitespace".to_owned()))
+                return Err(EzError::Query("Conditions should be enclosed in parentheses and separated by whitespace".to_owned()))
             } else {
                 x[0].split_whitespace().collect::<Vec<&str>>()
             }
         },
-        None => return Err(QueryError::InvalidQueryStructure("Missing conditions. If you want no conditions just write 'conditions: ()'".to_owned())),
+        None => return Err(EzError::Query("Missing conditions. If you want no conditions just write 'conditions: ()'".to_owned())),
     };
 
     let mut condition_buffer = String::new();
@@ -1423,12 +1390,12 @@ fn fill_fields(args: &HashMap<String, Vec<String>>) -> Result<(KeyString, Vec<Op
 
     let temp_primary_keys = match args.get("primary_keys") {
         Some(x) => x,
-        None => return Err(QueryError::InvalidQueryStructure("Missing primary_keys. To select all write: 'primary_keys: *'".to_owned())),
+        None => return Err(EzError::Query("Missing primary_keys. To select all write: 'primary_keys: *'".to_owned())),
         };
         
     let primary_keys: RangeOrListOrAll;
     match temp_primary_keys.len() {
-        0 => return Err(QueryError::InvalidQueryStructure("Missing argument for primary_keys".to_owned())),
+        0 => return Err(EzError::Query("Missing argument for primary_keys".to_owned())),
         1 => {
             match temp_primary_keys[0].as_str() {
                 "*" => primary_keys = RangeOrListOrAll::All,
@@ -1438,11 +1405,11 @@ fn fill_fields(args: &HashMap<String, Vec<String>>) -> Result<(KeyString, Vec<Op
                             let mut split = x.split("..");
                             let start = match split.next() {
                                 Some(x) => KeyString::from(x),
-                                None => return Err(QueryError::InvalidQueryStructure("Ranges must have start and stop values".to_owned())),
+                                None => return Err(EzError::Query("Ranges must have start and stop values".to_owned())),
                             };
                             let stop = match split.next() {
                                 Some(x) => KeyString::from(x),
-                                None => return Err(QueryError::InvalidQueryStructure("Ranges must have both start and stop values".to_owned()))
+                                None => return Err(EzError::Query("Ranges must have both start and stop values".to_owned()))
                             };
                             primary_keys = RangeOrListOrAll::Range(start, stop);
                         },
@@ -1725,7 +1692,9 @@ pub fn execute_update_query(query: Query, table: &mut ColumnTable) -> Result<Opt
                             match table.columns.get_mut(&update.attribute).unwrap() {
                                 DbColumn::Ints(ref mut _column) => return Err(EzError::Query("'append' operator can only be performed on text data".to_owned())),
                                 DbColumn::Floats(ref mut _column) => return Err(EzError::Query("'append' operator can only be performed on text data".to_owned())),
-                                DbColumn::Texts(ref mut column) => column[*keeper].push(update.value.as_str())?,
+                                DbColumn::Texts(ref mut column) => {
+                                    column[*keeper].push(update.value.as_str());
+                                },
                             }
                         },
                         UpdateOp::Prepend => {
@@ -1734,7 +1703,7 @@ pub fn execute_update_query(query: Query, table: &mut ColumnTable) -> Result<Opt
                                 DbColumn::Floats(ref mut _column) => return Err(EzError::Query("'prepend' operator can only be performed on text data".to_owned())),
                                 DbColumn::Texts(ref mut column) => {
                                     let mut new = update.value;
-                                    new.push(column[*keeper].as_str())?;
+                                    new.push(column[*keeper].as_str());
                                     column[*keeper] = new;
                                 },
                             }
@@ -1895,7 +1864,7 @@ pub fn execute_full_join_query(query: Query, database: Arc<Database>) -> Result<
     Err(EzError::Unimplemented("full joins are not yet implemented".to_owned()))
 }
 
-pub fn keys_to_indexes(table: &ColumnTable, keys: &RangeOrListOrAll) -> Result<Vec<usize>, StrictError> {
+pub fn keys_to_indexes(table: &ColumnTable, keys: &RangeOrListOrAll) -> Result<Vec<usize>, EzError> {
     // println!("calling: keys_to_indexes()");
 
     let mut indexes = Vec::new();
@@ -1934,7 +1903,7 @@ pub fn keys_to_indexes(table: &ColumnTable, keys: &RangeOrListOrAll) -> Result<V
             match &table.columns[&table.get_primary_key_col_index()] {
                 DbColumn::Ints(column) => {
                     if keys.len() > column.len() {
-                        return Err(StrictError::Query("There are more keys requested than there are indexes to get".to_owned()))
+                        return Err(EzError::Query("There are more keys requested than there are indexes to get".to_owned()))
                     }
                     let mut keys = keys.clone();
                     keys.sort();
@@ -1951,7 +1920,7 @@ pub fn keys_to_indexes(table: &ColumnTable, keys: &RangeOrListOrAll) -> Result<V
                 },
                 DbColumn::Texts(column) => {
                     if keys.len() > column.len() {
-                        return Err(StrictError::Query("There are more keys requested than there are indexes to get".to_owned()))
+                        return Err(EzError::Query("There are more keys requested than there are indexes to get".to_owned()))
                     }
                     let mut keys = keys.clone();
                     keys.sort();

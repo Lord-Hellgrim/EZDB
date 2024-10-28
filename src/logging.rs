@@ -144,7 +144,7 @@ impl Entry {
                     i += 8;
                     let name = KeyString::try_from(&slice[i..i+64]).expect(&format!("if reading a log entry from the binary fails, then there is a bug or the data is corrupted: Failure occured at {} at {} and {}", file!(), line!(), column!()));
                     i += 64;
-                    let table = ColumnTable::from_binary(name.as_str(), &slice[i..i+table_size as usize]).expect(&format!("if reading a log entry from the binary fails, then there is a bug or the data is corrupted: Failure occured at {} at {} and {}", file!(), line!(), column!()));
+                    let table = ColumnTable::from_binary(Some(name.as_str()), &slice[i..i+table_size as usize]).expect(&format!("if reading a log entry from the binary fails, then there is a bug or the data is corrupted: Failure occured at {} at {} and {}", file!(), line!(), column!()));
                     println!("table\n{}", table);
                     i += table_size as usize;
                     before_snap.insert(name, table);
@@ -154,7 +154,7 @@ impl Entry {
                     i += 8;
                     let name = KeyString::try_from(&slice[i..i+64]).expect(&format!("if reading a log entry from the binary fails, then there is a bug or the data is corrupted: Failure occured at {} at {} and {}", file!(), line!(), column!()));
                     i += 64;
-                    let table = ColumnTable::from_binary(name.as_str(), &slice[i..i+table_size as usize]).expect(&format!("if reading a log entry from the binary fails, then there is a bug or the data is corrupted: Failure occured at {} at {} and {}", file!(), line!(), column!()));
+                    let table = ColumnTable::from_binary(Some(name.as_str()), &slice[i..i+table_size as usize]).expect(&format!("if reading a log entry from the binary fails, then there is a bug or the data is corrupted: Failure occured at {} at {} and {}", file!(), line!(), column!()));
                     i += table_size as usize;
                     after_snap.insert(name, table);
                 },

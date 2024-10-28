@@ -1,30 +1,24 @@
 use std::arch::asm;
 use std::fmt::Display;
 use std::simd;
-use std::io::{Write, Read, ErrorKind};
+use std::io::ErrorKind;
 use std::net::TcpStream;
 use std::num::ParseIntError;
 use std::simd::num::SimdInt;
 use std::str::{self, Utf8Error};
 use std::string::FromUtf8Error;
 use std::sync::Arc;
-use std::time::Duration;
 use std::{usize, fmt};
 
-use std::arch::x86_64::{self, __m128};
+use std::arch::x86_64;
 
 use ezcbor::cbor::CborError;
-use eznoise::HandshakeState;
 use fnv::FnvHashMap;
-use x25519_dalek::{EphemeralSecret, PublicKey};
 use aes_gcm::aead;
 use sha2::{Sha256, Digest};
 
-use crate::aes_temp_crypto::{decrypt_aes256, decrypt_aes256_with_prefixed_nonce, encrypt_aes256, encrypt_aes256_nonce_prefixed};
 use crate::auth::AuthenticationError;
-use crate::compression;
-use crate::db_structure::{KeyString, StrictError};
-use crate::ezql::QueryError;
+use crate::db_structure::KeyString;
 use crate::server_networking::Database;
 
 
@@ -34,51 +28,50 @@ pub const MAX_DATA_LEN: usize = u32::MAX as usize;
 
 
 
-/// The main error of all networking. Any error that can occur during a networking function should be covered here.
+/// The main error of all EZDB. Any error that can occur during a client request should be covered here. Internal errors are covered elsewhere.
 #[derive(Debug)]
 pub enum EzError {
     Utf8(Utf8Error),
     Io(ErrorKind),
-    Instruction(InstructionError),
+    Instruction(String),
     Confirmation(String),
-    Authentication(AuthenticationError),
-    Strict(StrictError),
+    Authentication(String),
     Crypto(String),
     ParseInt(ParseIntError),
     ParseResponse(String),
     ParseUser(String),
-    OversizedData,
-    Decompression(miniz_oxide::inflate::DecompressError),
+    OversizedData(String),
+    Decompression(String),
     Query(String),
     Debug(String),
-    NoMoreBufferSpace(usize),
+    NoMoreBufferSpace(String),
     Unimplemented(String),
     Serialization(String),
+    Deserialization(String),
+    Structure(String),
 }
 
 impl fmt::Display for EzError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    
-    
-
         match self {
-            EzError::Utf8(e) => write!(f, "Encontered invalid utf-8: {}", e),
+            EzError::Utf8(e) => write!(f, "Encontered invalid utf-8: {}\n", e),
             EzError::Io(e) => write!(f, "Encountered an IO error: {}", e),
             EzError::Instruction(e) => write!(f, "{}", e),
             EzError::Confirmation(e) => write!(f, "Received corrupt confirmation {:?}", e),
             EzError::Authentication(e) => write!(f, "{}", e),
-            EzError::Strict(e) => write!(f, "{}", e),
             EzError::Crypto(e) => write!(f, "There has been a crypto error. Most likely the nonce was incorrect. The error is: {}", e),
             EzError::ParseInt(e) => write!(f, "There has been a problem parsing an integer, presumably while sending a data_len. The error signature is: {}", e),
             EzError::ParseUser(e) => write!(f, "Failed to parse user from string because: {}", e),
-            EzError::OversizedData => write!(f, "Sent data is too long. Maximum data size is {MAX_DATA_LEN}"),
+            EzError::OversizedData(s) => write!(f, "Sent data is too long. Maximum data size is {MAX_DATA_LEN}.\nAdditional information: {}", s),
             EzError::ParseResponse(e) => write!(f, "{}", e),
             EzError::Decompression(e) => write!(f, "Decompression error occurred from miniz_oxide library.\nLibrary error: {}", e),
-            EzError::Query(s) => write!(f, "Query could not be processed because of: {}", s),
+            EzError::Query(s) => write!(f, "Query could not be processed because of:\n############################{}\n################################", s),
             EzError::NoMoreBufferSpace(x) => write!(f, "No more space in buffer pool. Need to free {x} bytes"),
             EzError::Unimplemented(s) => write!(f, "{}", s),
             EzError::Debug(s) => write!(f, "{}", s),
             EzError::Serialization(s) => write!(f, "{}", s),
+            EzError::Deserialization(s) => write!(f, "{}", s),
+            EzError::Structure(s) => write!(f, "{}", s),
 
         }
     }
@@ -98,19 +91,13 @@ impl From<Utf8Error> for EzError {
 
 impl From<InstructionError> for EzError {
     fn from(e: InstructionError) -> Self {
-        EzError::Instruction(e)
+        EzError::Instruction(e.to_string())
     }
 }
 
 impl From<AuthenticationError> for EzError {
     fn from(e: AuthenticationError) -> Self {
-        EzError::Authentication(e)
-    }
-}
-
-impl From<StrictError> for EzError {
-    fn from(e: StrictError) -> Self {
-        EzError::Strict(e)
+        EzError::Authentication(e.to_string())
     }
 }
 
@@ -123,12 +110,6 @@ impl From<aead::Error> for EzError {
 impl From<ParseIntError> for EzError {
     fn from(e: ParseIntError) -> Self {
         EzError::ParseInt(e)
-    }
-}
-
-impl From<QueryError> for EzError {
-    fn from(e: QueryError) -> Self {
-        EzError::Query(e.to_string())
     }
 }
 
@@ -241,12 +222,12 @@ pub fn establish_connection(s: eznoise::KeyPair, stream: TcpStream, db_ref: Arc<
             println!("key: '{}'", key);
         }
         println!("Username:\n\t'{}'\n...is wrong", username);
-        return Err(EzError::Authentication(AuthenticationError::WrongUser(format!("Username: '{}' does not exist", username))));
+        return Err(EzError::Authentication(format!("Username: '{}' does not exist", username)));
     } else if db_ref.users.read().unwrap()[&KeyString::from(username)].read().unwrap().password != password {
         // println!("thread_users_lock[username].password: {:?}", user_lock.password);
         // println!("password: {:?}", password);
         // println!("Password hash:\n\t{:?}\n...is wrong", password);
-        return Err(EzError::Authentication(AuthenticationError::WrongPassword));
+        return Err(EzError::Authentication("Wrong password.".to_owned()));
     }
     Ok((connection, username.to_owned()))
 

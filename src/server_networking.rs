@@ -292,7 +292,7 @@ pub fn parse_instruction(
     let blank = KeyString::try_from(&instructions[192..256])?;
 
     if table_name.as_str() == "All" {
-        return Err(EzError::Instruction(InstructionError::InvalidTable("Table cannot be called 'All'".to_owned())));
+        return Err(EzError::Instruction("Table cannot be called 'All'".to_owned()));
     }
 
     println!("parsing 4...");
@@ -305,24 +305,26 @@ pub fn parse_instruction(
             if user_has_permission(table_name.as_str(), Permission::Read, username.as_str(), database.users.clone()) {
                 Ok(Instruction::MetaListTables)
             } else {
-                Err(EzError::Authentication(AuthenticationError::Permission))
+                Err(EzError::Authentication(format!("User '{}' does not have permission to list tables", username)))
             }
         },
         "MetaListKeyValues" => {
             if user_has_permission(table_name.as_str(), Permission::Read, username.as_str(), database.users.clone()) {
                 Ok(Instruction::MetaListKeyValues)
             } else {
-                Err(EzError::Authentication(AuthenticationError::Permission))
+                Err(EzError::Authentication(format!("User '{}' does not have permission to list key-value pairs", username)))
+
             }
         },
         "MetaNewUser" => {
             if user_has_permission(table_name.as_str(), Permission::Write, username.as_str(), database.users.clone()) {
                 Ok(Instruction::NewUser)
             } else {
-                Err(EzError::Authentication(AuthenticationError::Permission))
+                Err(EzError::Authentication(format!("User '{}' does not have permission to create a new user", username)))
+
             }
         }
-        _ => Err(EzError::Instruction(InstructionError::Invalid(action.to_string()))),
+        _ => Err(EzError::Instruction(format!("Action: '{}' is not valid", action))),
     };
 
     confirmed

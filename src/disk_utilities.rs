@@ -1,16 +1,13 @@
 use std::collections::{BTreeMap, HashSet};
-use std::fs::{create_dir, read_dir, File};
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::fs::{read_dir, File};
+use std::io::Read;
 use std::os::unix::fs::MetadataExt;
-use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, RwLock, RwLockReadGuard};
+use std::sync::atomic::AtomicU64;
+use std::sync::{Arc, RwLock};
 
-use aes_gcm::Key;
-
-use crate::db_structure::{write_subtable_to_raw_binary, DbType, DbColumn, HeaderItem, KeyString, Metadata, StrictError, Value};
-use crate::utilities::{f32_from_le_slice, i32_from_le_slice, EzError};
-use crate::{db_structure::ColumnTable, server_networking::CONFIG_FOLDER};
+use crate::db_structure::{KeyString, Value};
+use crate::utilities::EzError;
+use crate::db_structure::ColumnTable;
 use crate::PATH_SEP;
 
 pub const BIN_TABLE_DIR: &str = "Binary_tables";
@@ -49,7 +46,7 @@ impl BufferPool {
             let mut binary = Vec::with_capacity(file_size as usize);
             table_file.read_to_end(&mut binary)?;
 
-            let table = ColumnTable::from_binary(&name, &binary)?;
+            let table = ColumnTable::from_binary(Some(&name), &binary)?;
             self.add_table(table)?;
         }
 
@@ -125,7 +122,7 @@ impl BufferPool {
 
 
         if self.occupied_buffer() + table.size_of_table() as u64 > self.max_size() {
-            return Err(EzError::NoMoreBufferSpace(table.size_of_table()))
+            return Err(EzError::NoMoreBufferSpace(format!("Table sized: {} is too big. Remaining space is: {}",table.size_of_table(), self.max_size()-self.occupied_buffer())))
         }
 
         self.tables.write().unwrap().insert(table.name, RwLock::new(table));
@@ -137,7 +134,8 @@ impl BufferPool {
         println!("calling: BufferPool::add_value()");
 
         if self.occupied_buffer() + value.body.len() as u64 > self.max_size() {
-            return Err(EzError::NoMoreBufferSpace(value.body.len()))
+            return Err(EzError::NoMoreBufferSpace(format!("Table sized: {} is too big. Remaining space is: {}",value.body.len(), self.max_size()-self.occupied_buffer())))
+
         }
 
         self.values.write().unwrap().insert(value.name, RwLock::new(value));

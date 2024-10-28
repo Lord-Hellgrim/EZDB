@@ -3,7 +3,7 @@ use aes_gcm::{
     Aes256Gcm, Key // Or `Aes128Gcm`
 };
 
-use crate::utilities::{EzError, DATA_BUFFER, MAX_DATA_LEN};
+use crate::utilities::EzError;
 
 // TODO Add a handler for using the tag
 pub fn encrypt_aes256(s: &[u8], key: &[u8]) -> (Vec<u8>, [u8;12]) {

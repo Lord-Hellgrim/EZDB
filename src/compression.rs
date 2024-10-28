@@ -48,7 +48,7 @@ pub fn miniz_compress(data: &[u8]) -> Result<Vec<u8>, EzError> {
     println!("calling: miniz_compress()");
 
     if data.len() > MAX_PACKET_SIZE {
-        return Err(EzError::OversizedData);
+        return Err(EzError::OversizedData(format!("Data sized {} is too big to handle", data.len())));
     }
     let mut output = Vec::with_capacity(data.len() + 8);
     output.extend_from_slice(&data.len().to_le_bytes());
@@ -66,13 +66,13 @@ pub fn miniz_decompress(data: &[u8]) -> Result<Vec<u8>, EzError> {
     }
     let len = usize_from_le_slice(&data[0..8]);
     if len > MAX_PACKET_SIZE {
-        return Err(EzError::OversizedData);
+        return Err(EzError::OversizedData(format!("Data sized {} is too big to handle", data.len())));
     }
     match decompress_to_vec(&data[8..]) {
         Ok(result) => Ok(result),
         Err(e) => {
             println!("failed to decompress because {e}");
-            Err(EzError::Decompression(e))
+            Err(EzError::Decompression(e.to_string()))
         }
     }
 }
@@ -101,7 +101,7 @@ mod tests {
         // let brotli_decompressed = brotli_decompress(&brotli_compressed_table).unwrap();
         let miniz_decompressed = miniz_decompress(&miniz_compressed_table).unwrap();
         // let brotli_recovered_table = EZTable::from_binary("brotli", &brotli_decompressed).unwrap();
-        let miniz_recovered_table = ColumnTable::from_binary("miniz", &miniz_decompressed).unwrap();
+        let miniz_recovered_table = ColumnTable::from_binary(Some("miniz"), &miniz_decompressed).unwrap();
 
         // assert_eq!(table, brotli_recovered_table);
         assert_eq!(table, miniz_recovered_table);
