@@ -2003,39 +2003,7 @@ impl ColumnTable {
         
         let mut binary: Vec<u8> = Vec::with_capacity(self.size_of_table());
         
-        binary.extend_from_slice(ksf("EZDB_COLUMNTABLE").raw());
-        binary.extend_from_slice(self.name.raw());
-        
-        // WRITING LENGTHS
-        binary.extend_from_slice(&self.header.len().to_le_bytes());
-        binary.extend_from_slice(&self.len().to_le_bytes());
-        
-        // WRITING TABLE NAME
-        
-        // WRITING HEADER
-        let mut keys_and_kinds = Vec::new();
-        let mut names = Vec::new();
-        for item in &self.header {
-            let kind = match item.kind {
-                DbType::Int => b'i',
-                DbType::Float => b'f',
-                DbType::Text => b't',
-            };
-            let key_type = match &item.key {
-                TableKey::Primary => b'P',
-                TableKey::None => b'N',
-                TableKey::Foreign => b'F',
-            };
-            keys_and_kinds.extend_from_slice(&[0,0,0,kind,0,0,0,key_type]);
-            names.extend_from_slice(item.name.raw());
-        }
-        binary.extend_from_slice(&keys_and_kinds);
-        binary.extend_from_slice(&names);
-        
-        // WRITING METADATA
-        binary.extend_from_slice(self.metadata.created_by.raw());
-        binary.extend_from_slice(&self.metadata.last_access.load(Ordering::Relaxed).to_le_bytes());
-        binary.extend_from_slice(&self.metadata.times_accessed.load(Ordering::Relaxed).to_le_bytes());
+        write_column_table_binary_header(&mut binary, self);
         
         // WRITING COLUMNS
         for column in self.columns.values() {
@@ -2173,6 +2141,45 @@ impl ColumnTable {
     
 }
 
+pub fn write_column_table_binary_header(binary: &mut Vec<u8>, table: &ColumnTable) -> usize {
+    
+    binary.extend_from_slice(ksf("EZDB_COLUMNTABLE").raw());
+    binary.extend_from_slice(table.name.raw());
+    
+    // WRITING LENGTHS
+    binary.extend_from_slice(&table.header.len().to_le_bytes());
+    binary.extend_from_slice(&table.len().to_le_bytes());
+    
+    // WRITING TABLE NAME
+    
+    // WRITING HEADER
+    let mut keys_and_kinds = Vec::new();
+    let mut names = Vec::new();
+    for item in &table.header {
+        let kind = match item.kind {
+            DbType::Int => b'i',
+            DbType::Float => b'f',
+            DbType::Text => b't',
+        };
+        let key_type = match &item.key {
+            TableKey::Primary => b'P',
+            TableKey::None => b'N',
+            TableKey::Foreign => b'F',
+        };
+        keys_and_kinds.extend_from_slice(&[0,0,0,kind,0,0,0,key_type]);
+        names.extend_from_slice(item.name.raw());
+    }
+    binary.extend_from_slice(&keys_and_kinds);
+    binary.extend_from_slice(&names);
+
+    // WRITING METADATA
+    binary.extend_from_slice(table.metadata.created_by.raw());
+    binary.extend_from_slice(&table.metadata.last_access.load(Ordering::Relaxed).to_le_bytes());
+    binary.extend_from_slice(&table.metadata.times_accessed.load(Ordering::Relaxed).to_le_bytes());
+    
+    128 + table.header.len()+80
+} 
+
 
 pub struct DbRow<'a> {
     inner: &'a [u8],
@@ -2184,9 +2191,7 @@ pub struct RowTable {
 }
 
 
-pub fn write_subtable_to_raw_binary(subtable: ColumnTable) -> Vec<u8> {
-    
-
+pub fn write_subtable_to_raw_binary(subtable: &ColumnTable) -> Vec<u8> {
     let mut total_bytes = 0;
 
         let length = subtable.len();
@@ -2452,7 +2457,6 @@ pub struct Value {
 impl Value {
     pub fn new(name: &str, creator: &str, body: &[u8]) -> Value {
         
-
         let mut body = Vec::from(body);
         body.shrink_to_fit();
         Value {
