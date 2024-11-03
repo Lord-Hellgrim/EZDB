@@ -1,4 +1,7 @@
 
+use std::sync::Arc;
+use std::sync::Mutex;
+
 use criterion::{criterion_group, criterion_main, Criterion};
 use rand::Rng;
 // use EZDB::compression::brotli_compress;
@@ -9,6 +12,7 @@ use EZDB::db_structure::*;
 use EZDB::ezql::*;
 use EZDB::ezql::parse_EZQL;
 
+use EZDB::thread_pool::create_thread_pool;
 use EZDB::utilities::*;
 use EZDB::PATH_SEP;
 
@@ -184,22 +188,23 @@ fn my_benchmark(c: &mut Criterion) {
     // group.bench_function("binary_vs_CBOR: CBOR VERSION", |b| b.iter(|| table.to_cbor_bytes()));
     
 
-    let query = Query::SELECT { 
-        table_name: KeyString::from("test"), 
-        primary_keys: RangeOrListOrAll::All, 
-        columns: vec![KeyString::from("id")], 
-        conditions: vec![OpOrCond::Cond(Condition{ attribute: KeyString::from("id"), test: Test::Equals(KeyString::from("0113035")) })] 
-    };
+    // let query = Query::SELECT { 
+    //     table_name: KeyString::from("test"), 
+    //     primary_keys: RangeOrListOrAll::All, 
+    //     columns: vec![KeyString::from("id")], 
+    //     conditions: vec![OpOrCond::Cond(Condition{ attribute: KeyString::from("id"), test: Test::Equals(KeyString::from("0113035")) })] 
+    // };
 
-    group.bench_function("ezql vs binary: binary short", |b| b.iter(|| {
-        let binary_query = query.to_binary();
-        let parsed_query = Query::from_binary(&binary_query).unwrap();
-    }));
+    // group.bench_function("ezql vs binary: binary short", |b| b.iter(|| {
+    //     let binary_query = query.to_binary();
+    //     let parsed_query = Query::from_binary(&binary_query).unwrap();
+    // }));
 
-    group.bench_function("ezql vs binary: ezql short", |b| b.iter(|| {
-        let string_query = query.to_string();
-        let parsed_query = parse_EZQL(&string_query).unwrap();
-    }));
+    // group.bench_function("ezql vs binary: ezql short", |b| b.iter(|| {
+    //     let string_query = query.to_string();
+    //     let parsed_query = parse_EZQL(&string_query).unwrap();
+    // }));
+
 
 
 }

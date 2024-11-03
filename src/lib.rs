@@ -25,3 +25,4 @@ pub mod bloom_filter;
 pub mod row_arena;
 pub mod http_interface;
 pub mod thread_pool;
+pub mod testing_tools;

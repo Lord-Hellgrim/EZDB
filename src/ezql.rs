@@ -451,9 +451,9 @@ impl Query {
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Update {
-    attribute: KeyString,
-    operator: UpdateOp,
-    value: KeyString,
+    pub attribute: KeyString,
+    pub operator: UpdateOp,
+    pub value: KeyString,
 }
 
 impl Display for Update {

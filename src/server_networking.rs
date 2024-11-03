@@ -277,6 +277,14 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
 
 }
 
+pub fn answer_query(binary: Vec<u8>) -> Result<Vec<u8>, EzError> {
+    todo!()
+}
+
+pub fn perform_administration(key_string: KeyString) -> Result<Vec<u8>, EzError> {
+    todo!()
+}
+
 /// Parses the inctructions sent by the client. Will be rewritten soon to accomodate EZQL
 pub fn parse_instruction(
     instructions: &[u8], 
