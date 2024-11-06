@@ -13,7 +13,7 @@ use crate::auth::{user_has_permission, AuthenticationError, Permission, User};
 use crate::disk_utilities::{BufferPool, MAX_BUFFERPOOL_SIZE};
 use crate::logging::Logger;
 use crate::utilities::{establish_connection, EzError, Instruction, InstructionError};
-use crate::db_structure::KeyString;
+use crate::db_structure::{ColumnTable, KeyString};
 use crate::handlers::*;
 use crate::PATH_SEP;
 
@@ -37,6 +37,15 @@ impl Database {
     pub fn init() -> Result<Database, EzError> {
         println!("calling: Database::init()");
 
+        if !std::path::Path::new("EZconfig").is_dir() {
+            println!("config does not exist");
+            std::fs::create_dir("EZconfig").expect("Need IO access to initialize database");
+            std::fs::create_dir("EZconfig/raw_tables").expect("Need IO access to initialize database");
+            std::fs::create_dir("EZconfig/raw_values").expect("Need IO access to initialize database");
+            std::fs::create_dir("EZconfig/log").expect("Need IO access to initialize database");
+        } else {
+            println!("config folder exists");
+        }
 
         let buffer_pool = BufferPool::empty(std::sync::atomic::AtomicU64::new(MAX_BUFFERPOOL_SIZE));
         buffer_pool.init_tables(&format!("EZconfig{PATH_SEP}raw_tables"))?;
@@ -51,6 +60,7 @@ impl Database {
             let admin = User::admin("admin", "admin");
             temp_users.insert(KeyString::from("admin"), admin);
             users_file.write_all(&temp_users.to_cbor_bytes())?;
+            
         }
         let mut users = BTreeMap::new();
         for (key, value) in temp_users {
@@ -89,16 +99,6 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
 
     let s = get_server_static_keys();
 
-    if !std::path::Path::new("EZconfig").is_dir() {
-        println!("config does not exist");
-        std::fs::create_dir("EZconfig").expect("Need IO access to initialize database");
-        std::fs::create_dir("EZconfig/raw_tables").expect("Need IO access to initialize database");
-        std::fs::create_dir("EZconfig/raw_values").expect("Need IO access to initialize database");
-        std::fs::create_dir("EZconfig/log").expect("Need IO access to initialize database");
-    } else {
-        println!("config folder exists");
-
-    }
     println!("Initializing database");
     let database = Arc::new(Database::init()?);
 
@@ -115,7 +115,11 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
         outer_scope.spawn(move || {
             println!("Background thread running");
             loop {
-                std::thread::sleep(Duration::from_secs(10));
+                std::thread::sleep(Duration::from_secs(5));
+                println!("Current tables:");
+                for table in writer_thread_db_ref.buffer_pool.tables.read().unwrap().keys() {
+                    println!("{}", table);
+                }
                 println!("Background thread still running");
                 println!("{:?}", writer_thread_db_ref.buffer_pool.table_delete_list.read().unwrap());
                 for key in writer_thread_db_ref.buffer_pool.table_delete_list.read().unwrap().iter() {
@@ -139,6 +143,7 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                 writer_thread_db_ref.buffer_pool.value_delete_list.write().unwrap().clear();
 
                 for (key, table_lock) in writer_thread_db_ref.buffer_pool.tables.read().unwrap().iter() {
+                    println!("key: {}", key);
                     let mut table_naughty_list = writer_thread_db_ref.buffer_pool.table_naughty_list.write().unwrap();
                     if table_naughty_list.contains(key) {
                         let mut file = match std::fs::File::create(format!("EZconfig{PATH_SEP}raw_tables{PATH_SEP}{}", key.as_str())) {

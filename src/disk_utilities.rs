@@ -50,6 +50,13 @@ impl BufferPool {
             self.add_table(table)?;
         }
 
+        let good_table = std::fs::read_to_string(&format!("test_files{PATH_SEP}good_csv.txt")).unwrap();
+        let good_table = ColumnTable::from_csv_string(&good_table, "good_table", "server").unwrap();
+        match self.add_table(good_table) {
+            Ok(_) => (),
+            Err(_) => (),
+        };
+
         Ok(())
     }
 
@@ -125,7 +132,12 @@ impl BufferPool {
             return Err(EzError::NoMoreBufferSpace(format!("Table sized: {} is too big. Remaining space is: {}",table.size_of_table(), self.max_size()-self.occupied_buffer())))
         }
 
-        self.tables.write().unwrap().insert(table.name, RwLock::new(table));
+        if self.tables.read().unwrap().contains_key(&table.name) {
+            return Err(EzError::Structure(format!("Table named '{}' already exists", table.name)));
+        } else {
+            self.table_naughty_list.write().unwrap().insert(table.name);
+            self.tables.write().unwrap().insert(table.name, RwLock::new(table));
+        }
 
         Ok(())
     }

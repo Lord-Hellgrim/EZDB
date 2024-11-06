@@ -54,84 +54,30 @@ pub fn send_query(
 
 }
 
-/// Returns a list of table_names in the database.
-pub fn meta_list_tables(
-    address: &str,
-    username: &str,
-    password: &str,
-) -> Result<String, EzError> {
-    println!("calling: meta_list_tables()");
-
-    let mut connection = make_connection(address, username, password)?;
-
-    let mut packet = Vec::new();
-    packet.extend_from_slice(KeyString::from("META_LIST_TABLES").raw());
-    connection.send_c1(&packet)?;   
-
-    let value = connection.receive_c2()?;
-    let table_list = bytes_to_str(&value)?;
-
-    Ok(table_list.to_owned())
-}
-
-/// Returns a list of keys with associated binary blobs.
-pub fn meta_list_key_values(
-    address: &str,
-    username: &str,
-    password: &str,
-) -> Result<String, EzError> {
-    println!("calling: meta_list_key_values()");
-
-    let mut connection = make_connection(address, username, password)?;
-
-    // let instruction = Instruction::MetaListKeyValues.to_bytes(username);
-    // connection.send_c1(&instruction)?;   
-
-    let value = connection.receive_c2()?;
-    let table_list = bytes_to_str(&value)?;
-
-    Ok(table_list.to_owned())
-}
-
-pub fn meta_create_new_user(
-    user: User,
-    address: &str,
-    username: &str,
-    password: &str,
-) -> Result<(), EzError> {
-    println!("calling: meta_create_new_user()");
-
-    let mut connection = make_connection(address, username, password)?;
-
-    let instruction = Instruction::NewUser;
-    // send_instruction_with_associated_data(instruction, username, &user.to_cbor_bytes(), &mut connection)?;
-
-    let response = connection.receive_c2()?;
-    let response = String::from_utf8(response)?;
-
-    parse_response(&response, username, &user.username)
-}
-
 
 #[cfg(test)]
 mod tests {
     #![allow(unused)]
     use std::{fs::remove_file, path::Path};
 
-    use crate::db_structure::ColumnTable;
+    use crate::{db_structure::ColumnTable, ezql::RangeOrListOrAll, utilities::ksf};
 
     use super::*;
 
     #[test]
-    fn test_list_tables() {
+    fn test_send_SELECT() {
         let address = "127.0.0.1:3004";
         let username = "admin";
         let password = "admin";
-        // test_send_good_csv();
-        // test_send_large_csv();
-        // std::thread::sleep(Duration::from_secs(3));
-        let tables = meta_list_tables(address, username, password).unwrap();
-        println!("tables: \n{}", tables);
+        let query = Query::SELECT { 
+            table_name: ksf("good_table"),
+            primary_keys: RangeOrListOrAll::All,
+            columns: vec![ksf("id"), ksf("name"), ksf("price")],
+            conditions: Vec::new() 
+        };
+
+        let response = send_query(address, username, password, query).unwrap();
+        println!("{}", response);
     }
 
 
