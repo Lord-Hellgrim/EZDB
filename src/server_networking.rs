@@ -88,7 +88,6 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
     println!("calling: run_server()");
 
     
-    // #################################### STARTUP SEQUENCE #############################################
     println!("Starting server...\n###########################");
     
     println!("Binding to address: {address}");
@@ -97,16 +96,11 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
         Err(e) => {return Err(EzError::Io(e.kind()));},
     };
 
-    let s = get_server_static_keys();
-
+    
     println!("Initializing database");
     let database = Arc::new(Database::init()?);
-
-    // #################################### END STARTUP SEQUENCE ###############################################
-
-
-    // #################################### DATA SAVING AND LOADING LOOP ###################################################
-
+    
+    let s = get_server_static_keys();
     let writer_thread_db_ref = database.clone();
     
     let _full_scope: Result<(), EzError> = std::thread::scope(|outer_scope| {
@@ -286,7 +280,12 @@ pub fn answer_query(binary: Vec<u8>) -> Result<Vec<u8>, EzError> {
     todo!()
 }
 
-pub fn perform_administration(key_string: KeyString) -> Result<Vec<u8>, EzError> {
+pub fn perform_administration(binary: Vec<u8>) -> Result<Vec<u8>, EzError> {
+    todo!()
+}
+
+pub fn perform_maintenance() -> Result<(), EzError> {
+
     todo!()
 }
 

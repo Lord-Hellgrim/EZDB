@@ -388,8 +388,7 @@ source = "git+https://github.com/lord-hellgrim/ezcbor?branch=master#649a3077b6c1
 [[package]]
 name = "eznoise"
 version = "0.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71efc14e8fe087caf968ae83514fc48b122446e6bab6aca4235f3e92767be7cf"
+source = "git+https://github.com/lord-hellgrim/eznoise?branch=master#7f53413551be6c9e0c4de466411a572fc81ea36f"
 dependencies = [
  "rand",
  "ring",

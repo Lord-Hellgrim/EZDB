@@ -1,120 +1,97 @@
-use std::{collections::HashMap, sync::{Arc, Condvar, Mutex}, thread::JoinHandle};
-
-use crate::{db_structure::KeyString, ezql::execute_EZQL_queries, server_networking::{answer_query, perform_administration}};
+use std::{collections::{HashMap, VecDeque}, net::TcpStream, sync::{Arc, Condvar, Mutex}, thread::JoinHandle};
 
 
-pub type MultiQueue = Arc<Mutex<HashMap<KeyString, Job>>>;
+use crate::{db_structure::KeyString, server_networking::{answer_query, perform_administration, perform_maintenance}, utilities::{SocketSide, CsPair}};
 
-pub enum Job {
-    Query(Vec<u8>),
-    Admin(KeyString),
+
+pub type JobQueue = Mutex<VecDeque<Job>>;
+pub type OpenSockets = HashMap<KeyString, SocketSide>;
+pub type ResultQueue = Mutex<VecDeque<(KeyString, Vec<u8>)>>;
+
+pub struct Job {
+    peer: KeyString,
+    cs_pair: CsPair,
+    data: Vec<u8>,
 }
 
-pub struct ThreadHandler {
-    pub pairs: Vec<Arc<(Mutex<bool>, Condvar)>>,
-    pub job_queue: Arc<Mutex<Vec<Vec<u8>>>>,
-    pub results_queue: Arc<Mutex<Vec<Vec<u8>>>>,
-}
 
 pub struct EzThreadPool {
-    pub threads: Vec<JoinHandle<()>>,
-    pub job_queue: Arc<Mutex<Vec<(KeyString, Job)>>>,
-    pub result_queue: MultiQueue,
+    pub threads: HashMap<usize, JoinHandle<()>>,
+    pub job_queue: Arc<Mutex<VecDeque<Job>>>,
+    pub result_queue: Arc<Mutex<VecDeque<(KeyString, Vec<u8>)>>>,
 }
 
-#[inline]
-pub fn new_multiqueue() -> MultiQueue {
-    Arc::new(Mutex::new(HashMap::new()))
-}
+impl EzThreadPool {
+    pub fn initialize(number_of_threads: usize) -> EzThreadPool {
 
+        let mut threads = HashMap::new();
+        let job_queue: Arc<Mutex<VecDeque<Job>>> = Arc::new(Mutex::new(VecDeque::new()));
 
-pub fn create_thread_pool(number_of_threads: usize) -> EzThreadPool {
+        let result_queue = Arc::new(Mutex::new(VecDeque::new()));
 
-    let mut threads = Vec::new();
-    let job_queue: Arc<Mutex<Vec<(KeyString, Job)>>> = Arc::new(Mutex::new(Vec::new()));
+        for i in 0..number_of_threads {
+            let jobs = job_queue.clone();
+            let results = result_queue.clone();
+            // println!("spawned thread: {}", i);
+            let thread = std::thread::spawn(move || {
+                loop {
+                    // println!("Awoken!");
+                    let mut jobs_lock = jobs.lock().unwrap();
+                    let job = jobs_lock.pop_front();
+                    match job {
+                        Some(mut job) => {
+                            drop(jobs_lock);
+                            let data = match job.cs_pair.c1.DecryptWithAd(&[], &job.data) {
+                                Ok(x) => x,
+                                Err(e) => {
+                                    println!("Could not decrypt job data");
+                                    continue
+                                },
+                            };
+                            let result = match KeyString::try_from(&data[0..64]) {
+                                Ok(s) => match s.as_str() {
+                                    "QUERY" => answer_query(data),
+                                    "ADMIN" => perform_administration(data),
+                                    action => {
+                                        println!("Asked to perform unsupported action: '{}'", action);
+                                        continue
+                                    }
+                                },
+                                Err(_) => {
+                                    println!("Could not parse first 64 bytes as a KeyString");
+                                    continue
+                                },
+                            };
+                            match result {
+                                Ok(r) => {
+                                    let r = job.cs_pair.c2.EncryptWithAd(&[], &r);
+                                    results.lock().unwrap().push_back((job.peer, r));
+                                },
+                                Err(_) => {
+                                    println!("Encountered an error while trying to carry out action");
+                                    continue
+                                },
+                            }
+                            
+                        },
+                        None => {
+                            drop(jobs_lock);
+                            perform_maintenance().unwrap();
+                            std::thread::park()
+                        },
+                    };
+                }
+            });
+            threads.insert(i, thread);
+        }
 
-    let result_queue = new_multiqueue();
-
-    for i in 0..number_of_threads {
-        let jobs = job_queue.clone();
-        let results = result_queue.clone();
-        // println!("spawned thread: {}", i);
-        let thread = std::thread::spawn(move || {
-            loop {
-                // println!("Awoken!");
-                let mut jobs_lock = jobs.lock().unwrap();
-                let job = jobs_lock.pop();
-                match job {
-                    Some(job) => {
-                        drop(jobs_lock);
-                        let (peer, job) = job;
-                        let result = match job {
-                            Job::Query(binary) => answer_query(binary),
-                            Job::Admin(key_string) => perform_administration(key_string),
-                        };
-                    },
-                    None => {
-                        drop(jobs_lock);
-                        std::thread::park()
-                    },
-                };
-            }
-        });
-        threads.push(thread);
+        EzThreadPool {
+            threads,
+            job_queue,
+            result_queue: result_queue,
+        }
     }
 
-    EzThreadPool {
-        threads,
-        job_queue,
-        result_queue,
-    }
-
-}
-
-
-
-
-pub fn initialize_thread_pool(number_of_threads: usize) -> ThreadHandler {
-
-    let mut lock_condvar_pairs: Vec<Arc<(Mutex<bool>, Condvar)>> = Vec::with_capacity(number_of_threads);
-    for _ in 0..number_of_threads {
-        lock_condvar_pairs.push(Arc::new((Mutex::new(false), Condvar::new())));
-    }
-
-    let job_queue: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new(Mutex::new(Vec::new()));
-
-    let result_queue = Arc::new(Mutex::new(Vec::new()));
-
-    for i in 0..number_of_threads {
-        let thread_pair = lock_condvar_pairs[i].clone();
-        let jobs = job_queue.clone();
-        let results = result_queue.clone();
-        std::thread::spawn(move || {
-            println!("spawned thread: {}", i);
-            let (lock, cvar) = &*thread_pair;
-            let mut started = lock.lock().unwrap();
-            while !*started {
-                started = cvar.wait(started).unwrap();
-                println!("Awoken!");
-                let mut jobs_lock = jobs.lock().unwrap();
-                let job = jobs_lock.pop().unwrap();
-                drop(jobs_lock);
-
-                let result = job.into_iter().rev().collect();
-                let mut rlock = results.lock().unwrap();
-                rlock.push(result);
-                drop(rlock);
-                
-                *started = false;
-            }
-        });
-    }
-
-    ThreadHandler {
-        pairs: lock_condvar_pairs,
-        job_queue: job_queue,
-        results_queue: result_queue,
-    }
 
 }
 
@@ -125,24 +102,6 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn test_thread_handler() {
-        let handler = initialize_thread_pool(4);
-
-        for i in 0..4 {
-            let mut lock = handler.job_queue.lock().unwrap();
-            lock.push(vec![i*1,i*2,i*3,i*4,i*5]);
-            let mut start = handler.pairs[i as usize].0.lock().unwrap();
-            *start = true;
-            handler.pairs[i as usize].1.notify_one();
-            drop(lock);
-        }
-        std::thread::sleep(Duration::from_millis(1));
-
-
-        for list in handler.results_queue.lock().unwrap().iter() {
-            println!("list: {:?}", list);
-        }
-    }
+    
 
 }

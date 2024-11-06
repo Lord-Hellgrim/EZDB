@@ -13,6 +13,7 @@ use std::{usize, fmt};
 use std::arch::x86_64;
 
 use ezcbor::cbor::CborError;
+use eznoise::CipherState;
 use fnv::FnvHashMap;
 use aes_gcm::aead;
 use sha2::{Sha256, Digest};
@@ -193,12 +194,19 @@ impl From<Utf8Error> for InstructionError {
     }
 }
 
+pub struct SocketSide {
+    pub stream: TcpStream,
+    pub work_status: Option<CsPair>,
+}
+
+pub struct CsPair {
+    pub c1: CipherState,
+    pub c2: CipherState,
+}
 
 /// THe server side of the Connection exchange
-pub fn establish_connection(s: eznoise::KeyPair, stream: TcpStream, db_ref: Arc<Database>) -> Result<(eznoise::Connection, String), EzError> {
+pub fn establish_connection(s: eznoise::KeyPair, stream: TcpStream, db_ref: Arc<Database>) -> Result<(SocketSide, CsPair), EzError> {
     
-    
-
     let mut connection = eznoise::establish_connection(stream, s.clone())?;
     let auth_buffer = connection.receive_c1()?;
 
@@ -229,7 +237,10 @@ pub fn establish_connection(s: eznoise::KeyPair, stream: TcpStream, db_ref: Arc<
         // println!("Password hash:\n\t{:?}\n...is wrong", password);
         return Err(EzError::Authentication("Wrong password.".to_owned()));
     }
-    Ok((connection, username.to_owned()))
+    Ok((
+        SocketSide{stream: connection.stream, work_status: None},
+        CsPair{c1: connection.c1, c2: connection.c2}
+    ))
 
 }
 

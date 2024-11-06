@@ -24,7 +24,7 @@ siphasher = "1.0.1"
 x25519-dalek = { version = "2.0.0", features = ["getrandom", "static_secrets"] }
 ezcbor = {git = "https://github.com/lord-hellgrim/ezcbor", branch = "master"}
 sha2 = "0.10.8"
-eznoise = "0.0.2"
+eznoise = {git = "https://github.com/lord-hellgrim/eznoise", branch = "master"}
 
 [dev-dependencies]
 criterion = "0.5.1"
