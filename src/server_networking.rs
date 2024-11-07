@@ -12,6 +12,7 @@ use eznoise::{HandshakeState, KeyPair};
 use crate::auth::{user_has_permission, AuthenticationError, Permission, User};
 use crate::disk_utilities::{BufferPool, MAX_BUFFERPOOL_SIZE};
 use crate::logging::Logger;
+use crate::thread_pool::Job;
 use crate::utilities::{establish_connection, EzError, Instruction, InstructionError};
 use crate::db_structure::{ColumnTable, KeyString};
 use crate::handlers::*;
@@ -181,86 +182,86 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                 Err(e) => continue,
             };
 
-            let instructions = match connection.receive_c1() {
-                Ok(ins) => ins,
-                Err(_) => continue,
-            };
+            // let instructions = match connection.receive_c1() {
+            //     Ok(ins) => ins,
+            //     Err(_) => continue,
+            // };
             
             let db_ref = database.clone();
             // Spawn a thread to handle establishing connections
             outer_scope.spawn(move || {
                 
 
-                println!("Parsing instructions...");
-                match parse_instruction(
-                    &instructions, 
-                    db_ref.clone(),
-                ) {
-                    Ok(i) => match i {
+                // println!("Parsing instructions...");
+                // match parse_instruction(
+                //     &instructions, 
+                //     db_ref.clone(),
+                // ) {
+                //     Ok(i) => match i {
                         
-                        Instruction::Query => {
-                            match handle_query_request(
-                                &mut connection,
-                                db_ref.clone(),
-                                &username
-                            ) {
-                                Ok(_) => {
-                                    println!("Operation finished!");
-                                },
-                                Err(e) => {
-                                    println!("Operation failed because: {}", e);
-                                },
-                            }
-                        },
-                        Instruction::NewUser => {
-                            match handle_new_user_request(
-                                &mut connection,
-                                db_ref.clone(),
-                            ) {
-                                Ok(_) => {
-                                    println!("New user added!");
-                                },
-                                Err(e) => {
-                                    println!("Operation failed because: {}", e);
-                                },
-                            }
+                //         Instruction::Query => {
+                //             match handle_query_request(
+                //                 &mut connection,
+                //                 db_ref.clone(),
+                //                 &username
+                //             ) {
+                //                 Ok(_) => {
+                //                     println!("Operation finished!");
+                //                 },
+                //                 Err(e) => {
+                //                     println!("Operation failed because: {}", e);
+                //                 },
+                //             }
+                //         },
+                //         Instruction::NewUser => {
+                //             match handle_new_user_request(
+                //                 &mut connection,
+                //                 db_ref.clone(),
+                //             ) {
+                //                 Ok(_) => {
+                //                     println!("New user added!");
+                //                 },
+                //                 Err(e) => {
+                //                     println!("Operation failed because: {}", e);
+                //                 },
+                //             }
                             
-                        },
-                        Instruction::MetaListTables => {
-                            match handle_meta_list_tables(
-                                &mut connection, 
-                                db_ref.clone(),
-                            ) {
-                                Ok(_) => {
-                                    println!("Operation finished");
-                                },
-                                Err(e) => {
-                                    println!("Operation failed because: {}", e);
-                                }
-                            }
-                        }
-                        Instruction::MetaListKeyValues => {
-                            match handle_meta_list_key_values(
-                                &mut connection, 
-                                db_ref.clone(),
-                            ) {
-                                Ok(_) => {
-                                    println!("Operation finished");
-                                },
-                                Err(e) => {
-                                    println!("Operation failed because: {}", e);
-                                }
-                            }
-                        }
-                    },
+                //         },
+                //         Instruction::MetaListTables => {
+                //             match handle_meta_list_tables(
+                //                 &mut connection, 
+                //                 db_ref.clone(),
+                //             ) {
+                //                 Ok(_) => {
+                //                     println!("Operation finished");
+                //                 },
+                //                 Err(e) => {
+                //                     println!("Operation failed because: {}", e);
+                //                 }
+                //             }
+                //         }
+                //         Instruction::MetaListKeyValues => {
+                //             match handle_meta_list_key_values(
+                //                 &mut connection, 
+                //                 db_ref.clone(),
+                //             ) {
+                //                 Ok(_) => {
+                //                     println!("Operation finished");
+                //                 },
+                //                 Err(e) => {
+                //                     println!("Operation failed because: {}", e);
+                //                 }
+                //             }
+                //         }
+                //     },
                     
-                    Err(e) => {
-                        println!("Failed to serve request because: {e}");
-                        connection.send_c2(e.to_string().as_bytes())?;
-                        println!("Thread finished on error: {e}");
-                    },
+                //     Err(e) => {
+                //         println!("Failed to serve request because: {e}");
+                //         connection.send_c2(e.to_string().as_bytes())?;
+                //         println!("Thread finished on error: {e}");
+                //     },
                     
-                };
+                // };
     
                 Ok::<(), EzError>(())
             });
@@ -276,18 +277,19 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
 
 }
 
-pub fn answer_query(binary: Vec<u8>) -> Result<Vec<u8>, EzError> {
+pub fn answer_query(binary: Vec<u8>, db_ref: Arc<Database>) -> Result<Vec<u8>, EzError> {
     todo!()
 }
 
-pub fn perform_administration(binary: Vec<u8>) -> Result<Vec<u8>, EzError> {
+pub fn perform_administration(binary: Vec<u8>, db_ref: Arc<Database>) -> Result<Vec<u8>, EzError> {
     todo!()
 }
 
-pub fn perform_maintenance() -> Result<(), EzError> {
+pub fn perform_maintenance(db_ref: Arc<Database>) -> Result<(), EzError> {
 
     todo!()
 }
+
 
 /// Parses the inctructions sent by the client. Will be rewritten soon to accomodate EZQL
 pub fn parse_instruction(
