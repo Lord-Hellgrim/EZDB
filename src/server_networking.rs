@@ -1,7 +1,7 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::Write;
-use std::net::TcpListener;
-use std::sync::{Arc, RwLock};
+use std::net::{TcpListener, TcpStream};
+use std::sync::{Arc, Mutex, RwLock};
 use std::str::{self};
 use std::time::Duration;
 use std::convert::{TryFrom, From};
@@ -13,7 +13,7 @@ use crate::auth::{user_has_permission, AuthenticationError, Permission, User};
 use crate::disk_utilities::{BufferPool, MAX_BUFFERPOOL_SIZE};
 use crate::logging::Logger;
 use crate::thread_pool::Job;
-use crate::utilities::{establish_connection, EzError, Instruction, InstructionError};
+use crate::utilities::{perform_handshake_and_authenticate, EzError, Instruction, InstructionError};
 use crate::db_structure::{ColumnTable, KeyString};
 use crate::handlers::*;
 use crate::PATH_SEP;
@@ -177,19 +177,26 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
 
             let db_con = database.clone();
             let thread_s = s.clone();
-            let (mut connection, username) = match establish_connection(thread_s, stream, db_con) {
+            let mut connection = match perform_handshake_and_authenticate(thread_s, stream, db_con) {
                 Ok(c) => c,
-                Err(e) => continue,
+                Err(e) => {
+                    interior_log(e);
+                    continue
+                },
             };
 
-            // let instructions = match connection.receive_c1() {
-            //     Ok(ins) => ins,
-            //     Err(_) => continue,
-            // };
+            let instructions = match connection.receive_c1() {
+                Ok(ins) => ins,
+                Err(_) => continue,
+            };
             
             let db_ref = database.clone();
+
+
+
+
             // Spawn a thread to handle establishing connections
-            outer_scope.spawn(move || {
+            // outer_scope.spawn(move || {
                 
 
                 // println!("Parsing instructions...");
@@ -263,8 +270,8 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                     
                 // };
     
-                Ok::<(), EzError>(())
-            });
+            //     Ok::<(), EzError>(())
+            // });
         }
 
 
@@ -289,6 +296,11 @@ pub fn perform_maintenance(db_ref: Arc<Database>) -> Result<(), EzError> {
 
     todo!()
 }
+
+pub fn interior_log(e: EzError) {
+    println!("{}", e);
+}
+
 
 
 /// Parses the inctructions sent by the client. Will be rewritten soon to accomodate EZQL

@@ -12,7 +12,6 @@ use EZDB::db_structure::*;
 use EZDB::ezql::*;
 use EZDB::ezql::parse_EZQL;
 
-use EZDB::thread_pool::create_thread_pool;
 use EZDB::utilities::*;
 use EZDB::PATH_SEP;
 

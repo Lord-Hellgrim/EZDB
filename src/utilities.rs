@@ -205,7 +205,7 @@ pub struct CsPair {
 }
 
 /// THe server side of the Connection exchange
-pub fn establish_connection(s: eznoise::KeyPair, stream: TcpStream, db_ref: Arc<Database>) -> Result<(SocketSide, CsPair), EzError> {
+pub fn perform_handshake_and_authenticate(s: eznoise::KeyPair, stream: TcpStream, db_ref: Arc<Database>) -> Result<eznoise::Connection, EzError> {
     
     let mut connection = eznoise::establish_connection(stream, s.clone())?;
     let auth_buffer = connection.receive_c1()?;
@@ -237,12 +237,13 @@ pub fn establish_connection(s: eznoise::KeyPair, stream: TcpStream, db_ref: Arc<
         // println!("Password hash:\n\t{:?}\n...is wrong", password);
         return Err(EzError::Authentication("Wrong password.".to_owned()));
     }
-    Ok((
-        SocketSide{stream: connection.stream, work_status: None},
-        CsPair{c1: connection.c1, c2: connection.c2}
-    ))
+    Ok(
+        connection
+    )
 
 }
+
+
 
 pub fn ksf(s: &str) -> KeyString {
     KeyString::from(s)

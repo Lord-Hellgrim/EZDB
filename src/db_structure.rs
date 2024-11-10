@@ -2771,5 +2771,13 @@ mod tests {
         let s = KeyString::from("test");
         println!("{}", s);
     }
+
+    #[test]
+    fn test_keystring_zeroes() {
+        let bin = [0u8;64];
+        let s = KeyString::try_from(bin.as_slice()).unwrap();
+        println!("s: '{}'", s.as_str());
+
+    }
 }
 
