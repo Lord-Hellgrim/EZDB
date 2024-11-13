@@ -77,7 +77,7 @@ pub fn initialize_thread_pool(number_of_threads: usize, db_ref: Arc<Database>) -
                         };
                         match result {
                             Ok(r) => {
-                                match job.connection.send_c2(&r) {
+                                match job.connection.SEND_C2(&r) {
                                     Ok(_) => (),
                                     Err(_) => println!("Noise Error line {}, column {}", line!(), column!()),
                                 };
@@ -86,7 +86,7 @@ pub fn initialize_thread_pool(number_of_threads: usize, db_ref: Arc<Database>) -
                             Err(e) => {
                                 println!("Encountered an error while trying to carry out action");
 
-                                match job.connection.send_c2(&format!("Encountered an error while trying to carry out action.\n Error: '{}'", e).as_bytes()) {
+                                match job.connection.SEND_C2(&format!("Encountered an error while trying to carry out action.\n Error: '{}'", e).as_bytes()) {
                                     Ok(_) => (),
                                     Err(_) => println!("Noise Error line {}, column {}", line!(), column!()),
                                 };

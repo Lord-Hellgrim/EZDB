@@ -21,7 +21,7 @@ pub fn handle_query_request(
     // PARSE INSTRUCTION
     println!("calling: handle_query_request()");
     
-    let query = connection.receive_c1()?;
+    let query = connection.RECEIVE_C1()?;
     let query = str::from_utf8(&query)?;
     let queries = parse_serial_query(query)?;
 
@@ -34,7 +34,7 @@ pub fn handle_query_request(
         Err(e) => format!("ERROR -> Could not process query because of error: '{}'", e.to_string()).as_bytes().to_vec(),
     };
 
-    match connection.send_c2(&requested_table) {
+    match connection.SEND_C2(&requested_table) {
         Ok(_) => Ok(()),
         Err(e) => Err(e.into()),
     }
@@ -67,7 +67,7 @@ pub fn handle_meta_list_tables(
     }
     printer.pop();
 
-    match connection.send_c2(printer.as_bytes()) {
+    match connection.SEND_C2(printer.as_bytes()) {
         Ok(_) => Ok(()),
         Err(e) => Err(e.into()),
     }
@@ -98,8 +98,8 @@ pub fn handle_meta_list_key_values(
         printer.push_str("No key value pairs in database");
     }
 
-    connection.send_c2(printer.as_bytes())?;
-    let response = connection.receive_c1()?;
+    connection.SEND_C2(printer.as_bytes())?;
+    let response = connection.RECEIVE_C1()?;
     let response = String::from_utf8(response)?;
 
     if response == "OK" {
@@ -118,13 +118,13 @@ pub fn handle_new_user_request(
 ) -> Result<(), EzError> {
     println!("calling: handle_new_user_request()");
 
-    let user_bytes = connection.receive_c1()?;
+    let user_bytes = connection.RECEIVE_C1()?;
     let user: User = decode_cbor(&user_bytes)?;
 
     let mut user_lock = database.users.write().unwrap();
     user_lock.insert(KeyString::from(user.username.as_str()), RwLock::new(user));
     
-    connection.send_c2("OK".as_bytes())?;
+    connection.SEND_C2("OK".as_bytes())?;
 
     Ok(())
 

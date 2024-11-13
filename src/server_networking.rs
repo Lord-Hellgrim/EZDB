@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::io::Write;
 use std::net::{TcpListener, TcpStream};
+use std::os::fd::{AsFd, AsRawFd};
 use std::sync::{Arc, Mutex, RwLock};
 use std::str::{self};
 use std::time::Duration;
@@ -8,6 +9,7 @@ use std::convert::{TryFrom, From};
 
 use ezcbor::cbor::{decode_cbor, Cbor};
 use eznoise::{HandshakeState, KeyPair};
+use nix::sys::epoll::{Epoll, EpollCreateFlags, EpollEvent, EpollFlags};
 
 use crate::auth::{user_has_permission, AuthenticationError, Permission, User};
 use crate::disk_utilities::{BufferPool, MAX_BUFFERPOOL_SIZE};
@@ -87,16 +89,6 @@ pub fn get_server_static_keys() -> KeyPair {
 /// every 10 seconds. This will be improved but I would appreciate some advice here.
 pub fn run_server(address: &str) -> Result<(), EzError> {
     println!("calling: run_server()");
-
-    
-    println!("Starting server...\n###########################");
-    
-    println!("Binding to address: {address}");
-    let listener = match TcpListener::bind(address) {
-        Ok(value) => value,
-        Err(e) => {return Err(EzError::Io(e.kind()));},
-    };
-
     
     println!("Initializing database");
     let database = Arc::new(Database::init()?);
@@ -167,13 +159,49 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
         }); // Thread that writes in memory tables to disk
         // ########################################################################################################################
 
+        println!("Starting server...\n###########################");
+    
+        println!("Binding to address: {address}");
+        let listener = match TcpListener::bind(address) {
+            Ok(value) => value,
+            Err(e) => {return Err(EzError::Io(e.kind()));},
+        };
+
+        listener.set_nonblocking(true)?;
+
+        let epoll = Epoll::new(EpollCreateFlags::empty()).unwrap();
+
+        epoll.add(listener.as_fd(), EpollEvent::new(EpollFlags::EPOLLIN, listener.as_raw_fd() as u64)).unwrap();
+
+        let mut events = vec![EpollEvent::empty(); 100];
+
         loop {
             // Reading instructions
+
+            let number_of_events = match epoll.wait(&mut events, 255 as u8) {
+                Ok(number) => number,
+                Err(e) => {
+                    println!("{}", e);
+                    0
+                },
+            };
+
+            for i in 0..number_of_events {
+                if events[i].data() == listener.as_raw_fd() as u64 {
+                    let (stream, client_address) = match listener.accept() {
+                        Ok((n,m)) => (n, m),
+                        Err(e) => {return Err(EzError::Io(e.kind()));},
+                    };
+                }
+            }
+
             let (stream, client_address) = match listener.accept() {
                 Ok((n,m)) => (n, m),
                 Err(e) => {return Err(EzError::Io(e.kind()));},
             };
             println!("Accepted connection from: {}", client_address);
+
+            
 
             let db_con = database.clone();
             let thread_s = s.clone();
@@ -185,7 +213,7 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                 },
             };
 
-            let instructions = match connection.receive_c1() {
+            let instructions = match connection.RECEIVE_C1() {
                 Ok(ins) => ins,
                 Err(_) => continue,
             };

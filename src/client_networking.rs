@@ -23,7 +23,7 @@ pub fn make_connection(address: &str, username: &str, password: &str) -> Result<
     auth_buffer[0..username.len()].copy_from_slice(username.as_bytes());
     auth_buffer[512..password.len()].copy_from_slice(username.as_bytes());
 
-    connection.send_c1(&auth_buffer)?;
+    connection.SEND_C1(&auth_buffer)?;
 
     Ok(connection)
 }
@@ -43,9 +43,9 @@ pub fn send_query(
     let mut packet = Vec::new();
     packet.extend_from_slice(KeyString::from("QUERY").raw());
     packet.extend_from_slice(query.as_bytes());
-    connection.send_c1(&packet)?;
+    connection.SEND_C1(&packet)?;
     
-    let response = connection.receive_c2()?;
+    let response = connection.RECEIVE_C2()?;
 
     match ColumnTable::from_binary(Some("RESULT"), &response) {
         Ok(table) => Ok(table),

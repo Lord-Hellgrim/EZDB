@@ -207,8 +207,8 @@ pub struct CsPair {
 /// THe server side of the Connection exchange
 pub fn perform_handshake_and_authenticate(s: eznoise::KeyPair, stream: TcpStream, db_ref: Arc<Database>) -> Result<eznoise::Connection, EzError> {
     
-    let mut connection = eznoise::establish_connection(stream, s.clone())?;
-    let auth_buffer = connection.receive_c1()?;
+    let mut connection = eznoise::ESTABLISH_CONNECTION(stream, s.clone())?;
+    let auth_buffer = connection.RECEIVE_C1()?;
 
     println!("About to parse auth_string");
     let username = match bytes_to_str(&auth_buffer[0..512]) {
@@ -243,6 +243,40 @@ pub fn perform_handshake_and_authenticate(s: eznoise::KeyPair, stream: TcpStream
 
 }
 
+pub fn authenticate_client(mut connection: eznoise::Connection, db_ref: Arc<Database>) -> Result<eznoise::Connection, EzError> {
+    let auth_buffer = connection.RECEIVE_C1()?;
+
+    println!("About to parse auth_string");
+    let username = match bytes_to_str(&auth_buffer[0..512]) {
+        Ok(s) => s,
+        Err(e) => {
+            println!("failed to read auth_string from bytes because: {}", e);
+            return Err(EzError::Utf8(e));
+        }
+    };
+    let password = &auth_buffer[512..];
+    let password = ez_hash(bytes_to_str(password).unwrap().as_bytes());
+    println!("About to verify username and password");
+
+    let users_lock = db_ref.users.read().unwrap();
+    if !users_lock.contains_key(&KeyString::from(username)) {
+        println!("printing keys..");
+
+        for key in users_lock.keys() {
+            println!("key: '{}'", key);
+        }
+        println!("Username:\n\t'{}'\n...is wrong", username);
+        return Err(EzError::Authentication(format!("Username: '{}' does not exist", username)));
+    } else if db_ref.users.read().unwrap()[&KeyString::from(username)].read().unwrap().password != password {
+        // println!("thread_users_lock[username].password: {:?}", user_lock.password);
+        // println!("password: {:?}", password);
+        // println!("Password hash:\n\t{:?}\n...is wrong", password);
+        return Err(EzError::Authentication("Wrong password.".to_owned()));
+    }
+    Ok(
+        connection
+    )
+}
 
 
 pub fn ksf(s: &str) -> KeyString {
