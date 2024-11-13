@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::io::Write;
 use std::net::{TcpListener, TcpStream};
-use std::os::fd::{AsFd, AsRawFd};
+use std::os::fd::{AsFd, AsRawFd, FromRawFd};
 use std::sync::{Arc, Mutex, RwLock};
 use std::str::{self};
 use std::time::Duration;
@@ -29,6 +29,29 @@ pub const PROCESS_MESSAGES_INTERVAL: u64 = 10;   // The number of seconds that p
 
 // Need to redesign the server multithreading before I continue. If I have to lock the "table of tables" for each query,
 // then there's no point to multithreading.
+
+
+pub enum StreamStatus {
+    Fresh,
+    Handshake1,
+    Handshake2,
+    Authenticated,
+    Veteran(usize /* number of requests processed */),
+    Http,
+}
+
+impl StreamStatus {
+    pub fn bump(&mut self) {
+        *self = match self {
+            StreamStatus::Fresh => StreamStatus::Handshake1,
+            StreamStatus::Handshake1 => StreamStatus::Handshake2,
+            StreamStatus::Handshake2 => StreamStatus::Authenticated,
+            StreamStatus::Authenticated => StreamStatus::Veteran(1),
+            StreamStatus::Veteran(x) => StreamStatus::Veteran(*x+1),
+            StreamStatus::Http => unreachable!("Should never bump an http connection")
+        };
+    }
+}
 
 pub struct Database {
     pub buffer_pool: BufferPool,
@@ -175,6 +198,7 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
 
         let mut events = vec![EpollEvent::empty(); 100];
 
+        let mut active_streams = HashMap::new();
         loop {
             // Reading instructions
 
@@ -190,18 +214,47 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                 if events[i].data() == listener.as_raw_fd() as u64 {
                     let (stream, client_address) = match listener.accept() {
                         Ok((n,m)) => (n, m),
-                        Err(e) => {return Err(EzError::Io(e.kind()));},
+                        Err(e) => return Err(EzError::Io(e.kind())),
                     };
+                    println!("Accepted connection from: {}", client_address);
+                    let key = stream.as_raw_fd() as u64;
+
+                    active_streams.insert(key, (StreamStatus::Fresh, None));
+
+                    epoll.add(stream.as_fd(), EpollEvent::new(EpollFlags::EPOLLIN, key)).unwrap();
+                } else {
+                    let fd = events[i].data();
+                    match active_streams.get(&fd) {
+                        Some((status, handshakestate)) => match status {
+                            StreamStatus::Fresh => {
+                                let mut stream = unsafe { TcpStream::from_raw_fd(fd as i32) };
+                                let handshakestate = Some(eznoise::ESTABLISH_CONNECTION_STEP_1(&mut stream, s).unwrap());
+                                let handshakestate = Some(eznoise::ESTABLISH_CONNECTION_STEP_2(&mut stream, handshakestate.unwrap()).unwrap());
+                                active_streams.entry(fd).and_modify(|(status, state)| {
+                                    status.bump();
+                                    *state = handshakestate;
+                                });
+
+                            },
+                            StreamStatus::Handshake1 => {
+                                let mut stream = unsafe { TcpStream::from_raw_fd(fd as i32) };
+                                let connection = eznoise::ESTABLISH_CONNECTION_STEP_3(stream, handshakestate.unwrap()).unwrap();
+                                active_streams.entry(fd).and_modify(|(status, state)| {
+                                    status.bump();
+                                    *state = None;
+                                });
+                            },
+                            StreamStatus::Handshake2 => {
+                                todo!()
+                            }
+                            StreamStatus::Authenticated => todo!(),
+                            StreamStatus::Veteran(_) => todo!(),
+                            StreamStatus::Http => todo!(),
+                        },
+                        None => println!("Stream must have been dropped unexpectedly. Carry on.")
+                    }
                 }
             }
-
-            let (stream, client_address) = match listener.accept() {
-                Ok((n,m)) => (n, m),
-                Err(e) => {return Err(EzError::Io(e.kind()));},
-            };
-            println!("Accepted connection from: {}", client_address);
-
-            
 
             let db_con = database.clone();
             let thread_s = s.clone();
