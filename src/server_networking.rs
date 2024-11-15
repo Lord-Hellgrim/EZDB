@@ -15,7 +15,7 @@ use crate::auth::{user_has_permission, AuthenticationError, Permission, User};
 use crate::disk_utilities::{BufferPool, MAX_BUFFERPOOL_SIZE};
 use crate::logging::Logger;
 use crate::thread_pool::{initialize_thread_pool, Job};
-use crate::utilities::{authenticate_client, perform_handshake_and_authenticate, EzError, Instruction, InstructionError};
+use crate::utilities::{authenticate_client, perform_handshake_and_authenticate, read_known_length, EzError, Instruction, InstructionError};
 use crate::db_structure::{ColumnTable, KeyString};
 use crate::handlers::*;
 use crate::PATH_SEP;
@@ -134,7 +134,7 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
 
     let mut events = vec![EpollEvent::empty(); 100];
 
-    let mut active_connections = HashMap::new();
+    let mut virgin_connections = HashMap::new();
     let mut stream_statuses = HashMap::new();
 
     let thread_handler = initialize_thread_pool(8, database.clone());
@@ -178,17 +178,17 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                         StreamStatus::Handshake1 => {
                             let stream = unsafe { TcpStream::from_raw_fd(fd as i32) };
                             let connection = eznoise::ESTABLISH_CONNECTION_STEP_3(stream, handshakestate.unwrap()).unwrap();
-                            if active_connections.contains_key(&fd) {
+                            if virgin_connections.contains_key(&fd) {
                                 todo!()
                             } else {
-                                active_connections.insert(fd, connection);
+                                virgin_connections.insert(fd, connection);
                             }
                             status.bump();
                             stream_statuses.insert(fd, (status, None));
                         },
                         StreamStatus::Handshake2 => {
                             let inner_db_con = db_con.clone();
-                            let connection = active_connections.get_mut(&fd).unwrap();
+                            let connection = virgin_connections.get_mut(&fd).unwrap();
                             match authenticate_client(connection, inner_db_con) {
                                 Ok(_) => {
                                     status.bump();
@@ -196,25 +196,49 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                                 },
                                 Err(e) => {
                                     interior_log(e);
-                                    active_connections.remove(&fd);
+                                    virgin_connections.remove(&fd);
                                     let stream = unsafe { TcpStream::from_raw_fd(fd as i32) };
                                     epoll.delete( stream.as_fd() ).unwrap();
                                 }
                             };
                         }
                         StreamStatus::Authenticated => {
-                            let connection = match active_connections.get_mut(&fd) {
+                            let mut connection = match virgin_connections.remove(&fd) {
                                 Some(x) => x,
                                 None => panic!("Unexpectedly dropped authenticated client"),
                             };
                             
-                            
+                            match read_known_length(&mut connection.stream) {
+                                Ok(data) => {
+                                    thread_handler.push_job(Job{connection, data});
+                                },
+                                Err(e) => {
+                                    println!("Failed to receive command");
+                                }
+                            };
 
                             status.bump();
                             stream_statuses.insert(fd, (status, None));
 
                         },
-                        StreamStatus::Veteran(_) => todo!(),
+                        StreamStatus::Veteran(_rounds) => {
+                            let mut connection = match thread_handler.open_connections.lock().unwrap().remove(&fd) {
+                                Some(x) => x,
+                                None => panic!("Unexpectedly dropped authenticated client"),
+                            };
+                            
+                            match read_known_length(&mut connection.stream) {
+                                Ok(data) => {
+                                    thread_handler.push_job(Job{connection, data});
+                                },
+                                Err(e) => {
+                                    println!("Failed to receive command");
+                                }
+                            };
+
+                            status.bump();
+                            stream_statuses.insert(fd, (status, None));
+                        },
                         StreamStatus::Http => todo!(),
                     },
                     None => println!("Stream must have been dropped unexpectedly. Carry on.")

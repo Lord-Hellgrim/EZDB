@@ -1,18 +1,19 @@
-use std::{collections::{HashMap, VecDeque}, net::TcpStream, sync::{Arc, Condvar, Mutex}};
+use std::{collections::{HashMap, VecDeque}, net::TcpStream, os::fd::AsRawFd, sync::{Arc, Condvar, Mutex}};
 
 
 use crate::{db_structure::KeyString, server_networking::{answer_query, interior_log, perform_administration, perform_maintenance, Database}, utilities::{ksf, CsPair}};
 
 
 pub struct Job {
-    connection: eznoise::Connection,
-    data: Vec<u8>,
+    pub connection: eznoise::Connection,
+    pub data: Vec<u8>,
 }
 
 
 pub struct ThreadHandler {
     pub jobs_condvar: Arc<Condvar>,
     pub job_queue: Arc<Mutex<VecDeque<Job>>>,
+    pub open_connections: Arc<Mutex<HashMap<u64, eznoise::Connection>>>,
 }
 
 impl ThreadHandler {
@@ -20,16 +21,21 @@ impl ThreadHandler {
         self.job_queue.lock().unwrap().push_back(job);
         self.jobs_condvar.notify_one();
     }
+
 }
 
 pub fn initialize_thread_pool(number_of_threads: usize, db_ref: Arc<Database>) -> ThreadHandler {
 
     let job_queue: Arc<Mutex<VecDeque<Job>>> = Arc::new(Mutex::new(VecDeque::new()));
 
+    let open_connections = Arc::new(Mutex::new(HashMap::new()));
+
     let jobs_queue_condvar = Arc::new(Condvar::new());
     
-    for _ in 0..number_of_threads {
+    for i in 0..number_of_threads {
         let jobs = job_queue.clone();
+
+        let open_connections_clone = open_connections.clone();
 
         let jobs_condvar = jobs_queue_condvar.clone();
 
@@ -86,6 +92,7 @@ pub fn initialize_thread_pool(number_of_threads: usize, db_ref: Arc<Database>) -
                                 };
                             },
                         };
+                        open_connections_clone.lock().unwrap().insert(job.connection.stream.as_raw_fd() as u64, job.connection);
                         
                     },
                     None => {
@@ -102,6 +109,7 @@ pub fn initialize_thread_pool(number_of_threads: usize, db_ref: Arc<Database>) -
     ThreadHandler {
         jobs_condvar: jobs_queue_condvar,
         job_queue: job_queue,
+        open_connections,
 
     }
 

@@ -1,7 +1,7 @@
 use std::arch::asm;
 use std::fmt::Display;
 use std::simd;
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Read};
 use std::net::TcpStream;
 use std::num::ParseIntError;
 use std::simd::num::SimdInt;
@@ -274,6 +274,29 @@ pub fn authenticate_client(connection: &mut eznoise::Connection, db_ref: Arc<Dat
         return Err(EzError::Authentication("Wrong password.".to_owned()));
     }
     Ok(())
+}
+
+pub fn read_known_length(mut reader: impl Read) -> Result<Vec<u8>, EzError> {
+    let mut size_buffer: [u8; 8] = [0; 8];
+        reader.read_exact(&mut size_buffer)?;
+    
+        let data_len = usize::from_le_bytes(size_buffer);
+        let mut data = Vec::with_capacity(data_len);
+        let mut buffer = [0; 4096];
+        let mut total_read: usize = 0;
+        
+        while total_read < data_len {
+            let to_read = std::cmp::min(4096, data_len - total_read);
+            let bytes_received = reader.read(&mut buffer[..to_read])?;
+            if bytes_received == 0 {
+                return Err(EzError::Io(ErrorKind::BrokenPipe));
+            }
+            data.extend_from_slice(&buffer[..bytes_received]);
+            total_read += bytes_received;
+        }
+
+        Ok(data)
+
 }
 
 
