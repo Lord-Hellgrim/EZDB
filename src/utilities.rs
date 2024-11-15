@@ -243,7 +243,7 @@ pub fn perform_handshake_and_authenticate(s: eznoise::KeyPair, stream: TcpStream
 
 }
 
-pub fn authenticate_client(mut connection: eznoise::Connection, db_ref: Arc<Database>) -> Result<eznoise::Connection, EzError> {
+pub fn authenticate_client(connection: &mut eznoise::Connection, db_ref: Arc<Database>) -> Result<(), EzError> {
     let auth_buffer = connection.RECEIVE_C1()?;
 
     println!("About to parse auth_string");
@@ -273,9 +273,7 @@ pub fn authenticate_client(mut connection: eznoise::Connection, db_ref: Arc<Data
         // println!("Password hash:\n\t{:?}\n...is wrong", password);
         return Err(EzError::Authentication("Wrong password.".to_owned()));
     }
-    Ok(
-        connection
-    )
+    Ok(())
 }
 
 

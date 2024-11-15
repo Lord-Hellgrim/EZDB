@@ -13,7 +13,6 @@ pub struct Job {
 pub struct ThreadHandler {
     pub jobs_condvar: Arc<Condvar>,
     pub job_queue: Arc<Mutex<VecDeque<Job>>>,
-    pub open_connections: Arc<Mutex<Vec<eznoise::Connection>>>,
 }
 
 impl ThreadHandler {
@@ -21,21 +20,16 @@ impl ThreadHandler {
         self.job_queue.lock().unwrap().push_back(job);
         self.jobs_condvar.notify_one();
     }
-
 }
 
 pub fn initialize_thread_pool(number_of_threads: usize, db_ref: Arc<Database>) -> ThreadHandler {
 
     let job_queue: Arc<Mutex<VecDeque<Job>>> = Arc::new(Mutex::new(VecDeque::new()));
 
-    let open_connections = Arc::new(Mutex::new(Vec::new()));
-
     let jobs_queue_condvar = Arc::new(Condvar::new());
     
-    for i in 0..number_of_threads {
+    for _ in 0..number_of_threads {
         let jobs = job_queue.clone();
-
-        let open_connections_clone = open_connections.clone();
 
         let jobs_condvar = jobs_queue_condvar.clone();
 
@@ -92,7 +86,6 @@ pub fn initialize_thread_pool(number_of_threads: usize, db_ref: Arc<Database>) -
                                 };
                             },
                         };
-                        open_connections_clone.lock().unwrap().push(job.connection);
                         
                     },
                     None => {
@@ -109,7 +102,6 @@ pub fn initialize_thread_pool(number_of_threads: usize, db_ref: Arc<Database>) -
     ThreadHandler {
         jobs_condvar: jobs_queue_condvar,
         job_queue: job_queue,
-        open_connections,
 
     }
 

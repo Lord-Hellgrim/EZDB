@@ -14,8 +14,8 @@ use nix::sys::epoll::{Epoll, EpollCreateFlags, EpollEvent, EpollFlags};
 use crate::auth::{user_has_permission, AuthenticationError, Permission, User};
 use crate::disk_utilities::{BufferPool, MAX_BUFFERPOOL_SIZE};
 use crate::logging::Logger;
-use crate::thread_pool::Job;
-use crate::utilities::{perform_handshake_and_authenticate, EzError, Instruction, InstructionError};
+use crate::thread_pool::{initialize_thread_pool, Job};
+use crate::utilities::{authenticate_client, perform_handshake_and_authenticate, EzError, Instruction, InstructionError};
 use crate::db_structure::{ColumnTable, KeyString};
 use crate::handlers::*;
 use crate::PATH_SEP;
@@ -117,251 +117,112 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
     let database = Arc::new(Database::init()?);
     
     let s = get_server_static_keys();
-    let writer_thread_db_ref = database.clone();
     
-    let _full_scope: Result<(), EzError> = std::thread::scope(|outer_scope| {
+    println!("Starting server...\n###########################");
+
+    println!("Binding to address: {address}");
+    let listener = match TcpListener::bind(address) {
+        Ok(value) => value,
+        Err(e) => {return Err(EzError::Io(e.kind()));},
+    };
+
+    listener.set_nonblocking(true)?;
+
+    let epoll = Epoll::new(EpollCreateFlags::empty()).unwrap();
+
+    epoll.add(listener.as_fd(), EpollEvent::new(EpollFlags::EPOLLIN, listener.as_raw_fd() as u64)).unwrap();
+
+    let mut events = vec![EpollEvent::empty(); 100];
+
+    let mut active_connections = HashMap::new();
+    let mut stream_statuses = HashMap::new();
+
+    let thread_handler = initialize_thread_pool(8, database.clone());
+    
+    loop {
         
-        let _background_thread = 
-        outer_scope.spawn(move || {
-            println!("Background thread running");
-            loop {
-                std::thread::sleep(Duration::from_secs(5));
-                println!("Current tables:");
-                for table in writer_thread_db_ref.buffer_pool.tables.read().unwrap().keys() {
-                    println!("{}", table);
-                }
-                println!("Background thread still running");
-                println!("{:?}", writer_thread_db_ref.buffer_pool.table_delete_list.read().unwrap());
-                for key in writer_thread_db_ref.buffer_pool.table_delete_list.read().unwrap().iter() {
-                    println!("KEY: {}", key);
-                    match std::fs::remove_file(format!("EZconfig{PATH_SEP}raw_tables{PATH_SEP}{}", key.as_str())) {
-                        Ok(_) => (),
-                        Err(e) => println!("LINE: {} - ERROR: {}", line!(), e),
-                    }
-                    
-                }
-                println!("{:?}", writer_thread_db_ref.buffer_pool.table_delete_list.read().unwrap());
-                writer_thread_db_ref.buffer_pool.table_delete_list.write().unwrap().clear();
-
-
-                for key in writer_thread_db_ref.buffer_pool.value_delete_list.write().unwrap().iter() {
-                    match std::fs::remove_file(format!("EZconfig{PATH_SEP}raw_values{PATH_SEP}{}", key.as_str())) {
-                        Ok(_) => (),
-                        Err(e) => println!("LINE: {} - ERROR: {}", line!(), e),
-                    }
-                }
-                writer_thread_db_ref.buffer_pool.value_delete_list.write().unwrap().clear();
-
-                for (key, table_lock) in writer_thread_db_ref.buffer_pool.tables.read().unwrap().iter() {
-                    println!("key: {}", key);
-                    let mut table_naughty_list = writer_thread_db_ref.buffer_pool.table_naughty_list.write().unwrap();
-                    if table_naughty_list.contains(key) {
-                        let mut file = match std::fs::File::create(format!("EZconfig{PATH_SEP}raw_tables{PATH_SEP}{}", key.as_str())) {
-                            Ok(file) => file,
-                            Err(e) => {
-                                println!("LINE: {} - ERROR: {}", line!(), e);
-                                continue
-                            },
-                        };
-                        file.write(&table_lock.read().unwrap().to_binary()).expect(&format!("Panic of line: {} of server_networking. The backup file could not be written.", line!()));
-                        table_naughty_list.remove(key);
-                    }
-                }
-                
-                for (key, value_lock) in writer_thread_db_ref.buffer_pool.values.read().unwrap().iter() {
-                    let mut value_naughty_list = writer_thread_db_ref.buffer_pool.value_naughty_list.write().unwrap();
-                    if value_naughty_list.contains(key) {
-                        let mut file = std::fs::File::create(format!("EZconfig{PATH_SEP}raw_values{PATH_SEP}{}", key.as_str())).expect(&format!("Panic of line: {} of server_networking. The backup file could not be created.", line!()));
-                        file.write(&value_lock.read().unwrap().write_to_binary()).expect(&format!("Panic of line: {} of server_networking. The backup file could not be written.", line!()));
-                        value_naughty_list.remove(key);
-                    }
-                }
-
-
-            }
-        }); // Thread that writes in memory tables to disk
-        // ########################################################################################################################
-
-        println!("Starting server...\n###########################");
-    
-        println!("Binding to address: {address}");
-        let listener = match TcpListener::bind(address) {
-            Ok(value) => value,
-            Err(e) => {return Err(EzError::Io(e.kind()));},
+        let number_of_events = match epoll.wait(&mut events, 255 as u8) {
+            Ok(number) => number,
+            Err(e) => {
+                println!("{}", e);
+                0
+            },
         };
+        
+        let db_con = database.clone();
 
-        listener.set_nonblocking(true)?;
+        for i in 0..number_of_events {
+            if events[i].data() == listener.as_raw_fd() as u64 {
+                let (stream, client_address) = match listener.accept() {
+                    Ok((n,m)) => (n, m),
+                    Err(e) => return Err(EzError::Io(e.kind())),
+                };
+                println!("Accepted connection from: {}", client_address);
+                let key = stream.as_raw_fd() as u64;
 
-        let epoll = Epoll::new(EpollCreateFlags::empty()).unwrap();
+                stream_statuses.insert(key, (StreamStatus::Fresh, None));
 
-        epoll.add(listener.as_fd(), EpollEvent::new(EpollFlags::EPOLLIN, listener.as_raw_fd() as u64)).unwrap();
+                epoll.add(stream.as_fd(), EpollEvent::new(EpollFlags::EPOLLIN, key)).unwrap();
+            } else {
+                let fd = events[i].data();
+                match stream_statuses.remove(&fd) {
+                    Some((mut status, handshakestate)) => match status {
+                        StreamStatus::Fresh => {
+                            let mut stream = unsafe { TcpStream::from_raw_fd(fd as i32) };
+                            let handshakestate = Some(eznoise::ESTABLISH_CONNECTION_STEP_1(&mut stream, s.clone()).unwrap());
+                            let handshakestate = Some(eznoise::ESTABLISH_CONNECTION_STEP_2(&mut stream, handshakestate.unwrap()).unwrap());
+                            status.bump();
+                            stream_statuses.insert(fd, (status, handshakestate));
 
-        let mut events = vec![EpollEvent::empty(); 100];
-
-        let mut active_streams = HashMap::new();
-        loop {
-            // Reading instructions
-
-            let number_of_events = match epoll.wait(&mut events, 255 as u8) {
-                Ok(number) => number,
-                Err(e) => {
-                    println!("{}", e);
-                    0
-                },
-            };
-
-            for i in 0..number_of_events {
-                if events[i].data() == listener.as_raw_fd() as u64 {
-                    let (stream, client_address) = match listener.accept() {
-                        Ok((n,m)) => (n, m),
-                        Err(e) => return Err(EzError::Io(e.kind())),
-                    };
-                    println!("Accepted connection from: {}", client_address);
-                    let key = stream.as_raw_fd() as u64;
-
-                    active_streams.insert(key, (StreamStatus::Fresh, None));
-
-                    epoll.add(stream.as_fd(), EpollEvent::new(EpollFlags::EPOLLIN, key)).unwrap();
-                } else {
-                    let fd = events[i].data();
-                    match active_streams.get(&fd) {
-                        Some((status, handshakestate)) => match status {
-                            StreamStatus::Fresh => {
-                                let mut stream = unsafe { TcpStream::from_raw_fd(fd as i32) };
-                                let handshakestate = Some(eznoise::ESTABLISH_CONNECTION_STEP_1(&mut stream, s).unwrap());
-                                let handshakestate = Some(eznoise::ESTABLISH_CONNECTION_STEP_2(&mut stream, handshakestate.unwrap()).unwrap());
-                                active_streams.entry(fd).and_modify(|(status, state)| {
-                                    status.bump();
-                                    *state = handshakestate;
-                                });
-
-                            },
-                            StreamStatus::Handshake1 => {
-                                let mut stream = unsafe { TcpStream::from_raw_fd(fd as i32) };
-                                let connection = eznoise::ESTABLISH_CONNECTION_STEP_3(stream, handshakestate.unwrap()).unwrap();
-                                active_streams.entry(fd).and_modify(|(status, state)| {
-                                    status.bump();
-                                    *state = None;
-                                });
-                            },
-                            StreamStatus::Handshake2 => {
-                                todo!()
-                            }
-                            StreamStatus::Authenticated => todo!(),
-                            StreamStatus::Veteran(_) => todo!(),
-                            StreamStatus::Http => todo!(),
                         },
-                        None => println!("Stream must have been dropped unexpectedly. Carry on.")
-                    }
+                        StreamStatus::Handshake1 => {
+                            let stream = unsafe { TcpStream::from_raw_fd(fd as i32) };
+                            let connection = eznoise::ESTABLISH_CONNECTION_STEP_3(stream, handshakestate.unwrap()).unwrap();
+                            if active_connections.contains_key(&fd) {
+                                todo!()
+                            } else {
+                                active_connections.insert(fd, connection);
+                            }
+                            status.bump();
+                            stream_statuses.insert(fd, (status, None));
+                        },
+                        StreamStatus::Handshake2 => {
+                            let inner_db_con = db_con.clone();
+                            let connection = active_connections.get_mut(&fd).unwrap();
+                            match authenticate_client(connection, inner_db_con) {
+                                Ok(_) => {
+                                    status.bump();
+                                    stream_statuses.insert(fd, (status, None));
+                                },
+                                Err(e) => {
+                                    interior_log(e);
+                                    active_connections.remove(&fd);
+                                    let stream = unsafe { TcpStream::from_raw_fd(fd as i32) };
+                                    epoll.delete( stream.as_fd() ).unwrap();
+                                }
+                            };
+                        }
+                        StreamStatus::Authenticated => {
+                            let connection = match active_connections.get_mut(&fd) {
+                                Some(x) => x,
+                                None => panic!("Unexpectedly dropped authenticated client"),
+                            };
+                            
+                            
+
+                            status.bump();
+                            stream_statuses.insert(fd, (status, None));
+
+                        },
+                        StreamStatus::Veteran(_) => todo!(),
+                        StreamStatus::Http => todo!(),
+                    },
+                    None => println!("Stream must have been dropped unexpectedly. Carry on.")
                 }
             }
-
-            let db_con = database.clone();
-            let thread_s = s.clone();
-            let mut connection = match perform_handshake_and_authenticate(thread_s, stream, db_con) {
-                Ok(c) => c,
-                Err(e) => {
-                    interior_log(e);
-                    continue
-                },
-            };
-
-            let instructions = match connection.RECEIVE_C1() {
-                Ok(ins) => ins,
-                Err(_) => continue,
-            };
-            
-            let db_ref = database.clone();
-
-
-
-
-            // Spawn a thread to handle establishing connections
-            // outer_scope.spawn(move || {
-                
-
-                // println!("Parsing instructions...");
-                // match parse_instruction(
-                //     &instructions, 
-                //     db_ref.clone(),
-                // ) {
-                //     Ok(i) => match i {
-                        
-                //         Instruction::Query => {
-                //             match handle_query_request(
-                //                 &mut connection,
-                //                 db_ref.clone(),
-                //                 &username
-                //             ) {
-                //                 Ok(_) => {
-                //                     println!("Operation finished!");
-                //                 },
-                //                 Err(e) => {
-                //                     println!("Operation failed because: {}", e);
-                //                 },
-                //             }
-                //         },
-                //         Instruction::NewUser => {
-                //             match handle_new_user_request(
-                //                 &mut connection,
-                //                 db_ref.clone(),
-                //             ) {
-                //                 Ok(_) => {
-                //                     println!("New user added!");
-                //                 },
-                //                 Err(e) => {
-                //                     println!("Operation failed because: {}", e);
-                //                 },
-                //             }
-                            
-                //         },
-                //         Instruction::MetaListTables => {
-                //             match handle_meta_list_tables(
-                //                 &mut connection, 
-                //                 db_ref.clone(),
-                //             ) {
-                //                 Ok(_) => {
-                //                     println!("Operation finished");
-                //                 },
-                //                 Err(e) => {
-                //                     println!("Operation failed because: {}", e);
-                //                 }
-                //             }
-                //         }
-                //         Instruction::MetaListKeyValues => {
-                //             match handle_meta_list_key_values(
-                //                 &mut connection, 
-                //                 db_ref.clone(),
-                //             ) {
-                //                 Ok(_) => {
-                //                     println!("Operation finished");
-                //                 },
-                //                 Err(e) => {
-                //                     println!("Operation failed because: {}", e);
-                //                 }
-                //             }
-                //         }
-                //     },
-                    
-                //     Err(e) => {
-                //         println!("Failed to serve request because: {e}");
-                //         connection.send_c2(e.to_string().as_bytes())?;
-                //         println!("Thread finished on error: {e}");
-                //     },
-                    
-                // };
-    
-            //     Ok::<(), EzError>(())
-            // });
         }
 
-
-
-
-    });
-
-
-    Ok(())
+    }
 
 }
 
@@ -375,7 +236,59 @@ pub fn perform_administration(binary: Vec<u8>, db_ref: Arc<Database>) -> Result<
 
 pub fn perform_maintenance(db_ref: Arc<Database>) -> Result<(), EzError> {
 
-    todo!()
+    std::thread::sleep(Duration::from_secs(5));
+    println!("Current tables:");
+    for table in db_ref.buffer_pool.tables.read().unwrap().keys() {
+        println!("{}", table);
+    }
+    println!("Background thread still running");
+    println!("{:?}", db_ref.buffer_pool.table_delete_list.read().unwrap());
+    for key in db_ref.buffer_pool.table_delete_list.read().unwrap().iter() {
+        println!("KEY: {}", key);
+        match std::fs::remove_file(format!("EZconfig{PATH_SEP}raw_tables{PATH_SEP}{}", key.as_str())) {
+            Ok(_) => (),
+            Err(e) => println!("LINE: {} - ERROR: {}", line!(), e),
+        }
+        
+    }
+    println!("{:?}", db_ref.buffer_pool.table_delete_list.read().unwrap());
+    db_ref.buffer_pool.table_delete_list.write().unwrap().clear();
+
+
+    for key in db_ref.buffer_pool.value_delete_list.write().unwrap().iter() {
+        match std::fs::remove_file(format!("EZconfig{PATH_SEP}raw_values{PATH_SEP}{}", key.as_str())) {
+            Ok(_) => (),
+            Err(e) => println!("LINE: {} - ERROR: {}", line!(), e),
+        }
+    }
+    db_ref.buffer_pool.value_delete_list.write().unwrap().clear();
+
+    for (key, table_lock) in db_ref.buffer_pool.tables.read().unwrap().iter() {
+        println!("key: {}", key);
+        let mut table_naughty_list = db_ref.buffer_pool.table_naughty_list.write().unwrap();
+        if table_naughty_list.contains(key) {
+            let mut file = match std::fs::File::create(format!("EZconfig{PATH_SEP}raw_tables{PATH_SEP}{}", key.as_str())) {
+                Ok(file) => file,
+                Err(e) => {
+                    println!("LINE: {} - ERROR: {}", line!(), e);
+                    continue
+                },
+            };
+            file.write(&table_lock.read().unwrap().to_binary()).expect(&format!("Panic of line: {} of server_networking. The backup file could not be written.", line!()));
+            table_naughty_list.remove(key);
+        }
+    }
+    
+    for (key, value_lock) in db_ref.buffer_pool.values.read().unwrap().iter() {
+        let mut value_naughty_list = db_ref.buffer_pool.value_naughty_list.write().unwrap();
+        if value_naughty_list.contains(key) {
+            let mut file = std::fs::File::create(format!("EZconfig{PATH_SEP}raw_values{PATH_SEP}{}", key.as_str())).expect(&format!("Panic of line: {} of server_networking. The backup file could not be created.", line!()));
+            file.write(&value_lock.read().unwrap().write_to_binary()).expect(&format!("Panic of line: {} of server_networking. The backup file could not be written.", line!()));
+            value_naughty_list.remove(key);
+        }
+    }
+
+    Ok(())
 }
 
 pub fn interior_log(e: EzError) {
