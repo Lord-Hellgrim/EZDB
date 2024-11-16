@@ -295,4 +295,21 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_random_query() {
+        for _ in 0..10000 {
+            let query = random_query();
+            let binary_query = query.to_binary();
+            let parsed_query = match Query::from_binary(&binary_query) {
+                Ok(x) => x,
+                Err(e) => {
+                    println!("Query:\n#################################################\n\n{}", query);
+                    Query::from_binary(&binary_query).unwrap();
+                    continue
+                }
+            };
+            assert_eq!(query, parsed_query);
+        }
+    }
+
 }

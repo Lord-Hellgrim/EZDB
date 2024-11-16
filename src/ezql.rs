@@ -310,6 +310,8 @@ impl Query {
                 binary.extend_from_slice(&binary_primary_keys);
                 binary.extend_from_slice(&binary_columns);
                 binary.extend_from_slice(&binary_conditions);
+                let len = &binary.len().to_le_bytes();
+                binary[24..32].copy_from_slice(len);
             },
             Query::LEFT_JOIN { left_table_name, right_table_name, match_columns, primary_keys } => {
                 let binary_primary_keys = primary_keys.to_binary();
@@ -321,6 +323,8 @@ impl Query {
                 binary.extend_from_slice(match_columns.0.raw());
                 binary.extend_from_slice(match_columns.1.raw());
                 binary.extend_from_slice(&binary_primary_keys);
+                let len = &binary.len().to_le_bytes();
+                binary[24..32].copy_from_slice(len);
 
             },
             Query::INNER_JOIN => todo!(),
@@ -339,6 +343,8 @@ impl Query {
                 binary.extend_from_slice(&binary_primary_keys);
                 binary.extend_from_slice(&binary_conditions);
                 binary.extend_from_slice(&binary_updates);
+                let len = &binary.len().to_le_bytes();
+                binary[24..32].copy_from_slice(len);
             },
             Query::INSERT { table_name, inserts } => {
                 let table = inserts.to_binary();
@@ -347,6 +353,8 @@ impl Query {
                 binary.extend_from_slice(KeyString::from("INSERT").raw());
                 binary.extend_from_slice(table_name.raw());
                 binary.extend_from_slice(&table);
+                let len = &binary.len().to_le_bytes();
+                binary[24..32].copy_from_slice(len);
 
             },
             Query::DELETE { primary_keys, table_name, conditions } => {
@@ -355,10 +363,12 @@ impl Query {
                 handles[0..8].copy_from_slice(&binary_primary_keys.len().to_le_bytes());
                 handles[8..16].copy_from_slice(&binary_conditions.len().to_le_bytes());
                 binary.extend_from_slice(&handles);
-                binary.extend_from_slice(KeyString::from("SELECT").raw());
+                binary.extend_from_slice(KeyString::from("DELETE").raw());
                 binary.extend_from_slice(table_name.raw());
                 binary.extend_from_slice(&binary_primary_keys);
                 binary.extend_from_slice(&binary_conditions);
+                let len = &binary.len().to_le_bytes();
+                binary[24..32].copy_from_slice(len);
 
             },
             Query::SUMMARY { table_name, columns } => {
@@ -367,6 +377,8 @@ impl Query {
                 binary.extend_from_slice(&handles);
                 binary.extend_from_slice(KeyString::from("SUMMARY").raw());
                 binary.extend_from_slice(table_name.raw());
+                let len = &binary.len().to_le_bytes();
+                binary[24..32].copy_from_slice(len);
                 
             },
         }
@@ -384,7 +396,7 @@ impl Query {
         match query_type.as_str() {
             "INSERT" => {
                 let inserts_len = u64_from_le_slice(&handles[0..8]) as usize;
-                let inserts = ColumnTable::from_binary(Some("inserts"), &body[128..inserts_len])?;
+                let inserts = ColumnTable::from_binary(Some("inserts"), &body[128..128+inserts_len])?;
                 Ok( Query::INSERT { table_name, inserts })
             },
             "SELECT" => {
@@ -438,7 +450,7 @@ impl Query {
             },
             "SUMMARY" => {
                 let stat_len = u64_from_le_slice(&handles[0..8]) as usize;
-                let columns = statistics_from_binary(&body[128..stat_len])?;
+                let columns = statistics_from_binary(&body[128..128+stat_len])?;
 
                 Ok( Query::SUMMARY { table_name, columns } )
 
@@ -447,6 +459,32 @@ impl Query {
         }
 
     }
+}
+
+pub fn queries_from_binary(binary: &[u8]) -> Result<Vec<Query>, EzError> {
+    if binary.len() < 160 {
+        return Err(EzError::Query("Binary is too short. Cannot be a valid query".to_owned()))
+    }
+    let mut queries = Vec::new();
+    let mut counter = 0;
+    while counter < binary.len() {
+        let block = &binary[counter..];
+        let len = u64_from_le_slice(&block[24..32]) as usize;
+        let query = Query::from_binary(block)?;
+        queries.push(query);
+        counter += len;
+    }
+
+    Ok(queries)
+}
+
+pub fn queries_to_binary(queries: &[Query]) -> Vec<u8> {
+    let mut binary = Vec::new();
+    for query in queries {
+        binary.extend_from_slice(&query.to_binary());
+    }
+
+    binary
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -706,7 +744,7 @@ impl RangeOrListOrAll {
                 Ok(RangeOrListOrAll::Range(from, to))
             }
             "LIST" => {
-                if binary[64..].len() % 64 != 0 {
+                if binary.len() % 64 != 0 {
                     return Err(EzError::Query(format!("List is always a multiple of 64 bytes. Input binary is {}", binary.len())))
                 }
                 let mut list = Vec::new();
@@ -906,6 +944,10 @@ impl OpOrCond {
 
 
 pub fn conditions_from_binary(binary: &[u8]) -> Result<Vec<OpOrCond>, EzError> {
+    if binary.is_empty() {
+        return Ok(Vec::new())
+    }
+    
     if binary.len() < 192 {
         return Err(EzError::Query(format!("Condition is at least 192 bytes. Input binary is {}", binary.len())))
 
@@ -2087,7 +2129,7 @@ mod tests {
 
     use std::default;
 
-    use crate::utilities::ksf;
+    use crate::{testing_tools::random_query, utilities::ksf};
 
     use super::*;
 
@@ -2348,6 +2390,21 @@ mod tests {
         let bad = "SUMMARY(table_name: products, columns: ((SUM stock), (MEAN price))";
         let e = parse_EZQL(bad);
         assert!(e.is_err());
+    }
+
+    #[test]
+    fn test_queries_from_binary() {
+        let mut queries = Vec::new();
+        for _ in 0..10 {
+            let query = random_query();
+            queries.push(query);
+        }
+
+        let binary = queries_to_binary(&queries);
+
+        let parsed_queries = queries_from_binary(&binary).unwrap();
+
+        assert_eq!(queries, parsed_queries);
     }
 
 
