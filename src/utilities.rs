@@ -254,6 +254,7 @@ pub fn authenticate_client(connection: &mut eznoise::Connection, db_ref: Arc<Dat
             return Err(EzError::Utf8(e));
         }
     };
+    connection.peer = username.to_string();
     let password = &auth_buffer[512..];
     let password = ez_hash(bytes_to_str(password).unwrap().as_bytes());
     println!("About to verify username and password");

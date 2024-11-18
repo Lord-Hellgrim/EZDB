@@ -19,11 +19,12 @@ pub fn make_connection(address: &str, username: &str, password: &str) -> Result<
     let mut auth_buffer = [0u8;1024];
     if username.len() > 512 || password.len() > 512 {
         return Err(EzError::Authentication("Username and password must each be less than 512 bytes".to_owned()))
-}
+    }
     auth_buffer[0..username.len()].copy_from_slice(username.as_bytes());
-    auth_buffer[512..password.len()].copy_from_slice(username.as_bytes());
-
+    auth_buffer[512..512+password.len()].copy_from_slice(username.as_bytes());
+    
     connection.SEND_C1(&auth_buffer)?;
+    println!("HERE!!!");
 
     Ok(connection)
 }
@@ -37,7 +38,7 @@ pub fn send_query(
 ) -> Result<ColumnTable, EzError> {
     println!("calling: send_query()");
 
-    let mut connection = make_connection(address, username, password)?;
+    let mut connection = make_connection(address, username, password).unwrap();
 
     let query = query.to_string();
     let mut packet = Vec::new();

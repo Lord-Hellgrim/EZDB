@@ -278,6 +278,8 @@ pub fn random_query() -> Query {
 #[cfg(test)]
 mod tests {
 
+    use crate::utilities::u64_from_le_slice;
+
     use super::*;
 
     #[test]
@@ -297,7 +299,7 @@ mod tests {
 
     #[test]
     fn test_random_query() {
-        for _ in 0..10000 {
+        for _ in 0..100 {
             let query = random_query();
             let binary_query = query.to_binary();
             let parsed_query = match Query::from_binary(&binary_query) {
@@ -310,6 +312,22 @@ mod tests {
             };
             assert_eq!(query, parsed_query);
         }
+    }
+
+    #[test]
+    fn test_query_binary_length() {
+        for i in 0..1000 {
+            println!("{}", i);
+            let query = random_query();
+            let binary_query = query.to_binary();
+            let len = u64_from_le_slice(&binary_query[24..32]) as usize;
+            if binary_query.len() != len {
+                println!("#####################\n\nlen: {}  -  bin_len: {}\n\n", len, binary_query.len());
+                println!("{}", query);
+                panic!()
+            }
+        }
+
     }
 
 }

@@ -377,6 +377,7 @@ impl Query {
                 binary.extend_from_slice(&handles);
                 binary.extend_from_slice(KeyString::from("SUMMARY").raw());
                 binary.extend_from_slice(table_name.raw());
+                binary.extend_from_slice(&stats);
                 let len = &binary.len().to_le_bytes();
                 binary[24..32].copy_from_slice(len);
                 
@@ -461,15 +462,15 @@ impl Query {
     }
 }
 
-pub fn queries_from_binary(binary: &[u8]) -> Result<Vec<Query>, EzError> {
+pub fn parse_queries_from_binary(binary: &[u8]) -> Result<Vec<Query>, EzError> {
     if binary.len() < 160 {
         return Err(EzError::Query("Binary is too short. Cannot be a valid query".to_owned()))
     }
     let mut queries = Vec::new();
     let mut counter = 0;
     while counter < binary.len() {
-        let block = &binary[counter..];
-        let len = u64_from_le_slice(&block[24..32]) as usize;
+        let len = u64_from_le_slice(&binary[counter+24..counter+32]) as usize;
+        let block = &binary[counter..counter + len];
         let query = Query::from_binary(block)?;
         queries.push(query);
         counter += len;
@@ -744,11 +745,12 @@ impl RangeOrListOrAll {
                 Ok(RangeOrListOrAll::Range(from, to))
             }
             "LIST" => {
-                if binary.len() % 64 != 0 {
+                if (binary.len()-8) % 64 != 0 {
                     return Err(EzError::Query(format!("List is always a multiple of 64 bytes. Input binary is {}", binary.len())))
                 }
                 let mut list = Vec::new();
-                for chunk in binary[64..].chunks(64) {
+                let list_len = u64_from_le_slice(&binary[64..72]) as usize;
+                for chunk in binary[72..72+64*list_len].chunks(64) {
                     list.push(KeyString::try_from(chunk).unwrap());
                 }
                 Ok(RangeOrListOrAll::List(list))
@@ -2402,7 +2404,7 @@ mod tests {
 
         let binary = queries_to_binary(&queries);
 
-        let parsed_queries = queries_from_binary(&binary).unwrap();
+        let parsed_queries = parse_queries_from_binary(&binary).unwrap();
 
         assert_eq!(queries, parsed_queries);
     }

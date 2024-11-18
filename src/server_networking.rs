@@ -11,8 +11,9 @@ use ezcbor::cbor::{decode_cbor, Cbor};
 use eznoise::{HandshakeState, KeyPair};
 use nix::sys::epoll::{Epoll, EpollCreateFlags, EpollEvent, EpollFlags};
 
-use crate::auth::{user_has_permission, AuthenticationError, Permission, User};
+use crate::auth::{check_permission, user_has_permission, AuthenticationError, Permission, User};
 use crate::disk_utilities::{BufferPool, MAX_BUFFERPOOL_SIZE};
+use crate::ezql::{execute_EZQL_queries, parse_queries_from_binary};
 use crate::logging::Logger;
 use crate::thread_pool::{initialize_thread_pool, Job};
 use crate::utilities::{authenticate_client, perform_handshake_and_authenticate, read_known_length, EzError, Instruction, InstructionError};
@@ -134,6 +135,7 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
 
     let mut events = vec![EpollEvent::empty(); 100];
 
+    let mut unsigned_streams = HashMap::new();
     let mut virgin_connections = HashMap::new();
     let mut stream_statuses = HashMap::new();
 
@@ -141,7 +143,7 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
     
     loop {
         
-        let number_of_events = match epoll.wait(&mut events, 255 as u8) {
+        let number_of_events = match epoll.wait(&mut events, 5 as u8) {
             Ok(number) => number,
             Err(e) => {
                 println!("{}", e);
@@ -152,31 +154,30 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
         let db_con = database.clone();
 
         for i in 0..number_of_events {
+            println!("SERVER HERE!!");
             if events[i].data() == listener.as_raw_fd() as u64 {
-                let (stream, client_address) = match listener.accept() {
+                let (mut stream, client_address) = match listener.accept() {
                     Ok((n,m)) => (n, m),
                     Err(e) => return Err(EzError::Io(e.kind())),
                 };
                 println!("Accepted connection from: {}", client_address);
                 let key = stream.as_raw_fd() as u64;
-
-                stream_statuses.insert(key, (StreamStatus::Fresh, None));
+                
+                let handshakestate = Some(eznoise::ESTABLISH_CONNECTION_STEP_1(&mut stream, s.clone()).unwrap());
+                let handshakestate = Some(eznoise::ESTABLISH_CONNECTION_STEP_2(&mut stream, handshakestate.unwrap()).unwrap());
+                stream_statuses.insert(key, (StreamStatus::Handshake1, handshakestate));
 
                 epoll.add(stream.as_fd(), EpollEvent::new(EpollFlags::EPOLLIN, key)).unwrap();
+                unsigned_streams.insert(key, stream);
             } else {
                 let fd = events[i].data();
                 match stream_statuses.remove(&fd) {
                     Some((mut status, handshakestate)) => match status {
                         StreamStatus::Fresh => {
-                            let mut stream = unsafe { TcpStream::from_raw_fd(fd as i32) };
-                            let handshakestate = Some(eznoise::ESTABLISH_CONNECTION_STEP_1(&mut stream, s.clone()).unwrap());
-                            let handshakestate = Some(eznoise::ESTABLISH_CONNECTION_STEP_2(&mut stream, handshakestate.unwrap()).unwrap());
-                            status.bump();
-                            stream_statuses.insert(fd, (status, handshakestate));
 
                         },
                         StreamStatus::Handshake1 => {
-                            let stream = unsafe { TcpStream::from_raw_fd(fd as i32) };
+                            let stream = unsigned_streams.remove(&fd).unwrap();
                             let connection = eznoise::ESTABLISH_CONNECTION_STEP_3(stream, handshakestate.unwrap()).unwrap();
                             if virgin_connections.contains_key(&fd) {
                                 todo!()
@@ -250,20 +251,20 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
 
 }
 
-pub fn answer_query(binary: Vec<u8>, db_ref: Arc<Database>) -> Result<Vec<u8>, EzError> {
+pub fn answer_query(binary: Vec<u8>, user: &str, db_ref: Arc<Database>) -> Result<Vec<u8>, EzError> {
 
+    let queries = parse_queries_from_binary(&binary)?;
 
+    check_permission(&queries, user, db_ref.users.clone())?;
+    let requested_table = match execute_EZQL_queries(queries, db_ref) {
+        Ok(res) => match res {
+            Some(table) => table.to_binary(),
+            None => "None.".as_bytes().to_vec(),
+        },
+        Err(e) => format!("ERROR -> Could not process query because of error: '{}'", e.to_string()).as_bytes().to_vec(),
+    };
 
-    // check_permission(&queries, user, database.users.clone())?;
-    // let requested_table = match execute_EZQL_queries(queries, database) {
-    //     Ok(res) => match res {
-    //         Some(table) => table.to_binary(),
-    //         None => "None.".as_bytes().to_vec(),
-    //     },
-    //     Err(e) => format!("ERROR -> Could not process query because of error: '{}'", e.to_string()).as_bytes().to_vec(),
-    // };
-
-    todo!()
+    Ok(requested_table)
 }
 
 pub fn perform_administration(binary: Vec<u8>, db_ref: Arc<Database>) -> Result<Vec<u8>, EzError> {
