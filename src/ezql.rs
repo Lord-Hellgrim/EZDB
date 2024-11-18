@@ -2131,6 +2131,8 @@ mod tests {
 
     use std::default;
 
+    use rand::Rng;
+
     use crate::{testing_tools::random_query, utilities::ksf};
 
     use super::*;
@@ -2396,17 +2398,43 @@ mod tests {
 
     #[test]
     fn test_queries_from_binary() {
-        let mut queries = Vec::new();
         for _ in 0..10 {
-            let query = random_query();
-            queries.push(query);
+            let i = rand::thread_rng().gen_range(1..10);
+            if i == 1 {
+                let query = random_query();
+                let bin_query = query.to_binary();
+                let parsed_query = Query::from_binary(&bin_query).unwrap();
+                assert_eq!(query, parsed_query);
+            } else {
+                
+                let mut queries = Vec::new();
+                for _ in 0..i {
+                    let query = random_query();
+                    queries.push(query);
+                }
+                let binary = queries_to_binary(&queries);
+                
+                let parsed_queries = parse_queries_from_binary(&binary).unwrap();
+                assert_eq!(queries, parsed_queries);
+            }
+            
         }
 
-        let binary = queries_to_binary(&queries);
+    }
 
-        let parsed_queries = parse_queries_from_binary(&binary).unwrap();
-
-        assert_eq!(queries, parsed_queries);
+    #[test]
+    fn test_base_query() {
+        let query = Query::SELECT { 
+            table_name: ksf("good_table"),
+            primary_keys: RangeOrListOrAll::All,
+            columns: vec![ksf("id"), ksf("name"), ksf("price")],
+            conditions: Vec::new() 
+        };
+        let binary = query.to_binary();
+        println!("query len = {}", binary.len());
+        println!("{:?}", binary);
+        let parsed = Query::from_binary(&binary).unwrap();
+        assert_eq!(query, parsed);
     }
 
 

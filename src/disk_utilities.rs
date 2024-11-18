@@ -47,11 +47,13 @@ impl BufferPool {
             table_file.read_to_end(&mut binary)?;
 
             let table = ColumnTable::from_binary(Some(&name), &binary)?;
+            
             self.add_table(table)?;
         }
 
         let good_table = std::fs::read_to_string(&format!("test_files{PATH_SEP}good_csv.txt")).unwrap();
         let good_table = ColumnTable::from_csv_string(&good_table, "good_table", "server").unwrap();
+        println!("good_table.len() = {}", good_table.to_binary().len());
         match self.add_table(good_table) {
             Ok(_) => (),
             Err(_) => (),

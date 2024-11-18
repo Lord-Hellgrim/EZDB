@@ -154,7 +154,6 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
         let db_con = database.clone();
 
         for i in 0..number_of_events {
-            println!("SERVER HERE!!");
             if events[i].data() == listener.as_raw_fd() as u64 {
                 let (mut stream, client_address) = match listener.accept() {
                     Ok((n,m)) => (n, m),
@@ -177,6 +176,7 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
 
                         },
                         StreamStatus::Handshake1 => {
+                            println!("handshake1");
                             let stream = unsigned_streams.remove(&fd).unwrap();
                             let connection = eznoise::ESTABLISH_CONNECTION_STEP_3(stream, handshakestate.unwrap()).unwrap();
                             if virgin_connections.contains_key(&fd) {
@@ -188,6 +188,7 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                             stream_statuses.insert(fd, (status, None));
                         },
                         StreamStatus::Handshake2 => {
+                            println!("handshake2");
                             let inner_db_con = db_con.clone();
                             let connection = virgin_connections.get_mut(&fd).unwrap();
                             match authenticate_client(connection, inner_db_con) {
@@ -204,6 +205,7 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                             };
                         }
                         StreamStatus::Authenticated => {
+                            println!("Authenticated");
                             let mut connection = match virgin_connections.remove(&fd) {
                                 Some(x) => x,
                                 None => panic!("Unexpectedly dropped authenticated client"),
@@ -214,7 +216,7 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                                     thread_handler.push_job(Job{connection, data});
                                 },
                                 Err(e) => {
-                                    println!("Failed to receive command");
+                                    println!("Failed to receive command because: {}", e);
                                 }
                             };
 
@@ -223,6 +225,7 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
 
                         },
                         StreamStatus::Veteran(_rounds) => {
+                            println!("Veteran");
                             let mut connection = match thread_handler.open_connections.lock().unwrap().remove(&fd) {
                                 Some(x) => x,
                                 None => panic!("Unexpectedly dropped authenticated client"),
@@ -233,7 +236,7 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                                     thread_handler.push_job(Job{connection, data});
                                 },
                                 Err(e) => {
-                                    println!("Failed to receive command");
+                                    println!("Failed to receive command because");
                                 }
                             };
 
@@ -251,7 +254,7 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
 
 }
 
-pub fn answer_query(binary: Vec<u8>, user: &str, db_ref: Arc<Database>) -> Result<Vec<u8>, EzError> {
+pub fn answer_query(binary: &[u8], user: &str, db_ref: Arc<Database>) -> Result<Vec<u8>, EzError> {
 
     let queries = parse_queries_from_binary(&binary)?;
 
@@ -267,13 +270,12 @@ pub fn answer_query(binary: Vec<u8>, user: &str, db_ref: Arc<Database>) -> Resul
     Ok(requested_table)
 }
 
-pub fn perform_administration(binary: Vec<u8>, db_ref: Arc<Database>) -> Result<Vec<u8>, EzError> {
+pub fn perform_administration(binary: &[u8], db_ref: Arc<Database>) -> Result<Vec<u8>, EzError> {
     todo!()
 }
 
 pub fn perform_maintenance(db_ref: Arc<Database>) -> Result<(), EzError> {
 
-    std::thread::sleep(Duration::from_secs(5));
     println!("Current tables:");
     for table in db_ref.buffer_pool.tables.read().unwrap().keys() {
         println!("{}", table);

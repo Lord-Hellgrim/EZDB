@@ -260,6 +260,7 @@ pub fn authenticate_client(connection: &mut eznoise::Connection, db_ref: Arc<Dat
     println!("About to verify username and password");
 
     let users_lock = db_ref.users.read().unwrap();
+    println!("taken MUTEX on users");
     if !users_lock.contains_key(&KeyString::from(username)) {
         println!("printing keys..");
 
@@ -269,15 +270,14 @@ pub fn authenticate_client(connection: &mut eznoise::Connection, db_ref: Arc<Dat
         println!("Username:\n\t'{}'\n...is wrong", username);
         return Err(EzError::Authentication(format!("Username: '{}' does not exist", username)));
     } else if db_ref.users.read().unwrap()[&KeyString::from(username)].read().unwrap().password != password {
-        // println!("thread_users_lock[username].password: {:?}", user_lock.password);
-        // println!("password: {:?}", password);
-        // println!("Password hash:\n\t{:?}\n...is wrong", password);
+        println!("password: {:?}", password);
         return Err(EzError::Authentication("Wrong password.".to_owned()));
     }
     Ok(())
 }
 
 pub fn read_known_length(stream: &mut TcpStream) -> Result<Vec<u8>, EzError> {
+    stream.set_nonblocking(false)?;
     let mut size_buffer: [u8; 8] = [0; 8];
     stream.read_exact(&mut size_buffer)?;
 
@@ -286,11 +286,12 @@ pub fn read_known_length(stream: &mut TcpStream) -> Result<Vec<u8>, EzError> {
     let mut buffer = [0; 4096];
     let mut total_read: usize = 0;
     
-    stream.set_nonblocking(false)?;
 
     while total_read < data_len {
         let to_read = std::cmp::min(4096, data_len - total_read);
         let bytes_received = stream.read(&mut buffer[..to_read])?;
+        println!("read: {} bytes", bytes_received);
+        
         if bytes_received == 0 {
             return Err(EzError::Io(ErrorKind::BrokenPipe));
         }

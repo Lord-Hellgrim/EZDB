@@ -40,10 +40,10 @@ pub fn send_query(
 
     let mut connection = make_connection(address, username, password).unwrap();
 
-    let query = query.to_string();
+    let query = query.to_binary();
     let mut packet = Vec::new();
     packet.extend_from_slice(KeyString::from("QUERY").raw());
-    packet.extend_from_slice(query.as_bytes());
+    packet.extend_from_slice(&query);
     connection.SEND_C1(&packet)?;
     
     let response = connection.RECEIVE_C2()?;
