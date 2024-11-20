@@ -204,6 +204,50 @@ fn my_benchmark(c: &mut Criterion) {
     //     let parsed_query = parse_EZQL(&string_query).unwrap();
     // }));
 
+    // enum TestEnum {
+    //     Zero,
+    //     One,
+    //     Two,
+    //     Three,
+    // }
+
+    // let mut byte_string: Vec<u8> = Vec::new();
+    // let mut word_string: Vec<u8> = Vec::new();
+    // for i in 0..1000 {
+    //     let x: usize = rand::thread_rng().gen_range(0..4);
+    //     byte_string.push(x as u8);
+    //     word_string.extend_from_slice(&x.to_le_bytes());
+    // }
+
+    // group.bench_function("bytes_parse", |b| b.iter(|| {
+    //     let mut new_vec = Vec::new();
+    //     for byte in &byte_string {
+    //         let n = match byte {
+    //             0 => TestEnum::Zero,
+    //             1 => TestEnum::One,
+    //             2 => TestEnum::Two,
+    //             3 => TestEnum::Three,
+    //             _ => panic!()
+    //         };
+    //         new_vec.push(n);
+    //     }
+    // }));
+
+    // group.bench_function("words_parse", |b| b.iter(|| {
+    //     let mut new_vec = Vec::new();
+    //     for chunk in word_string.chunks(8) {
+    //         let thing = u64_from_le_slice(chunk);
+    //         let n = match thing {
+    //             0 => TestEnum::Zero,
+    //             1 => TestEnum::One,
+    //             2 => TestEnum::Two,
+    //             3 => TestEnum::Three,
+    //             _ => panic!()
+    //         };
+    //         new_vec.push(n);
+    //     }
+    // }));
+
 
 
 }

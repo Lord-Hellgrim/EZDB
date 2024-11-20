@@ -18,12 +18,40 @@ pub struct Join {
 // }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord)]
+pub struct AltStatistic{
+    column: KeyString,
+    actions: Vec<StatOp>,
+}
+
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord)]
+pub enum StatOp {
+    SUM,
+    MEAN,
+    MEDIAN,
+    MODE,
+    STDEV,
+}
+
+
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord)]
 pub enum Statistic{
     SUM(KeyString),
     MEAN(KeyString),
     MEDIAN(KeyString),
     MODE(KeyString),
     STDEV(KeyString),
+}
+
+impl Statistic {
+    pub fn get_column_name(&self) -> KeyString {
+        match self {
+            Statistic::SUM(key_string) => *key_string,
+            Statistic::MEAN(key_string) => *key_string,
+            Statistic::MEDIAN(key_string) => *key_string,
+            Statistic::MODE(key_string) => *key_string,
+            Statistic::STDEV(key_string) => *key_string,
+        }
+    }
 }
 
 impl Display for Statistic {
@@ -71,6 +99,24 @@ impl FromStr for Statistic {
             }
         }
     }
+}
+
+pub fn alt_statistics_to_binary(statistics: &[AltStatistic]) -> Vec<u8> {
+    let mut stats = Vec::new();
+    for item in statistics {
+        stats.extend_from_slice(item.column.raw());
+        for stat in &item.actions {
+            match stat {
+                StatOp::SUM => stats.push(0),
+                StatOp::MEAN => stats.push(1),
+                StatOp::MEDIAN => stats.push(2),
+                StatOp::MODE => stats.push(3),
+                StatOp::STDEV => stats.push(4),
+            }
+        }
+    }
+    
+    stats
 }
 
 pub fn statistics_to_binary(statistics: &[Statistic]) -> Vec<u8> {
@@ -158,6 +204,7 @@ pub enum Query {
     INSERT{table_name: KeyString, inserts: ColumnTable},
     DELETE{primary_keys: RangeOrListOrAll, table_name: KeyString, conditions: Vec<OpOrCond>},
     SUMMARY{table_name: KeyString, columns: Vec<Statistic>},
+    ALTSUMMARY{table_name: KeyString, columns: Vec<AltStatistic>},
 }
 
 impl Display for Query {
@@ -287,6 +334,7 @@ impl Query {
             Query::INSERT { table_name, inserts: _ } => *table_name,
             Query::DELETE { primary_keys: _, table_name, conditions: _ } => *table_name,
             Query::SUMMARY { table_name, columns: _ } => *table_name,
+            Query::ALTSUMMARY { table_name, columns: _ } => *table_name,
             Query::INNER_JOIN => todo!(),
             Query::RIGHT_JOIN => todo!(),
             Query::FULL_JOIN => todo!(),
@@ -373,6 +421,17 @@ impl Query {
             },
             Query::SUMMARY { table_name, columns } => {
                 let stats = statistics_to_binary(columns);
+                handles[0..8].copy_from_slice(&stats.len().to_le_bytes());
+                binary.extend_from_slice(&handles);
+                binary.extend_from_slice(KeyString::from("SUMMARY").raw());
+                binary.extend_from_slice(table_name.raw());
+                binary.extend_from_slice(&stats);
+                let len = &binary.len().to_le_bytes();
+                binary[24..32].copy_from_slice(len);
+                
+            },
+            Query::ALTSUMMARY { table_name, columns } => {
+                let stats = alt_statistics_to_binary(columns);
                 handles[0..8].copy_from_slice(&stats.len().to_le_bytes());
                 binary.extend_from_slice(&handles);
                 binary.extend_from_slice(KeyString::from("SUMMARY").raw());
@@ -1648,6 +1707,9 @@ pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Res
                     },
                 }
             },
+            Query::ALTSUMMARY { table_name, columns } => {
+                todo!()
+            }
         }
     }
 

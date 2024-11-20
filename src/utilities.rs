@@ -621,7 +621,6 @@ pub fn sum_f32_slice(slice: &[f32]) -> f32 {
 
 pub unsafe fn raw_sum_f32_slice(slice: &[f32]) -> f32 {
 
-
     let mut suma = x86_64::_mm_setzero_ps();
     let mut sumb = x86_64::_mm_setzero_ps();
     let mut sumc = x86_64::_mm_setzero_ps();
