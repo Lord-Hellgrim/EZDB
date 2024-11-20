@@ -236,7 +236,7 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                                     thread_handler.push_job(Job{connection, data});
                                 },
                                 Err(e) => {
-                                    println!("Failed to receive command because");
+                                    println!("Failed to receive command because: {}", e);
                                 }
                             };
 

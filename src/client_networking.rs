@@ -30,13 +30,12 @@ pub fn make_connection(address: &str, username: &str, password: &str) -> Result<
 }
 
 /// Send an EZQL query to the database server
-pub fn send_query(
+pub fn oneshot_query(
     address: &str,
     username: &str,
     password: &str,
-    query: Query,
+    query: &Query,
 ) -> Result<ColumnTable, EzError> {
-    println!("calling: send_query()");
 
     let mut connection = make_connection(address, username, password).unwrap();
 
@@ -52,14 +51,29 @@ pub fn send_query(
         Ok(table) => Ok(table),
         Err(e) => Err(e),
     }
+}
 
+pub fn send_query(connection: &mut Connection, query: &Query) -> Result<ColumnTable, EzError> {
+
+    let query = query.to_binary();
+    let mut packet = Vec::new();
+    packet.extend_from_slice(KeyString::from("QUERY").raw());
+    packet.extend_from_slice(&query);
+    connection.SEND_C1(&packet)?;
+    
+    let response = connection.RECEIVE_C2()?;
+
+    match ColumnTable::from_binary(Some("RESULT"), &response) {
+        Ok(table) => Ok(table),
+        Err(e) => Err(e),
+    }
 }
 
 
 #[cfg(test)]
 mod tests {
     #![allow(unused)]
-    use std::{fs::remove_file, path::Path};
+    use std::{fs::remove_file, path::Path, time::Duration};
 
     use crate::{db_structure::ColumnTable, ezql::RangeOrListOrAll, utilities::ksf};
 
@@ -77,8 +91,31 @@ mod tests {
             conditions: Vec::new() 
         };
 
-        let response = send_query(address, username, password, query).unwrap();
+        let response = oneshot_query(address, username, password, &query).unwrap();
         println!("{}", response);
+    }
+
+    #[test]
+    fn test_open_connection() {
+        let address = "127.0.0.1:3004";
+        let username = "admin";
+        let password = "admin";
+        let query = Query::SELECT { 
+            table_name: ksf("good_table"),
+            primary_keys: RangeOrListOrAll::All,
+            columns: vec![ksf("id"), ksf("name"), ksf("price")],
+            conditions: Vec::new() 
+        };
+
+        let mut connection = make_connection(address, username, password).unwrap();
+
+        let response1 = send_query(&mut connection, &query).unwrap();
+        // std::thread::sleep(Duration::from_millis(500));
+        let response2 = send_query(&mut connection, &query).unwrap();
+        println!("{}", response1);
+        println!("{}", response2);
+
+        assert_eq!(response1, response2);
     }
 
 
