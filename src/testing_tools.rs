@@ -2,7 +2,7 @@ use std::{collections::{BTreeMap, BTreeSet}, sync::atomic::AtomicU64};
 
 use rand::{distributions::Standard, prelude::Distribution, Rng};
 
-use crate::{db_structure::{ColumnTable, DbColumn, DbType, HeaderItem, KeyString, Metadata, TableKey}, ezql::{Condition, OpOrCond, Operator, Query, RangeOrListOrAll, Statistic, Test, Update, UpdateOp}, utilities::get_current_time};
+use crate::{db_structure::{ColumnTable, DbColumn, DbType, HeaderItem, KeyString, Metadata, TableKey}, ezql::{AltStatistic, Condition, OpOrCond, Operator, Query, RangeOrListOrAll, StatOp, Statistic, Test, Update, UpdateOp}, utilities::get_current_time};
 
 
 fn random_vec<T>(max_length: usize) -> Vec<T>  where Standard: Distribution<T> {
@@ -221,6 +221,36 @@ fn random_statistics(max_length: usize) -> Vec<Statistic> {
 
 }
 
+fn random_alt_statistics(max_length: usize, max_actions: usize) -> Vec<AltStatistic> {
+    
+    let mut updates = Vec::new();
+    for _ in 0..rand::thread_rng().gen_range(0..max_length) {
+
+        let column = random_keystring();
+
+        let mut actions = BTreeSet::new();
+        for _ in 0..rand::thread_rng().gen_range(1..max_actions) {
+
+            let stat = match rand::thread_rng().gen_range(0..5) {
+                0 => StatOp::SUM,
+                1 => StatOp::MEAN,
+                2 => StatOp::MEDIAN,
+                3 => StatOp::MODE,
+                4 => StatOp::STDEV,
+                _ => unreachable!("range")
+            };
+            actions.insert(stat);
+
+        }
+
+    
+        updates.push(AltStatistic{column, actions});
+    }
+
+    updates
+
+}
+
 // pub enum Query {
 //     SELECT{table_name: KeyString, primary_keys: RangeOrListOrAll, columns: Vec<KeyString>, conditions: Vec<OpOrCond>},
 //     LEFT_JOIN{left_table_name: KeyString, right_table_name: KeyString, match_columns: (KeyString, KeyString), primary_keys: RangeOrListOrAll},
@@ -247,8 +277,9 @@ pub fn random_query() -> Query {
     let match_columns = (random_keystring(), random_keystring());
     let updates = random_updates(1000);
     let summaries = random_statistics(10);
+    let alt_summaries = random_alt_statistics(10, 3);
 
-    let query_type = rng.gen_range(0..6);
+    let query_type = rng.gen_range(0..7);
     match query_type {
         0 => {
             Query::SELECT{ table_name, primary_keys, columns, conditions }
@@ -267,6 +298,9 @@ pub fn random_query() -> Query {
         }
         5 => {
             Query::SUMMARY { table_name, columns: summaries }
+        }
+        6 => {
+            Query::ALTSUMMARY { table_name, columns: alt_summaries }
         }
         _ => unreachable!("range")
     }
@@ -299,7 +333,7 @@ mod tests {
 
     #[test]
     fn test_random_query() {
-        for _ in 0..100 {
+        for _ in 0..1000 {
             let query = random_query();
             let binary_query = query.to_binary();
             let parsed_query = match Query::from_binary(&binary_query) {

@@ -1,4 +1,4 @@
-use std::{collections::{BTreeSet, HashMap}, fmt::Display, str::FromStr, sync::Arc};
+use std::{collections::{BTreeSet, HashMap, HashSet}, fmt::Display, str::FromStr, sync::Arc};
 
 use crate::{db_structure::{remove_indices, table_from_inserts, ColumnTable, DbColumn, KeyString}, server_networking::Database, utilities::{ksf, mean_f32_slice, mean_i32_slice, median_f32_slice, median_i32_slice, mode_i32_slice, mode_string_slice, print_sep_list, stdev_f32_slice, stdev_i32_slice, sum_f32_slice, sum_i32_slice, u64_from_le_slice, EzError}};
 
@@ -19,8 +19,8 @@ pub struct Join {
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord)]
 pub struct AltStatistic{
-    column: KeyString,
-    actions: Vec<StatOp>,
+    pub column: KeyString,
+    pub actions: BTreeSet<StatOp>,
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord)]
@@ -105,6 +105,7 @@ pub fn alt_statistics_to_binary(statistics: &[AltStatistic]) -> Vec<u8> {
     let mut stats = Vec::new();
     for item in statistics {
         stats.extend_from_slice(item.column.raw());
+        stats.push(item.actions.len() as u8);
         for stat in &item.actions {
             match stat {
                 StatOp::SUM => stats.push(0),
@@ -118,6 +119,39 @@ pub fn alt_statistics_to_binary(statistics: &[AltStatistic]) -> Vec<u8> {
     
     stats
 }
+
+
+pub fn alt_statistics_from_binary(binary: &[u8]) -> Result<Vec<AltStatistic>, EzError> {
+    let mut stats = Vec::new();
+
+    let mut i = 0;
+    while i < binary.len() {
+        let column = KeyString::try_from(&binary[i..i+64])?;
+        i += 64;
+        let len = binary[i];
+        i += 1;
+        let mut actions = BTreeSet::new();
+        for j in 0..len as usize {
+            let action = match binary[i+j] {
+                0 => StatOp::SUM,
+                1 => StatOp::MEAN,
+                2 => StatOp::MEDIAN,
+                3 => StatOp::MODE,
+                4 => StatOp::STDEV,
+                other => return Err(EzError::Query(format!("Unparseable stat op: '{}'", other) )),
+            };
+            actions.insert(action);
+        }
+
+        stats.push(AltStatistic{column, actions});
+
+        i += len as usize;
+    }
+
+    Ok(stats)
+
+}
+
 
 pub fn statistics_to_binary(statistics: &[Statistic]) -> Vec<u8> {
     let mut stats = Vec::new();
@@ -434,7 +468,7 @@ impl Query {
                 let stats = alt_statistics_to_binary(columns);
                 handles[0..8].copy_from_slice(&stats.len().to_le_bytes());
                 binary.extend_from_slice(&handles);
-                binary.extend_from_slice(KeyString::from("SUMMARY").raw());
+                binary.extend_from_slice(KeyString::from("ALTSUMMARY").raw());
                 binary.extend_from_slice(table_name.raw());
                 binary.extend_from_slice(&stats);
                 let len = &binary.len().to_le_bytes();
@@ -513,6 +547,13 @@ impl Query {
                 let columns = statistics_from_binary(&body[128..128+stat_len])?;
 
                 Ok( Query::SUMMARY { table_name, columns } )
+
+            },
+            "ALTSUMMARY" => {
+                let stat_len = u64_from_le_slice(&handles[0..8]) as usize;
+                let columns = alt_statistics_from_binary(&body[128..128+stat_len])?;
+
+                Ok( Query::ALTSUMMARY { table_name, columns } )
 
             },
             _ => return Err(EzError::Query(format!("Query type '{}' is not supported", query_type))),
@@ -1435,6 +1476,10 @@ pub fn parse_EZQL(query_string: &str) -> Result<Query, EzError> {
 
         },
 
+        Query::ALTSUMMARY { table_name, columns } => {
+
+        },
+
         _ => unimplemented!()
     }
 
@@ -1708,7 +1753,24 @@ pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Res
                 }
             },
             Query::ALTSUMMARY { table_name, columns } => {
-                todo!()
+                match result_table {
+                    Some(table) => {
+                        let result = execute_alt_summary_query(&query, &table)?;
+                        match result {
+                            Some(s) => return Ok(Some(s)),
+                            None => todo!(),
+                        };
+                    },
+                    None => {
+                        let tables = database.buffer_pool.tables.read().unwrap();
+                        let table = tables.get(table_name).unwrap().read().unwrap();
+                        let result = execute_alt_summary_query(&query, &table)?;
+                        match result {
+                            Some(s) => return Ok(Some(s)),
+                            None => todo!(),
+                        };
+                    },
+                }
             }
         }
     }
@@ -1936,8 +1998,77 @@ pub fn execute_summary_query(query: Query, table: &ColumnTable) -> Result<Option
         },
         other_query => return Err(EzError::Query(format!("Wrong type of query passed to execute_select_query() function.\nReceived query: {}", other_query))),
     }
+}
 
-    
+pub fn execute_alt_summary_query(query: &Query, table: &ColumnTable) -> Result<Option<ColumnTable>, EzError> {
+    match query {
+        Query::ALTSUMMARY { table_name, columns } => {
+            let mut result = ColumnTable::blank(&BTreeSet::new(), KeyString::from("RESULT"), "QUERY");
+
+            result.add_column(ksf("Statistic"), DbColumn::Texts(vec![
+                ksf("SUM"),
+                ksf("MEAN"),
+                ksf("MEDIAN"),
+                ksf("MODE"),
+                ksf("STDEV"),
+            ]));
+
+            for alt_stat in columns {
+                let requested_column = match table.columns.get(&alt_stat.column) {
+                    Some(x) => x,
+                    None => return Err(EzError::Query(format!("No column named {} in table {}", alt_stat.column, table.name))),
+                };
+
+
+
+                match requested_column {
+                    DbColumn::Ints(vec) => {
+                        let mut temp = [0i32; 5].to_vec();
+                        for action in &alt_stat.actions {
+                            match action {
+                                StatOp::SUM => temp[0] = sum_i32_slice(&vec),
+                                StatOp::MEAN => temp[1] = mean_i32_slice(&vec) as i32,
+                                StatOp::MEDIAN => temp[2] = median_i32_slice(&vec) as i32,
+                                StatOp::MODE => temp[3] = mode_i32_slice(&vec),
+                                StatOp::STDEV => temp[4] = stdev_i32_slice(&vec) as i32,
+                            }
+                        }
+                        result.add_column(alt_stat.column, DbColumn::Ints(temp));
+                    },
+                    DbColumn::Texts(vec) => {
+                        let mut temp = [ksf(""); 5].to_vec();
+                        for action in &alt_stat.actions {
+                            match action {
+                                StatOp::SUM => temp[0] = ksf("can't sum text"),
+                                StatOp::MEAN => temp[1] = ksf("can't mean text"),
+                                StatOp::MEDIAN => temp[2] = ksf("can't median text"),
+                                StatOp::MODE => temp[3] = mode_string_slice(&vec),
+                                StatOp::STDEV => temp[4] = ksf("can't stdev text"),
+                            }
+                        }
+                        result.add_column(alt_stat.column, DbColumn::Texts(temp));
+                    },
+                    DbColumn::Floats(vec) => {
+                        let mut temp = [0f32; 5].to_vec();
+                        for action in &alt_stat.actions {
+                            match action {
+                                StatOp::SUM => temp[0] = sum_f32_slice(&vec),
+                                StatOp::MEAN => temp[1] = mean_f32_slice(&vec),
+                                StatOp::MEDIAN => temp[2] = median_f32_slice(&vec),
+                                StatOp::MODE => temp[3] = 0.0,
+                                StatOp::STDEV => temp[4] = stdev_f32_slice(&vec),
+                            }
+                        }
+                        result.add_column(alt_stat.column, DbColumn::Floats(temp));
+                    },
+                }
+            }
+
+            Ok(Some(result))
+
+        },
+        other_query => return Err(EzError::Query(format!("Wrong type of query passed to execute_select_query() function.\nReceived query: {}", other_query))),
+    }
 }
 
 pub fn execute_inner_join_query(query: Query, database: Arc<Database>) -> Result<Option<ColumnTable>, EzError> {

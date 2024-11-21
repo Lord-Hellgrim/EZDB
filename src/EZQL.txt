@@ -9,6 +9,7 @@ Here are some examples:
  - UPDATE(table_name: products, primary_keys: (0113035, 0113000), conditions: ((id starts-with 011)), updates: ((price += 100), (stock -= 100)))
  - DELETE(primary_keys: *, table_name: products, conditions: ((price greater-than 500) AND (stock less-than 1000)))
  - SUMMARY(table_name: products, columns: ((SUM stock), (MEAN price)))
+ - ALTSUMMARY(table_name: products, columns: ((stock, SUM, MEAN), (price MEAN)))
  - LEFT_JOIN(left_table: products, right_table: warehouses, match_columns: (location, id), primary_keys: 0113000..18572054)
 
 White space is ignored when parsing EZQL so you can format your queries however you like.
@@ -82,6 +83,4 @@ SUMMARY:
         table_name:
         columns:
     output:
-        A semicolon separated string listing describing the summary statistics
-        example:
-            SUM stock is 4023; MEAN price is 25.6
+        A table with the requested summaries
