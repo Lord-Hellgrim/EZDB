@@ -720,7 +720,7 @@ pub fn updates_from_binary(binary: &[u8]) -> Result<Vec<Update>, EzError> {
 }
 
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum UpdateOp {
     Assign,
     PlusEquals,
@@ -1818,9 +1818,12 @@ pub fn execute_left_join_query(query: Query, left_table: &ColumnTable, right_tab
 pub fn execute_update_query(query: Query, table: &mut ColumnTable) -> Result<Option<ColumnTable>, EzError> {
     // println!("calling: execute_update_query()");
     
+
     match query {
-        Query::UPDATE { table_name: _, primary_keys, conditions, updates } => {
+        Query::UPDATE { table_name: _, primary_keys, conditions, mut updates } => {
             let keepers = filter_keepers(&conditions, &primary_keys, table)?;
+
+            updates.sort_by(|a, b| a.attribute.cmp(&b.attribute));
 
             for keeper in &keepers {
                 for update in &updates{
@@ -1886,8 +1889,136 @@ pub fn execute_update_query(query: Query, table: &mut ColumnTable) -> Result<Opt
         },
         other_query => return Err(EzError::Query(format!("Wrong type of query passed to execute_update_query() function.\nReceived query: {}", other_query))),
     }
+}
 
-    
+pub fn update_i32(keepers: &[usize], column: &mut [i32], op: UpdateOp, value: KeyString) -> Result<(), EzError> {
+    let new_value = value.to_i32_checked()?;
+    match op {
+        UpdateOp::Assign => {
+            for keeper in keepers {
+                column[*keeper] = new_value;
+            }
+
+        },
+        UpdateOp::PlusEquals => {
+            for keeper in keepers {
+                column[*keeper] += new_value;
+            }
+        },
+        UpdateOp::MinusEquals => {
+            for keeper in keepers {
+                column[*keeper] -= new_value;
+            }
+        },
+        UpdateOp::TimesEquals => {
+            for keeper in keepers {
+                column[*keeper] *= new_value;
+            }
+        },
+        UpdateOp::Append => {
+            for keeper in keepers {
+                column[*keeper] = new_value;
+            }
+        },
+        UpdateOp::Prepend => {
+            return Err(EzError::Query("'append' operator can only be performed on text data".to_owned()))
+        },
+    }
+    Ok(())
+}
+
+pub fn execute_alt_update_query(query: Query, table: &mut ColumnTable) -> Result<Option<ColumnTable>, EzError> {
+    match query {
+        Query::UPDATE { table_name: _, primary_keys, conditions, mut updates } => {
+            let keepers = filter_keepers(&conditions, &primary_keys, table)?;
+
+            updates.sort_by(|a, b| a.attribute.cmp(&b.attribute));
+
+            for update in &updates{
+                
+                match update.operator {
+                    UpdateOp::Assign => {
+                        match table.columns.get_mut(&update.attribute).unwrap() {
+                            DbColumn::Ints(ref mut column) => {
+                                let new_value = update.value.to_i32_checked()?;
+                                for keeper in keepers {
+                                    column[keeper] = new_value;
+                                }
+                            },
+                            DbColumn::Floats(ref mut column) => {
+                                let new_value = update.value.to_f32_checked()?;
+                                for keeper in keepers {
+                                    column[keeper] = new_value;
+                                }
+                            },
+                            DbColumn::Texts(ref mut column) => {
+                                for keeper in keepers {
+                                    column[keeper] = update.value;
+                                }
+                            },
+                        }
+                    },
+                    UpdateOp::PlusEquals => {
+                        match table.columns.get_mut(&update.attribute).unwrap() {
+                            DbColumn::Ints(ref mut column) => {
+                                let new_value = update.value.to_i32_checked()?;
+                                for keeper in keepers {
+                                    column[keeper] += new_value;
+                                }
+                            },
+                            DbColumn::Floats(ref mut column) => {
+                                let new_value = update.value.to_f32_checked()?;
+                                for keeper in keepers {
+                                    column[keeper] += new_value;
+                                }
+                            },
+                            DbColumn::Texts(ref mut _column) => return Err(EzError::Query("'+=' operator cannot be performed on text data".to_owned())),
+                        }
+                    },
+                    UpdateOp::MinusEquals => {
+                        match table.columns.get_mut(&update.attribute).unwrap() {
+                            DbColumn::Ints(ref mut column) => column[*keeper] -= update.value.to_i32(),
+                            DbColumn::Floats(ref mut column) => column[*keeper] -= update.value.to_f32(),
+                            DbColumn::Texts(ref mut _column) => return Err(EzError::Query("'-=' operator cannot be performed on text data".to_owned())),
+                        }
+                    }
+                    UpdateOp::TimesEquals => {
+                        match table.columns.get_mut(&update.attribute).unwrap() {
+                            DbColumn::Ints(ref mut column) => column[*keeper] *= update.value.to_i32(),
+                            DbColumn::Floats(ref mut column) => column[*keeper] *= update.value.to_f32(),
+                            DbColumn::Texts(ref mut column) => column[*keeper] = update.value,
+                        }
+                    },
+                    UpdateOp::Append => {
+                        match table.columns.get_mut(&update.attribute).unwrap() {
+                            DbColumn::Ints(ref mut _column) => return Err(EzError::Query("'append' operator can only be performed on text data".to_owned())),
+                            DbColumn::Floats(ref mut _column) => return Err(EzError::Query("'append' operator can only be performed on text data".to_owned())),
+                            DbColumn::Texts(ref mut column) => {
+                                column[*keeper].push(update.value.as_str());
+                            },
+                        }
+                    },
+                    UpdateOp::Prepend => {
+                        match table.columns.get_mut(&update.attribute).unwrap() {
+                            DbColumn::Ints(ref mut _column) => return Err(EzError::Query("'prepend' operator can only be performed on text data".to_owned())),
+                            DbColumn::Floats(ref mut _column) => return Err(EzError::Query("'prepend' operator can only be performed on text data".to_owned())),
+                            DbColumn::Texts(ref mut column) => {
+                                let mut new = update.value;
+                                new.push(column[*keeper].as_str());
+                                column[*keeper] = new;
+                            },
+                        }
+                    },
+                }
+            }
+            
+
+            Ok(
+                None    
+            )
+        },
+        other_query => return Err(EzError::Query(format!("Wrong type of query passed to execute_update_query() function.\nReceived query: {}", other_query))),
+    }
 }
 
 pub fn execute_insert_query(query: Query, table: &mut ColumnTable) -> Result<Option<ColumnTable>, EzError> {

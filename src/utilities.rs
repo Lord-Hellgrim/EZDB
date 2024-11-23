@@ -3,7 +3,7 @@ use std::fmt::Display;
 use std::simd;
 use std::io::{ErrorKind, Read};
 use std::net::TcpStream;
-use std::num::ParseIntError;
+use std::num::{ParseFloatError, ParseIntError};
 use std::simd::num::SimdInt;
 use std::str::{self, Utf8Error};
 use std::string::FromUtf8Error;
@@ -39,6 +39,7 @@ pub enum EzError {
     Authentication(String),
     Crypto(String),
     ParseInt(ParseIntError),
+    ParseFloat(ParseFloatError),
     ParseResponse(String),
     ParseUser(String),
     OversizedData(String),
@@ -61,7 +62,8 @@ impl fmt::Display for EzError {
             EzError::Confirmation(e) => write!(f, "Received corrupt confirmation {:?}", e),
             EzError::Authentication(e) => write!(f, "{}", e),
             EzError::Crypto(e) => write!(f, "There has been a crypto error. Most likely the nonce was incorrect. The error is: {}", e),
-            EzError::ParseInt(e) => write!(f, "There has been a problem parsing an integer, presumably while sending a data_len. The error signature is: {}", e),
+            EzError::ParseInt(e) => write!(f, "There has been a problem parsing an integer. The error signature is: {}", e),
+            EzError::ParseFloat(e) => write!(f, "There has been a problem parsing a float. The error signature is: {}", e),
             EzError::ParseUser(e) => write!(f, "Failed to parse user from string because: {}", e),
             EzError::OversizedData(s) => write!(f, "Sent data is too long. Maximum data size is {MAX_DATA_LEN}.\nAdditional information: {}", s),
             EzError::ParseResponse(e) => write!(f, "{}", e),
@@ -111,6 +113,12 @@ impl From<aead::Error> for EzError {
 impl From<ParseIntError> for EzError {
     fn from(e: ParseIntError) -> Self {
         EzError::ParseInt(e)
+    }
+}
+
+impl From<ParseFloatError> for EzError {
+    fn from(e: ParseFloatError) -> Self {
+        EzError::ParseFloat(e)
     }
 }
 
