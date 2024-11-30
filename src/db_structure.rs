@@ -621,6 +621,16 @@ impl Display for ColumnTable {
 
 impl ColumnTable {
 
+    pub fn create_empty(name: &str, created_by: &str) -> ColumnTable {
+
+        ColumnTable {
+            metadata: Metadata::new(created_by),
+            name: ksf(name),
+            header: BTreeSet::new(),
+            columns: BTreeMap::new(),
+        }
+    }
+
     pub fn blank(header: &BTreeSet<HeaderItem>, name: KeyString, created_by: &str) -> ColumnTable {
 
         let mut columns = BTreeMap::new();
@@ -1790,13 +1800,28 @@ impl ColumnTable {
             DbColumn::Floats(_) => DbType::Float,
         };
 
-        self.header.insert(HeaderItem {
-            name: name,
-            key: TableKey::None,
-            kind: kind, 
-        });
+        if self.columns.is_empty() {
+            self.header.insert(HeaderItem {
+                name: name,
+                key: TableKey::Primary,
+                kind: kind,
+            });
+            self.columns.insert(name, column);
+        } else {
+            if self.len() != column.len() {
+                return Err(EzError::Structure(format!("Attempting to add an uneven column.\nExisting columns: '{}'\nNew_column: '{}'", self.len(), column.len())))
+            }
 
-        self.columns.insert(name, column);
+            self.header.insert(HeaderItem {
+                name: name,
+                key: TableKey::None,
+                kind: kind,
+            });
+            self.columns.insert(name, column);
+
+        }
+
+
 
         Ok(())
     }

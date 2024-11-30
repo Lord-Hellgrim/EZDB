@@ -1,7 +1,7 @@
 use std::{collections::{HashMap, VecDeque}, net::TcpStream, os::fd::AsRawFd, sync::{Arc, Condvar, Mutex}};
 
 
-use crate::{db_structure::KeyString, server_networking::{answer_query, interior_log, perform_administration, perform_maintenance, Database}, utilities::{ksf, CsPair}};
+use crate::{db_structure::KeyString, server_networking::{answer_kv_query, answer_query, interior_log, perform_administration, perform_maintenance, Database}, utilities::{ksf, CsPair}};
 
 
 pub struct Job {
@@ -63,6 +63,7 @@ pub fn initialize_thread_pool(number_of_threads: usize, db_ref: Arc<Database>) -
                             Ok(s) => match s.as_str() {
                                 "QUERY" => answer_query(&data[64..], &job.connection.peer, loop_db_ref),
                                 "ADMIN" => perform_administration(&data[64..], loop_db_ref),
+                                "KVQUERY" => answer_kv_query(&data[64..], &job.connection.peer, loop_db_ref),
                                 action => {
                                     println!("Asked to perform unsupported action: '{}'", action);
 

@@ -2,7 +2,7 @@ use std::{collections::{BTreeMap, BTreeSet}, sync::atomic::AtomicU64};
 
 use rand::{distributions::Standard, prelude::Distribution, Rng};
 
-use crate::{db_structure::{ColumnTable, DbColumn, DbType, HeaderItem, KeyString, Metadata, TableKey}, ezql::{AltStatistic, Condition, OpOrCond, Operator, Query, RangeOrListOrAll, StatOp, Statistic, Test, Update, UpdateOp}, utilities::get_current_time};
+use crate::{db_structure::{ColumnTable, DbColumn, DbType, HeaderItem, KeyString, Metadata, TableKey}, ezql::{AltStatistic, Condition, OpOrCond, Operator, Query, RangeOrListOrAll, StatOp, Statistic, Test, Update, UpdateOp}, utilities::{get_current_time, ksf}};
 
 
 fn random_vec<T>(max_length: usize) -> Vec<T>  where Standard: Distribution<T> {
@@ -308,6 +308,23 @@ pub fn random_query() -> Query {
 }
 
 
+pub fn create_fixed_table(n: usize) -> ColumnTable {
+    let ints: Vec<i32> = (0..n).map(|n| n as i32).collect();
+    let floats: Vec<f32> = (0..n).map(|n| n as f32).collect();
+    let mut texts: Vec<KeyString> = Vec::new();
+    for i in 0..n {
+        texts.push(KeyString::from(format!("text{i}").as_str()));
+    }
+
+    let mut table = ColumnTable::create_empty("fixed_table", "test");
+    table.add_column(ksf("ints"), DbColumn::Ints(ints)).unwrap();
+    table.add_column(ksf("floats"), DbColumn::Floats(floats)).unwrap();
+    table.add_column(ksf("texts"), DbColumn::Texts(texts)).unwrap();
+
+    table
+}
+
+
 
 #[cfg(test)]
 mod tests {
@@ -361,7 +378,12 @@ mod tests {
                 panic!()
             }
         }
+    }
 
+    #[test]
+    fn test_fixed_table() {
+        let table = create_fixed_table(10);
+        println!("{}", table);
     }
 
 }

@@ -210,7 +210,6 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                                 Some(x) => x,
                                 None => panic!("Unexpectedly dropped authenticated client"),
                             };
-                            
                             match read_known_length(&mut connection.stream) {
                                 Ok(data) => {
                                     thread_handler.push_job(Job{connection, data});
@@ -255,6 +254,22 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
 }
 
 pub fn answer_query(binary: &[u8], user: &str, db_ref: Arc<Database>) -> Result<Vec<u8>, EzError> {
+
+    let queries = parse_queries_from_binary(&binary)?;
+
+    check_permission(&queries, user, db_ref.users.clone())?;
+    let requested_table = match execute_EZQL_queries(queries, db_ref) {
+        Ok(res) => match res {
+            Some(table) => table.to_binary(),
+            None => "None.".as_bytes().to_vec(),
+        },
+        Err(e) => format!("ERROR -> Could not process query because of error: '{}'", e.to_string()).as_bytes().to_vec(),
+    };
+
+    Ok(requested_table)
+}
+
+pub fn answer_kv_query(binary: &[u8], user: &str, db_ref: Arc<Database>) -> Result<Vec<u8>, EzError> {
 
     let queries = parse_queries_from_binary(&binary)?;
 
