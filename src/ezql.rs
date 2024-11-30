@@ -1,6 +1,8 @@
 use std::{collections::{BTreeSet, HashMap, HashSet}, fmt::Display, str::FromStr, sync::Arc};
 
-use crate::{db_structure::{remove_indices, table_from_inserts, ColumnTable, DbColumn, KeyString}, server_networking::Database, utilities::{ksf, mean_f32_slice, mean_i32_slice, median_f32_slice, median_i32_slice, mode_i32_slice, mode_string_slice, print_sep_list, stdev_f32_slice, stdev_i32_slice, sum_f32_slice, sum_i32_slice, u64_from_le_slice, EzError}};
+use nix::libc::IN_CREATE;
+
+use crate::{db_structure::{remove_indices, table_from_inserts, ColumnTable, DbColumn, KeyString}, server_networking::Database, utilities::{ksf, mean_f32_slice, mean_i32_slice, median_f32_slice, median_i32_slice, mode_i32_slice, mode_string_slice, print_sep_list, stdev_f32_slice, stdev_i32_slice, sum_f32_slice, sum_i32_slice, u64_from_le_slice, usize_from_le_slice, EzError}};
 
 use crate::PATH_SEP;
 
@@ -212,22 +214,39 @@ pub enum KvQuery {
     Delete(KeyString),
 }
 
+impl Display for KvQuery {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            KvQuery::Create(key_string, vec) => write!(f, "Create: '{}':\n{:x?}", key_string, vec),
+            KvQuery::Read(key_string) => write!(f, "Read: '{}'", key_string),
+            KvQuery::Update(key_string, vec) => write!(f, "Update: '{}':\n{:x?}", key_string, vec),
+            KvQuery::Delete(key_string) => write!(f, "Delete: '{}'", key_string),
+        }
+    }
+}
+
 impl KvQuery {
     pub fn to_binary(&self) -> Vec<u8> {
         let mut binary = Vec::new();
         match self {
             KvQuery::Create(key_string, vec) => {
+                binary.extend_from_slice(ksf("CREATE").raw());
                 binary.extend_from_slice(key_string.raw());
+                binary.extend_from_slice(&vec.len().to_le_bytes());
                 binary.extend_from_slice(vec);
             },
             KvQuery::Read(key_string) => {
+                binary.extend_from_slice(ksf("READ").raw());
                 binary.extend_from_slice(key_string.raw());
             },
             KvQuery::Update(key_string, vec) => {
+                binary.extend_from_slice(ksf("UPDATE").raw());
                 binary.extend_from_slice(key_string.raw());
+                binary.extend_from_slice(&vec.len().to_le_bytes());
                 binary.extend_from_slice(vec);
             },
             KvQuery::Delete(key_string) => {
+                binary.extend_from_slice(ksf("DELETE").raw());
                 binary.extend_from_slice(key_string.raw());
             },
         };
@@ -236,8 +255,54 @@ impl KvQuery {
     }
 
     pub fn from_binary(binary: &[u8]) -> Result<KvQuery, EzError> {
-        todo!()
+        if binary.len() < 128 {
+            return Err(EzError::Query("KV query needs to be at least 128 bytes (type and key)".to_owned()))
+        }
+
+        let kind = KeyString::try_from(&binary[0..64])?;
+        let key = KeyString::try_from(&binary[64..128])?;
+        match kind.as_str() {
+            "CREATE" => {
+                let len = usize_from_le_slice(&binary[128..136]);
+                let mut value = Vec::with_capacity(len);
+                value.extend_from_slice(&binary[136..136+len]);
+                Ok(KvQuery::Create(key, value))
+            }
+            "READ" => {
+                Ok(KvQuery::Read(key))
+            }
+            "UPDATE" => {
+                let len = usize_from_le_slice(&binary[128..136]);
+                let mut value = Vec::with_capacity(len);
+                value.extend_from_slice(&binary[136..136+len]);
+                Ok(KvQuery::Update(key, value))
+            }
+            "DELETE" => {
+                Ok(KvQuery::Delete(key))
+            }
+            other => Err(EzError::Deserialization(format!("Unsupported KvQuery type '{}'", other)))
+        }
     }
+}
+
+pub fn parse_kv_queries_from_binary(binary: &[u8]) -> Result<Vec<KvQuery>, EzError> {
+    if binary.len() < 128 {
+        return Err(EzError::Query("Binary is too short. Cannot be a valid KvQuery".to_owned()))
+    }
+    let mut queries = Vec::new();
+    let mut counter = 0;
+    while counter < binary.len() {
+        let query = KvQuery::from_binary(&binary[counter..])?;
+        match &query {
+            KvQuery::Create(_, vec) => counter += 128 + 8 + vec.len(),
+            KvQuery::Read(_) => counter += 128,
+            KvQuery::Update(_, vec) => counter += 128 + 8 + vec.len(),
+            KvQuery::Delete(_) => counter += 128,
+        };
+        queries.push(query);
+    }
+
+    Ok(queries)
 }
 
 
@@ -2405,7 +2470,7 @@ mod tests {
 
     use rand::Rng;
 
-    use crate::{testing_tools::random_query, utilities::ksf};
+    use crate::{testing_tools::{random_kv_query, random_query}, utilities::ksf};
 
     use super::*;
 
@@ -2707,6 +2772,35 @@ mod tests {
         println!("{:?}", binary);
         let parsed = Query::from_binary(&binary).unwrap();
         assert_eq!(query, parsed);
+    }
+
+    #[test]
+    fn test_base_kv_query() {
+        let kv_query = KvQuery::Create(ksf("test"), vec![0,1,2,3,4,5,6,7,8,9]);
+        let bin_query = kv_query.to_binary();
+        let parsed_query = KvQuery::from_binary(&bin_query).unwrap();
+
+        assert_eq!(kv_query, parsed_query);
+    }
+
+    #[test]
+    fn test_kv_queries() {
+        let mut kv_queries = Vec::new();
+
+        for _ in 0..100 {
+            kv_queries.push(random_kv_query());
+        }
+
+        let mut binary = Vec::new();
+
+        for query in &kv_queries {
+            binary.extend_from_slice(&query.to_binary());
+        }
+
+        let parsed_queries = parse_kv_queries_from_binary(&binary).unwrap();
+
+        assert_eq!(kv_queries, parsed_queries);
+
     }
 
 

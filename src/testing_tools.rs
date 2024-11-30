@@ -2,7 +2,7 @@ use std::{collections::{BTreeMap, BTreeSet}, sync::atomic::AtomicU64};
 
 use rand::{distributions::Standard, prelude::Distribution, Rng};
 
-use crate::{db_structure::{ColumnTable, DbColumn, DbType, HeaderItem, KeyString, Metadata, TableKey}, ezql::{AltStatistic, Condition, OpOrCond, Operator, Query, RangeOrListOrAll, StatOp, Statistic, Test, Update, UpdateOp}, utilities::{get_current_time, ksf}};
+use crate::{db_structure::{ColumnTable, DbColumn, DbType, HeaderItem, KeyString, Metadata, TableKey}, ezql::{AltStatistic, Condition, KvQuery, OpOrCond, Operator, Query, RangeOrListOrAll, StatOp, Statistic, Test, Update, UpdateOp}, utilities::{get_current_time, ksf}};
 
 
 fn random_vec<T>(max_length: usize) -> Vec<T>  where Standard: Distribution<T> {
@@ -307,6 +307,19 @@ pub fn random_query() -> Query {
 
 }
 
+pub fn random_kv_query() -> KvQuery {
+    let mut rng = rand::thread_rng();
+
+    let query_type = rng.gen_range(0..4);
+    match query_type {
+        0 => KvQuery::Create(random_keystring(), random_vec(100)),
+        1 => KvQuery::Read(random_keystring()),
+        2 => KvQuery::Update(random_keystring(), random_vec(100)),
+        3 => KvQuery::Delete(random_keystring()),
+        other => panic!()
+    }
+}
+
 
 pub fn create_fixed_table(n: usize) -> ColumnTable {
     let ints: Vec<i32> = (0..n).map(|n| n as i32).collect();
@@ -384,6 +397,16 @@ mod tests {
     fn test_fixed_table() {
         let table = create_fixed_table(10);
         println!("{}", table);
+    }
+
+    #[test]
+    fn test_random_kv_query() {
+        for _ in 0..100 {
+            let kv_query = random_kv_query();
+            let bin_query = kv_query.to_binary();
+            let parsed_query = KvQuery::from_binary(&bin_query).unwrap();
+            assert_eq!(kv_query, parsed_query);
+        }
     }
 
 }
