@@ -2,7 +2,7 @@ use std::{collections::{BTreeSet, HashMap, HashSet}, fmt::Display, str::FromStr,
 
 use nix::libc::IN_CREATE;
 
-use crate::{db_structure::{remove_indices, table_from_inserts, ColumnTable, DbColumn, KeyString}, server_networking::Database, utilities::{ksf, mean_f32_slice, mean_i32_slice, median_f32_slice, median_i32_slice, mode_i32_slice, mode_string_slice, print_sep_list, stdev_f32_slice, stdev_i32_slice, sum_f32_slice, sum_i32_slice, u64_from_le_slice, usize_from_le_slice, EzError}};
+use crate::{db_structure::{remove_indices, table_from_inserts, ColumnTable, DbColumn, KeyString, Metadata, Value}, server_networking::Database, utilities::{ksf, mean_f32_slice, mean_i32_slice, median_f32_slice, median_i32_slice, mode_i32_slice, mode_string_slice, print_sep_list, stdev_f32_slice, stdev_i32_slice, sum_f32_slice, sum_i32_slice, u64_from_le_slice, usize_from_le_slice, EzError}};
 
 use crate::PATH_SEP;
 
@@ -1735,6 +1735,42 @@ pub fn parse_contained_token(s: &str, container_open: char, container_close: cha
     }
 
     Some(&s[start..stop])
+}
+
+pub fn execute_kv_queries(kv_queries: Vec<KvQuery>, database: Arc<Database>) -> Vec<Result<Value, EzError>> {
+
+    let mut result_values = Vec::new();
+
+    for query in kv_queries {
+        match query {
+            KvQuery::Create(key_string, vec) => {
+                let value = Value{
+                    name: key_string,
+                    body: vec,
+                    metadata: Metadata::new("TODO: PUT REAL CLIENT HERE"),
+                };
+                match database.buffer_pool.add_value(value) {
+                    Ok(_) => continue,
+                    Err(e) => result_values.push(Err(e))
+                };
+            },
+            KvQuery::Read(key_string) => {
+                let value = match database.buffer_pool.values.read().unwrap().get(&key_string) {
+                    Some(v) => result_values.push(Ok(v.read().unwrap().clone())),
+                    None => result_values.push(Err(EzError::Query(format!("No value corresponds to key: '{}'", key_string))))
+                };
+            },
+            KvQuery::Update(key_string, vec) => {
+                
+            },
+            KvQuery::Delete(key_string) => {
+                
+            },
+        }
+    }
+
+    result_values
+
 }
 
 #[allow(non_snake_case)]

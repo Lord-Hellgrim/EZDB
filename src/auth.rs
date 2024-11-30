@@ -7,7 +7,7 @@ use std::{
 use ezcbor::cbor::{self, byteslice_from_cbor, Cbor};
 // use serde::{Deserialize, Serialize};
 
-use crate::{db_structure::KeyString, ezql::Query, utilities::{ez_hash, encode_hex}};
+use crate::{db_structure::KeyString, ezql::{KvQuery, Query}, utilities::{encode_hex, ez_hash}};
 
 /// Defines a permission a user has to interact with a given table
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -193,6 +193,38 @@ pub fn check_permission(
             Query::DELETE{table_name, primary_keys: _, conditions: _ } => if user.can_write.contains(&table_name.to_string()) {continue},
             Query::SUMMARY{table_name, columns: _ } => if user.can_read.contains(&table_name.to_string()) {continue},
             _ => unimplemented!()
+        }
+        return Err(AuthenticationError::Permission)
+    }
+
+    Ok(())
+}
+
+
+pub fn check_kv_permission(
+    queries: &[KvQuery],
+    username: &str,
+    users: Arc<RwLock<BTreeMap<KeyString, RwLock<User>>>>,
+) -> Result<(), AuthenticationError> {
+    println!("calling: check_permission()");
+
+
+    let user = users.read().unwrap();
+    let user = match user.get(&KeyString::from(username)) {
+        Some(u) => u.read().unwrap(),
+        None => return Err(AuthenticationError::Permission),
+    };
+
+    if user.admin {
+        return Ok(())
+    }
+
+    for query in queries {
+        match query {
+            KvQuery::Create(key_string, _) => if user.can_upload {continue},
+            KvQuery::Read(key_string) => if user.can_read.contains(key_string.as_str()) {continue},
+            KvQuery::Update(key_string, _) => if user.can_write.contains(key_string.as_str()) {continue},
+            KvQuery::Delete(key_string) => if user.can_write.contains(key_string.as_str()) {continue},
         }
         return Err(AuthenticationError::Permission)
     }

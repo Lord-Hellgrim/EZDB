@@ -11,9 +11,9 @@ use ezcbor::cbor::{decode_cbor, Cbor};
 use eznoise::{HandshakeState, KeyPair};
 use nix::sys::epoll::{Epoll, EpollCreateFlags, EpollEvent, EpollFlags};
 
-use crate::auth::{check_permission, user_has_permission, AuthenticationError, Permission, User};
+use crate::auth::{check_kv_permission, check_permission, user_has_permission, AuthenticationError, Permission, User};
 use crate::disk_utilities::{BufferPool, MAX_BUFFERPOOL_SIZE};
-use crate::ezql::{execute_EZQL_queries, parse_queries_from_binary};
+use crate::ezql::{execute_EZQL_queries, execute_kv_queries, parse_kv_queries_from_binary, parse_queries_from_binary};
 use crate::logging::Logger;
 use crate::thread_pool::{initialize_thread_pool, Job};
 use crate::utilities::{authenticate_client, perform_handshake_and_authenticate, read_known_length, EzError, Instruction, InstructionError};
@@ -271,10 +271,10 @@ pub fn answer_query(binary: &[u8], user: &str, db_ref: Arc<Database>) -> Result<
 
 pub fn answer_kv_query(binary: &[u8], user: &str, db_ref: Arc<Database>) -> Result<Vec<u8>, EzError> {
 
-    let queries = parse_queries_from_binary(&binary)?;
+    let queries = parse_kv_queries_from_binary(&binary)?;
 
-    check_permission(&queries, user, db_ref.users.clone())?;
-    let requested_table = match execute_EZQL_queries(queries, db_ref) {
+    check_kv_permission(&queries, user, db_ref.users.clone())?;
+    let requested_table = match execute_kv_queries(queries, db_ref) {
         Ok(res) => match res {
             Some(table) => table.to_binary(),
             None => "None.".as_bytes().to_vec(),

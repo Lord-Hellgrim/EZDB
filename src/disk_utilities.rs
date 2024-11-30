@@ -152,8 +152,12 @@ impl BufferPool {
 
         }
 
-        self.values.write().unwrap().insert(value.name, RwLock::new(value));
-
+        if self.values.read().unwrap().contains_key(&value.name) {
+            return Err(EzError::Structure(format!("value named '{}' already exists", value.name)));
+        } else {
+            self.value_naughty_list.write().unwrap().insert(value.name);
+            self.values.write().unwrap().insert(value.name, RwLock::new(value));
+        }
         Ok(())
     }
     
