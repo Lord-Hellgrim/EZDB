@@ -1737,7 +1737,7 @@ pub fn parse_contained_token(s: &str, container_open: char, container_close: cha
     Some(&s[start..stop])
 }
 
-pub fn execute_kv_queries(kv_queries: Vec<KvQuery>, database: Arc<Database>) -> Vec<Result<Value, EzError>> {
+pub fn execute_kv_queries(kv_queries: Vec<KvQuery>, database: Arc<Database>) -> Vec<Result<Option<Value>, EzError>> {
 
     let mut result_values = Vec::new();
 
@@ -1753,18 +1753,41 @@ pub fn execute_kv_queries(kv_queries: Vec<KvQuery>, database: Arc<Database>) -> 
                     Ok(_) => continue,
                     Err(e) => result_values.push(Err(e))
                 };
+                result_values.push(Ok(None));
             },
             KvQuery::Read(key_string) => {
-                let value = match database.buffer_pool.values.read().unwrap().get(&key_string) {
-                    Some(v) => result_values.push(Ok(v.read().unwrap().clone())),
+                match database.buffer_pool.values.read().unwrap().get(&key_string) {
+                    Some(v) => {
+                        result_values.push(Ok(Some(v.clone())));
+                    },
                     None => result_values.push(Err(EzError::Query(format!("No value corresponds to key: '{}'", key_string))))
                 };
             },
             KvQuery::Update(key_string, vec) => {
-                
+                let value = Value{
+                    name: key_string,
+                    body: vec,
+                    metadata: Metadata::new("TODO: PUT REAL CLIENT HERE"),
+                };
+
+                let read_lock = database.buffer_pool.values.read().unwrap();
+                if read_lock.contains_key(&key_string) {
+                    drop(read_lock);
+                    let mut write_lock = database.buffer_pool.values.write().unwrap();
+                    write_lock.insert(key_string, value);
+                    result_values.push(Ok(None));
+                } else {
+                    result_values.push(Err(EzError::Query(format!("No value corresponds to key: '{}'", key_string))))
+                }
+
             },
             KvQuery::Delete(key_string) => {
-                
+                match database.buffer_pool.values.write().unwrap().remove(&key_string) {
+                    Some(v) => {
+                        result_values.push(Ok(Some(v.clone())));
+                    },
+                    None => result_values.push(Err(EzError::Query(format!("No value corresponds to key: '{}'", key_string))))
+                };
             },
         }
     }

@@ -18,7 +18,7 @@ pub const CHUNK_SIZE: usize = 1_000_000;                // 1mb
 pub struct BufferPool {
     max_size: AtomicU64,
     pub tables: Arc<RwLock<BTreeMap<KeyString, RwLock<ColumnTable>>>>,
-    pub values: Arc<RwLock<BTreeMap<KeyString, RwLock<Value>>>>,
+    pub values: Arc<RwLock<BTreeMap<KeyString, Value>>>,
     pub table_naughty_list: Arc<RwLock<HashSet<KeyString>>>,
     pub value_naughty_list: Arc<RwLock<HashSet<KeyString>>>,
     pub table_delete_list: Arc<RwLock<HashSet<KeyString>>>,
@@ -156,7 +156,7 @@ impl BufferPool {
             return Err(EzError::Structure(format!("value named '{}' already exists", value.name)));
         } else {
             self.value_naughty_list.write().unwrap().insert(value.name);
-            self.values.write().unwrap().insert(value.name, RwLock::new(value));
+            self.values.write().unwrap().insert(value.name, value);
         }
         Ok(())
     }

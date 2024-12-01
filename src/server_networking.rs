@@ -16,7 +16,7 @@ use crate::disk_utilities::{BufferPool, MAX_BUFFERPOOL_SIZE};
 use crate::ezql::{execute_EZQL_queries, execute_kv_queries, parse_kv_queries_from_binary, parse_queries_from_binary};
 use crate::logging::Logger;
 use crate::thread_pool::{initialize_thread_pool, Job};
-use crate::utilities::{authenticate_client, perform_handshake_and_authenticate, read_known_length, EzError, Instruction, InstructionError};
+use crate::utilities::{authenticate_client, ksf, perform_handshake_and_authenticate, read_known_length, EzError, Instruction, InstructionError};
 use crate::db_structure::{ColumnTable, KeyString};
 use crate::handlers::*;
 use crate::PATH_SEP;
@@ -274,15 +274,38 @@ pub fn answer_kv_query(binary: &[u8], user: &str, db_ref: Arc<Database>) -> Resu
     let queries = parse_kv_queries_from_binary(&binary)?;
 
     check_kv_permission(&queries, user, db_ref.users.clone())?;
-    let requested_table = match execute_kv_queries(queries, db_ref) {
-        Ok(res) => match res {
-            Some(table) => table.to_binary(),
-            None => "None.".as_bytes().to_vec(),
-        },
-        Err(e) => format!("ERROR -> Could not process query because of error: '{}'", e.to_string()).as_bytes().to_vec(),
-    };
+    let query_results = execute_kv_queries(queries, db_ref);
 
-    Ok(requested_table)
+    let mut binary = Vec::new();
+
+    for result in query_results {
+        match result {
+            Ok(x) => match x {
+                Some(value) => {
+                    let len = value.body.len();
+                    binary.extend_from_slice(ksf("VALUE").raw());
+                    binary.extend_from_slice(value.name.raw());
+                    binary.extend_from_slice(&len.to_le_bytes());
+                    binary.extend_from_slice(&value.body);
+                },
+                None => {
+                    binary.extend_from_slice(ksf("NONE").raw());
+                }
+            },
+            Err(e) => {
+                let error_text = e.to_string();
+                let error_text_bytes = error_text.as_bytes();
+                let len = error_text_bytes.len();
+                binary.extend_from_slice(ksf("ERROR").raw());
+                binary.extend_from_slice(&len.to_le_bytes());
+                binary.extend_from_slice(error_text_bytes);
+
+            }
+        }
+    }
+
+    Ok(binary)
+
 }
 
 pub fn perform_administration(binary: &[u8], db_ref: Arc<Database>) -> Result<Vec<u8>, EzError> {
@@ -333,11 +356,11 @@ pub fn perform_maintenance(db_ref: Arc<Database>) -> Result<(), EzError> {
         }
     }
     
-    for (key, value_lock) in db_ref.buffer_pool.values.read().unwrap().iter() {
+    for (key, value) in db_ref.buffer_pool.values.read().unwrap().iter() {
         let mut value_naughty_list = db_ref.buffer_pool.value_naughty_list.write().unwrap();
         if value_naughty_list.contains(key) {
             let mut file = std::fs::File::create(format!("EZconfig{PATH_SEP}raw_values{PATH_SEP}{}", key.as_str())).expect(&format!("Panic of line: {} of server_networking. The backup file could not be created.", line!()));
-            file.write(&value_lock.read().unwrap().write_to_binary()).expect(&format!("Panic of line: {} of server_networking. The backup file could not be written.", line!()));
+            file.write(&value.write_to_binary()).expect(&format!("Panic of line: {} of server_networking. The backup file could not be written.", line!()));
             value_naughty_list.remove(key);
         }
     }
