@@ -277,32 +277,53 @@ pub fn answer_kv_query(binary: &[u8], user: &str, db_ref: Arc<Database>) -> Resu
     let query_results = execute_kv_queries(queries, db_ref);
 
     let mut binary = Vec::new();
+    binary.extend_from_slice(&query_results.len().to_le_bytes());
+    for _ in 0..query_results.len() {
+        binary.extend_from_slice(&[0u8;8]);
+    }
+    let mut offsets = Vec::new();
 
     for result in query_results {
         match result {
             Ok(x) => match x {
                 Some(value) => {
                     let len = value.body.len();
-                    binary.extend_from_slice(ksf("VALUE").raw());
-                    binary.extend_from_slice(value.name.raw());
-                    binary.extend_from_slice(&len.to_le_bytes());
-                    binary.extend_from_slice(&value.body);
+                    let mut temp = Vec::new();
+                    temp.extend_from_slice(ksf("VALUE").raw());
+                    temp.extend_from_slice(value.name.raw());
+                    temp.extend_from_slice(&len.to_le_bytes());
+                    temp.extend_from_slice(&value.body);
+                    offsets.push(temp.len());
+                    binary.extend_from_slice(&temp);
                 },
                 None => {
-                    binary.extend_from_slice(ksf("NONE").raw());
+                    let mut temp = Vec::new();
+                    temp.extend_from_slice(ksf("NONE").raw());
+                    offsets.push(temp.len());
+                    binary.extend_from_slice(&temp);
                 }
             },
             Err(e) => {
                 let error_text = e.to_string();
                 let error_text_bytes = error_text.as_bytes();
                 let len = error_text_bytes.len();
-                binary.extend_from_slice(ksf("ERROR").raw());
-                binary.extend_from_slice(&len.to_le_bytes());
-                binary.extend_from_slice(error_text_bytes);
-
+                let mut temp = Vec::new();
+                temp.extend_from_slice(ksf("ERROR").raw());
+                temp.extend_from_slice(&len.to_le_bytes());
+                temp.extend_from_slice(error_text_bytes);
+                offsets.push(temp.len());
+                binary.extend_from_slice(&temp);
             }
         }
     }
+
+    let mut i = 0;
+    for offset in offsets {
+        binary[8+i..8+i+8].copy_from_slice(&offset.to_le_bytes());
+        i += 8;
+    }
+
+    
 
     Ok(binary)
 

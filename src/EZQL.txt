@@ -84,3 +84,8 @@ SUMMARY:
         columns:
     output:
         A table with the requested summaries
+
+
+KvQueries:
+    Results:
+        [Number of results] [result offsets]

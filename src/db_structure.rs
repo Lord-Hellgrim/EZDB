@@ -2501,7 +2501,6 @@ impl Value {
 
     } 
 
-    /// Saves the binary blob to disk in a file named key.
     pub fn write_to_binary(&self) -> Vec<u8> {
         
 

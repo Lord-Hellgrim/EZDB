@@ -3,9 +3,9 @@ use std::str::{self};
 use eznoise::{initiate_connection, Connection};
 
 use crate::auth::User;
-use crate::db_structure::{ColumnTable, KeyString};
-use crate::ezql::Query;
-use crate::utilities::{bytes_to_str, parse_response, EzError, Instruction};
+use crate::db_structure::{ColumnTable, KeyString, Metadata, Value};
+use crate::ezql::{KvQuery, Query};
+use crate::utilities::{bytes_to_str, ksf, parse_response, u64_from_le_slice, EzError, Instruction};
 use crate::PATH_SEP;
 
 
@@ -67,6 +67,64 @@ pub fn send_query(connection: &mut Connection, query: &Query) -> Result<ColumnTa
         Ok(table) => Ok(table),
         Err(e) => Err(e),
     }
+}
+
+pub fn send_kv_queries(connection: &mut Connection, queries: &[KvQuery]) -> Result<Vec<Result<Option<Value>, EzError>>, EzError> {
+
+    let mut packet = Vec::new();
+    packet.extend_from_slice(ksf("KVQUERY").raw());
+    for query in queries {
+        packet.extend_from_slice(&query.to_binary());
+    }
+
+    connection.SEND_C1(&packet)?;
+
+    let response = connection.RECEIVE_C2()?;
+
+    let number_of_responses = u64_from_le_slice(&response[0..8]) as usize;
+    let mut offsets = Vec::new();
+    for i in 0..number_of_responses {
+        let offset = u64_from_le_slice(&response[8+8*i..8+8*i+8]) as usize;
+        offsets.push(offset);
+    }
+    
+    let body = &response[8+8*offsets.len()..];
+    
+    let mut results = Vec::new(); 
+    let mut i = 0;
+    while i < offsets.len() {
+        let current_blob: &[u8];
+        if i == offsets.len() {
+            current_blob = &body[offsets[i]..];
+        } else {
+            current_blob = &body[offsets[i]..offsets[i+1]];
+        }
+
+        let tag = KeyString::try_from(&current_blob[0..64])?;
+        match tag.as_str() {
+            "VALUE" => {
+                let name = KeyString::try_from(&current_blob[64..128])?;
+                let len = u64_from_le_slice(&current_blob[128..136]) as usize;
+                let value = current_blob[136..136+len].to_vec();
+                let value = Value {name, body: value, metadata: Metadata::new("bleh")};
+                results.push(Ok(Some(value)));
+            },
+            "ERROR" => {
+
+            } ,
+            "NONE"  => {
+                results.push(Ok(None));
+            },
+            other => {
+                results.push(Err(EzError::Query(format!("Incorrectly formatted response. '{}' is not a valid response type", other))));
+            }
+        }
+
+
+    }
+
+    todo!()
+
 }
 
 
