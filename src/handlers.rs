@@ -4,7 +4,7 @@ use std::{collections::BTreeMap, sync::{atomic::Ordering, Arc, RwLock}};
 use ezcbor::cbor::decode_cbor;
 use eznoise::Connection;
 
-use crate::{auth::{check_permission, User}, utilities}; 
+use crate::{auth::{check_permission, User}, utilities::{self, ErrorTag}}; 
 use crate::db_structure::{ColumnTable, KeyString, Value};
 use crate::ezql::{execute_EZQL_queries, parse_serial_query}; 
 use crate::utilities::{EzError, get_current_time, bytes_to_str, };
@@ -105,7 +105,7 @@ pub fn handle_meta_list_key_values(
     if response == "OK" {
         Ok(())
     } else {
-        Err(EzError::Confirmation(response))
+        Err(EzError{tag: ErrorTag::Confirmation, text: response})
     }
 
 }

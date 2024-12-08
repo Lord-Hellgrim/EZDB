@@ -515,7 +515,7 @@ pub fn perform_handshake_and_authenticate(s: eznoise::KeyPair, stream: TcpStream
         Ok(s) => s,
         Err(e) => {
             println!("failed to read auth_string from bytes because: {}", e);
-            return Err(EzError::Utf8(e));
+            return Err(EzError{tag: ErrorTag::Utf8, text: e.to_string()});
         }
     };
     let password = &auth_buffer[512..];
@@ -530,12 +530,12 @@ pub fn perform_handshake_and_authenticate(s: eznoise::KeyPair, stream: TcpStream
             println!("key: '{}'", key);
         }
         println!("Username:\n\t'{}'\n...is wrong", username);
-        return Err(EzError::Authentication(format!("Username: '{}' does not exist", username)));
+        return Err(EzError{tag: ErrorTag::Authentication, text: format!("Username: '{}' does not exist", username)});
     } else if db_ref.users.read().unwrap()[&KeyString::from(username)].read().unwrap().password != password {
         // println!("thread_users_lock[username].password: {:?}", user_lock.password);
         // println!("password: {:?}", password);
         // println!("Password hash:\n\t{:?}\n...is wrong", password);
-        return Err(EzError::Authentication("Wrong password.".to_owned()));
+        return Err(EzError{tag: ErrorTag::Authentication, text: "Wrong password.".to_owned()});
     }
     Ok(
         connection
@@ -551,7 +551,7 @@ pub fn authenticate_client(connection: &mut eznoise::Connection, db_ref: Arc<Dat
         Ok(s) => s,
         Err(e) => {
             println!("failed to read auth_string from bytes because: {}", e);
-            return Err(EzError::Utf8(e));
+            return Err(EzError{tag: ErrorTag::Utf8, text: e.to_string()});
         }
     };
     connection.peer = username.to_string();
@@ -568,10 +568,10 @@ pub fn authenticate_client(connection: &mut eznoise::Connection, db_ref: Arc<Dat
             println!("key: '{}'", key);
         }
         println!("Username:\n\t'{}'\n...is wrong", username);
-        return Err(EzError::Authentication(format!("Username: '{}' does not exist", username)));
+        return Err(EzError{tag: ErrorTag::Authentication, text: format!("Username: '{}' does not exist", username)});
     } else if db_ref.users.read().unwrap()[&KeyString::from(username)].read().unwrap().password != password {
         println!("password: {:?}", password);
-        return Err(EzError::Authentication("Wrong password.".to_owned()));
+        return Err(EzError{tag: ErrorTag::Authentication, text: "Wrong password.".to_owned()});
     }
     Ok(())
 }
@@ -593,7 +593,7 @@ pub fn read_known_length(stream: &mut TcpStream) -> Result<Vec<u8>, EzError> {
         println!("read: {} bytes", bytes_received);
         
         if bytes_received == 0 {
-            return Err(EzError::Io(ErrorKind::BrokenPipe));
+            return Err(EzError{tag: ErrorTag::Io, text: ErrorKind::BrokenPipe.to_string()});
         }
         data.extend_from_slice(&buffer[..bytes_received]);
         total_read += bytes_received;
@@ -1211,11 +1211,11 @@ pub fn parse_response(response: &str, username: &str, table_name: &str) -> Resul
     if response == "OK" {
         Ok(())
     } else if response == "IU" {
-        Err(EzError::ParseResponse(format!("Username: {}, is invalid", username)))
+        Err(EzError{tag: ErrorTag::ParseResponse, text: format!("Username: {}, is invalid", username)})
     } else if response == "IP" {
-        Err(EzError::ParseResponse("Password is invalid".to_owned()))
+        Err(EzError{tag: ErrorTag::ParseResponse, text: "Password is invalid".to_owned()})
     } else if response == ("NT") {
-        Err(EzError::ParseResponse(format!("No such table as {}", table_name)))
+        Err(EzError{tag: ErrorTag::ParseResponse, text: format!("No such table as {}", table_name)})
     } else {
         panic!("Need to handle error: {}", response);
     }

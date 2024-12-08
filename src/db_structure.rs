@@ -983,11 +983,11 @@ impl ColumnTable {
 
 
         if other_table.len() == 0 {
-            return Err(EzError::Query("Can't update anything with an empty table".to_owned()))
+            return Err(EzError{tag: ErrorTag::Query, text: "Can't update anything with an empty table".to_owned()})
         }
 
         if self.header != other_table.header {
-            return Err(EzError::Query("Headers don't match".to_owned()));
+            return Err(EzError{tag: ErrorTag::Query, text: "Headers don't match".to_owned()})
         }
 
         let self_primary_key_index = self.get_primary_key_col_index();
@@ -1121,7 +1121,7 @@ impl ColumnTable {
         
 
         if index > self.len() {
-            return Err(EzError::Query("Index larger than data".to_owned()));
+            return Err(EzError{tag: ErrorTag::Query, text: "Index larger than data".to_owned()})
         }
 
         let mut output = String::new();
@@ -1152,10 +1152,10 @@ impl ColumnTable {
         match self.columns.get(index) {
             Some(dbcol) => match dbcol {
                 DbColumn::Ints(column) => Ok(column),
-                DbColumn::Texts(_) => Err(EzError::Structure("Wrong column type".to_owned())),
-                DbColumn::Floats(_) => Err(EzError::Structure("Wrong column type".to_owned())),
+                DbColumn::Texts(_) => Err(EzError{tag: ErrorTag::Structure, text: "Wrong column type".to_owned()}),
+                DbColumn::Floats(_) => Err(EzError{tag: ErrorTag::Structure, text: "Wrong column type".to_owned()}),
             },
-            None => Err(EzError::Structure(format!("No such column as {}", index)))
+            None => Err(EzError{tag: ErrorTag::Structure, text: format!("No such column as {}", index)})
         }
 
     }
@@ -1164,10 +1164,10 @@ impl ColumnTable {
         match self.columns.get(index) {
             Some(dbcol) => match dbcol {
                 DbColumn::Texts(column) => Ok(column),
-                DbColumn::Ints(_) => Err(EzError::Structure("Wrong column type".to_owned())),
-                DbColumn::Floats(_) => Err(EzError::Structure("Wrong column type".to_owned())),
+                DbColumn::Ints(_) => Err(EzError{tag: ErrorTag::Structure, text: "Wrong column type".to_owned()}),
+                DbColumn::Floats(_) => Err(EzError{tag: ErrorTag::Structure, text: "Wrong column type".to_owned()}),
             },
-            None => Err(EzError::Structure(format!("No such column as {}", index)))
+            None => Err(EzError{tag: ErrorTag::Structure, text: format!("No such column as {}", index)})
         }
 
     }
@@ -1178,10 +1178,10 @@ impl ColumnTable {
         match self.columns.get(index) {
             Some(dbcol) => match dbcol {
                 DbColumn::Floats(column) => Ok(column),
-                DbColumn::Texts(_) => Err(EzError::Structure("Wrong column type".to_owned())),
-                DbColumn::Ints(_) => Err(EzError::Structure("Wrong column type".to_owned())),
+                DbColumn::Texts(_) => Err(EzError{tag: ErrorTag::Structure, text: "Wrong column type".to_owned()}),
+                DbColumn::Ints(_) => Err(EzError{tag: ErrorTag::Structure, text: "Wrong column type".to_owned()}),
             },
-            None => Err(EzError::Structure(format!("No such column as {}", index)))
+            None => Err(EzError{tag: ErrorTag::Structure, text: format!("No such column as {}", index)})
         }
 
     }
@@ -1197,7 +1197,7 @@ impl ColumnTable {
         let mut indexes = Vec::new();
         for item in key_list {
             match &self.columns[&primary_index] {
-                DbColumn::Floats(_) => return Err(EzError::Structure("There should never be a float primary key".to_owned())),
+                DbColumn::Floats(_) => return Err(EzError{tag: ErrorTag::Structure, text: "There should never be a float primary key".to_owned()}),
                 DbColumn::Ints(col) => {
                     let key: i32 = match item.parse::<i32>() {
                         Ok(num) => num,
@@ -1286,7 +1286,7 @@ impl ColumnTable {
         let mut new_table_header = BTreeSet::new();
 
         if columns.is_empty() {
-            return Err(EzError::Query("No columns specified. If you want all columns, us '*'".to_owned()))
+            return Err(EzError{tag: ErrorTag::Query, text: "No columns specified. If you want all columns, us '*'".to_owned()})
         }
 
         if columns[0].as_str() == "*" || columns[0].as_str() == "*" {
@@ -1311,7 +1311,7 @@ impl ColumnTable {
                         .clone();
                     new_table_header.insert(header_item);
                 },
-                None => return Err(EzError::Query(format!("No such column as {}", column))),
+                None => return Err(EzError{tag: ErrorTag::Query, text: format!("No such column as {}", column)})
             };
         }
 
@@ -1332,7 +1332,7 @@ impl ColumnTable {
     //     let mut printer = String::new();
 
     //     if range.1 < range.0 {
-    //         return Err(EzError::Query("Table is empty".to_owned()));
+    //         return Err(EzError{tag: ErrorTag::Query, text: "Table is empty".to_owned())})
     //     }
 
     //     if range.0 == range.1 {
@@ -1343,11 +1343,11 @@ impl ColumnTable {
 
     //     let mut indexes: [usize; 2] = [0, 0];
     //     match &self.columns[&primary_index] {
-    //         DbColumn::Floats(_) => return Err(EzError::Structure("There should never be a float primary key".to_owned())),
+    //         DbColumn::Floats(_) => return Err(EzError{tag: ErrorTag::Structure, text: "There should never be a float primary key".to_owned()}),
     //         DbColumn::Ints(col) => {
     //             let key = match range.0.parse::<i32>() {
     //                 Ok(num) => num,
-    //                 Err(_) => return Err(EzError::Query("Table is empty".to_owned()));
+    //                 Err(_) => return Err(EzError{tag: ErrorTag::Query, text: "Table is empty".to_owned())})
     //             };
     //             let index: usize = col.partition_point(|n| n < &key);
     //             indexes[0] = index;
@@ -1416,7 +1416,7 @@ impl ColumnTable {
 
     pub fn copy_lines(&self, target: &mut ColumnTable, line_keys: &DbColumn) -> Result<(), EzError> {
         if target.header != self.header {
-            return Err(EzError::Query("Target table header does not match source table header.".to_owned()));
+            return Err(EzError{tag: ErrorTag::Query, text: "Target table header does not match source table header.".to_owned()})
         }
 
         let mut temp_table = ColumnTable {
@@ -1445,7 +1445,7 @@ impl ColumnTable {
             DbColumn::Ints(col) => {
                 let source_col = match &self.columns[&pk_index] {
                     DbColumn::Ints(col) => col,
-                    _ => return Err(EzError::Structure("Source and target table do not have matching primary key types".to_owned())),
+                    _ => return Err(EzError{tag: ErrorTag::Structure, text: "Source and target table do not have matching primary key types".to_owned()}),
                 };
                 for key in col {
                     match source_col.binary_search(key) {
@@ -1457,7 +1457,7 @@ impl ColumnTable {
             DbColumn::Texts(col) => {
                 let source_col = match &self.columns[&pk_index] {
                     DbColumn::Texts(col) => col,
-                    _ => return Err(EzError::Structure("Source and target table do not have matching primary key types".to_owned())),
+                    _ => return Err(EzError{tag: ErrorTag::Structure, text: "Source and target table do not have matching primary key types".to_owned()}),
                 };
                 for key in col {
                     match source_col.binary_search(key) {
@@ -1557,7 +1557,7 @@ impl ColumnTable {
         // UP TO BUT NOT INCLUDING!!!
 
         if range.1 < range.0 {
-            return Err(EzError::Query("Range is invalid. Start is higher than stop".to_owned()));
+            return Err(EzError{tag: ErrorTag::Query, text: "Range is invalid. Start is higher than stop".to_owned()})
         }
 
         if range.0 == range.1 {
@@ -1568,11 +1568,11 @@ impl ColumnTable {
 
         let mut indexes: [usize; 2] = [0, 0];
         match &self.columns[&primary_index] {
-            DbColumn::Floats(_) => return Err(EzError::Structure("There should never be a float primary key".to_owned())),
+            DbColumn::Floats(_) => return Err(EzError{tag: ErrorTag::Structure, text: "There should never be a float primary key".to_owned()}),
             DbColumn::Ints(col) => {
                 let key = match range.0.parse::<i32>() {
                     Ok(num) => num,
-                    Err(_) => return Err(EzError::Structure(format!("start: '{}' could not be parsed as i32", range.0))),
+                    Err(_) => return Err(EzError{tag: ErrorTag::Structure, text: format!("start: '{}' could not be parsed as i32", range.0)}),
                 };
                 let index: usize = col.partition_point(|n| *n < key);
                 indexes[0] = index;
@@ -1582,7 +1582,7 @@ impl ColumnTable {
                 } else {
                     let key2 = match range.1.parse::<i32>() {
                         Ok(num) => num,
-                        Err(_) => return Err(EzError::Structure(format!("start: '{}' could not be parsed as i32", range.1))),
+                        Err(_) => return Err(EzError{tag: ErrorTag::Structure, text: format!("start: '{}' could not be parsed as i32", range.1)}),
                     };
                     // // println!("key2: {}", key2);
                     let index: usize = col.partition_point(|n| n < &key2);
@@ -1636,7 +1636,7 @@ impl ColumnTable {
         let mut indexes = Vec::new();
         for item in key_list {
             match &self.columns[&primary_index] {
-                DbColumn::Floats(_) => return Err(EzError::Structure("There should never be a float primary key".to_owned())),
+                DbColumn::Floats(_) => return Err(EzError{tag: ErrorTag::Structure, text: "There should never be a float primary key".to_owned()}),
                 DbColumn::Ints(col) => {
                     let key: i32 = match item.parse::<i32>() {
                         Ok(num) => num,
@@ -1809,7 +1809,7 @@ impl ColumnTable {
             self.columns.insert(name, column);
         } else {
             if self.len() != column.len() {
-                return Err(EzError::Structure(format!("Attempting to add an uneven column.\nExisting columns: '{}'\nNew_column: '{}'", self.len(), column.len())))
+                return Err(EzError{tag: ErrorTag::Structure, text: format!("Attempting to add an uneven column.\nExisting columns: '{}'\nNew_column: '{}'", self.len(), column.len())})
             }
 
             self.header.insert(HeaderItem {
@@ -1831,12 +1831,12 @@ impl ColumnTable {
 
         match self.columns.keys().find(|x| **x == *predicate_column) {
             Some(_) => (),
-            None => return Err(EzError::Query("Predicate column is not common".to_owned())),
+            None => return Err(EzError{tag: ErrorTag::Query, text: "Predicate column is not common".to_owned()})
         };
 
         match right_table.columns.keys().find(|x| **x == *predicate_column) {
             Some(_) => (),
-            None => return Err(EzError::Query("Predicate column is not common".to_owned())),
+            None => return Err(EzError{tag: ErrorTag::Query, text: "Predicate column is not common".to_owned()})
         };
 
         
@@ -1907,12 +1907,12 @@ impl ColumnTable {
 
         match self.columns.keys().find(|x| **x == *predicate_column) {
             Some(_) => (),
-            None => return Err(EzError::Query("Predicate column is not common".to_owned())),
+            None => return Err(EzError{tag: ErrorTag::Query, text: "Predicate column is not common".to_owned()})
         };
 
         match right_table.columns.keys().find(|x| **x == *predicate_column) {
             Some(_) => (),
-            None => return Err(EzError::Query("Predicate column is not common".to_owned())),
+            None => return Err(EzError{tag: ErrorTag::Query, text: "Predicate column is not common".to_owned()})
         };
 
         
@@ -2071,7 +2071,7 @@ impl ColumnTable {
         let mut table_name = KeyString::try_from(&binary[64..128])?;
         match packet_type.as_str() {
             "EZDB_COLUMNTABLE" => (),
-            _ => return Err(EzError{tag: ErrorTag::Deserialization, text: ("Not ColumnTable".to_owned()}))
+            _ => return Err(EzError{tag: ErrorTag::Deserialization, text: "Not ColumnTable".to_owned()})
         };
 
         let header_len = u64_from_le_slice(&binary[128..136]) as usize;
@@ -2264,7 +2264,7 @@ pub fn subtable_from_keys(table: &ColumnTable, mut keys: Vec<KeyString>) -> Resu
             for key in keys {
                 match key.to_i32_checked() {
                     Ok(x) => int_keys.push(x),
-                    Err(e) => return Err(EzError::Query(format!("Invalid int: {e}"))),
+                    Err(e) => return Err(EzError{tag: ErrorTag::Query, text: format!("Invalid int: {e}")})
                 }
             }
             int_keys.sort();
@@ -2320,7 +2320,7 @@ pub fn table_from_inserts(value_columns: &[KeyString], values: &str, table_name:
         } else if value.len() <= 64 {
             new_header.push(HeaderItem{name: value_columns[i], kind: DbType::Text, key: temp_key})
         } else {
-            return Err(EzError{tag: ErrorTag::Deserialization, text: (format!("Unsupported type: {}", value)}))
+            return Err(EzError{tag: ErrorTag::Deserialization, text: format!("Unsupported type: {}", value)})
         }
         i += 1;
     }

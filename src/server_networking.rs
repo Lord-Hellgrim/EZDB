@@ -16,7 +16,7 @@ use crate::disk_utilities::{BufferPool, MAX_BUFFERPOOL_SIZE};
 use crate::ezql::{execute_EZQL_queries, execute_kv_queries, parse_kv_queries_from_binary, parse_queries_from_binary};
 use crate::logging::Logger;
 use crate::thread_pool::{initialize_thread_pool, Job};
-use crate::utilities::{authenticate_client, ksf, perform_handshake_and_authenticate, read_known_length, EzError, Instruction, InstructionError};
+use crate::utilities::{authenticate_client, ksf, perform_handshake_and_authenticate, read_known_length, ErrorTag, EzError, Instruction, InstructionError};
 use crate::db_structure::{ColumnTable, KeyString};
 use crate::handlers::*;
 use crate::PATH_SEP;
@@ -124,7 +124,7 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
     println!("Binding to address: {address}");
     let listener = match TcpListener::bind(address) {
         Ok(value) => value,
-        Err(e) => {return Err(EzError::Io(e.kind()));},
+        Err(e) => {return Err(EzError{tag: ErrorTag::Io, text: e.kind().to_string()});},
     };
 
     listener.set_nonblocking(true)?;
@@ -157,7 +157,7 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
             if events[i].data() == listener.as_raw_fd() as u64 {
                 let (mut stream, client_address) = match listener.accept() {
                     Ok((n,m)) => (n, m),
-                    Err(e) => return Err(EzError::Io(e.kind())),
+                    Err(e) => return Err(EzError{tag: ErrorTag::Io, text: e.kind().to_string()}),
                 };
                 println!("Accepted connection from: {}", client_address);
                 let key = stream.as_raw_fd() as u64;
@@ -410,7 +410,7 @@ pub fn parse_instruction(
     let blank = KeyString::try_from(&instructions[192..256])?;
 
     if table_name.as_str() == "All" {
-        return Err(EzError::Instruction("Table cannot be called 'All'".to_owned()));
+        return Err(EzError{tag: ErrorTag::Instruction, text: "Table cannot be called 'All'".to_owned()});
     }
 
     println!("parsing 4...");
@@ -423,14 +423,14 @@ pub fn parse_instruction(
             if user_has_permission(table_name.as_str(), Permission::Read, username.as_str(), database.users.clone()) {
                 Ok(Instruction::MetaListTables)
             } else {
-                Err(EzError::Authentication(format!("User '{}' does not have permission to list tables", username)))
+                Err(EzError{tag: ErrorTag::Authentication, text: format!("User '{}' does not have permission to list tables", username)})
             }
         },
         "MetaListKeyValues" => {
             if user_has_permission(table_name.as_str(), Permission::Read, username.as_str(), database.users.clone()) {
                 Ok(Instruction::MetaListKeyValues)
             } else {
-                Err(EzError::Authentication(format!("User '{}' does not have permission to list key-value pairs", username)))
+                Err(EzError{tag: ErrorTag::Authentication, text: format!("User '{}' does not have permission to list key-value pairs", username)})
 
             }
         },
@@ -438,11 +438,11 @@ pub fn parse_instruction(
             if user_has_permission(table_name.as_str(), Permission::Write, username.as_str(), database.users.clone()) {
                 Ok(Instruction::NewUser)
             } else {
-                Err(EzError::Authentication(format!("User '{}' does not have permission to create a new user", username)))
+                Err(EzError{tag: ErrorTag::Authentication, text: format!("User '{}' does not have permission to create a new user", username)})
 
             }
         }
-        _ => Err(EzError::Instruction(format!("Action: '{}' is not valid", action))),
+        _ => Err(EzError{tag: ErrorTag::Instruction, text: format!("Action: '{}' is not valid", action)}),
     };
 
     confirmed

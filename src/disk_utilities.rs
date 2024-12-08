@@ -6,7 +6,7 @@ use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, RwLock};
 
 use crate::db_structure::{write_column_table_binary_header, DbColumn, KeyString, Value};
-use crate::utilities::EzError;
+use crate::utilities::{ErrorTag, EzError};
 use crate::db_structure::ColumnTable;
 use crate::PATH_SEP;
 
@@ -131,11 +131,11 @@ impl BufferPool {
 
 
         if self.occupied_buffer() + table.size_of_table() as u64 > self.max_size() {
-            return Err(EzError::NoMoreBufferSpace(format!("Table sized: {} is too big. Remaining space is: {}",table.size_of_table(), self.max_size()-self.occupied_buffer())))
+            return Err(EzError{tag: ErrorTag::NoMoreBufferSpace, text: format!("Table sized: {} is too big. Remaining space is: {}",table.size_of_table(), self.max_size()-self.occupied_buffer())})
         }
 
         if self.tables.read().unwrap().contains_key(&table.name) {
-            return Err(EzError::Structure(format!("Table named '{}' already exists", table.name)));
+            return Err(EzError{tag: ErrorTag::Structure, text: format!("Table named '{}' already exists", table.name)});
         } else {
             self.table_naughty_list.write().unwrap().insert(table.name);
             self.tables.write().unwrap().insert(table.name, RwLock::new(table));
@@ -148,12 +148,12 @@ impl BufferPool {
         println!("calling: BufferPool::add_value()");
 
         if self.occupied_buffer() + value.body.len() as u64 > self.max_size() {
-            return Err(EzError::NoMoreBufferSpace(format!("Table sized: {} is too big. Remaining space is: {}",value.body.len(), self.max_size()-self.occupied_buffer())))
+            return Err(EzError{tag: ErrorTag::NoMoreBufferSpace, text: format!("Table sized: {} is too big. Remaining space is: {}",value.body.len(), self.max_size()-self.occupied_buffer())})
 
         }
 
         if self.values.read().unwrap().contains_key(&value.name) {
-            return Err(EzError::Structure(format!("value named '{}' already exists", value.name)));
+            return Err(EzError{tag: ErrorTag::Structure, text: format!("value named '{}' already exists", value.name)});
         } else {
             self.value_naughty_list.write().unwrap().insert(value.name);
             self.values.write().unwrap().insert(value.name, value);
