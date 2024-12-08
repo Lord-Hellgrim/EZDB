@@ -2,7 +2,7 @@ use miniz_oxide::deflate::compress_to_vec;
 use miniz_oxide::inflate::decompress_to_vec;
 // use brotli::{CompressorReader, Decompressor};
 
-use crate::utilities::{usize_from_le_slice, EzError};
+use crate::utilities::{usize_from_le_slice, ErrorTag, EzError};
 use crate::PATH_SEP;
 
 
@@ -48,7 +48,7 @@ pub fn miniz_compress(data: &[u8]) -> Result<Vec<u8>, EzError> {
     println!("calling: miniz_compress()");
 
     if data.len() > MAX_PACKET_SIZE {
-        return Err(EzError::OversizedData(format!("Data sized {} is too big to handle", data.len())));
+        return Err(EzError{tag: ErrorTag::OversizedData, text: format!("Data sized {} is too big to handle", data.len())});
     }
     let mut output = Vec::with_capacity(data.len() + 8);
     output.extend_from_slice(&data.len().to_le_bytes());
@@ -62,17 +62,17 @@ pub fn miniz_decompress(data: &[u8]) -> Result<Vec<u8>, EzError> {
     println!("calling: miniz_decompress()");
 
     if data.len() < 8 {
-        return Err(EzError::Unimplemented("There should never be a packe less than 8 bytes".to_owned()));
+        return Err(EzError{tag: ErrorTag::Unimplemented, text: "There should never be a packe less than 8 bytes".to_owned()});
     }
     let len = usize_from_le_slice(&data[0..8]);
     if len > MAX_PACKET_SIZE {
-        return Err(EzError::OversizedData(format!("Data sized {} is too big to handle", data.len())));
+        return Err(EzError{tag: ErrorTag::OversizedData, text: format!("Data sized {} is too big to handle", data.len())});
     }
     match decompress_to_vec(&data[8..]) {
         Ok(result) => Ok(result),
         Err(e) => {
             println!("failed to decompress because {e}");
-            Err(EzError::Decompression(e.to_string()))
+            Err(EzError{tag: ErrorTag::Decompression, text: e.to_string()})
         }
     }
 }

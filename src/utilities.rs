@@ -27,212 +27,418 @@ pub const INSTRUCTION_BUFFER: usize = 1024;
 pub const DATA_BUFFER: usize = 1_048;//_576; // 1 mb
 pub const MAX_DATA_LEN: usize = u32::MAX as usize;
 
-
-
-/// The main error of all EZDB. Any error that can occur during a client request should be covered here. Internal errors are covered elsewhere.
-#[derive(Debug)]
-pub enum EzError {
-    Utf8(Utf8Error),
-    Io(ErrorKind),
-    Instruction(String),
-    Confirmation(String),
-    Authentication(String),
-    Crypto(String),
-    ParseInt(ParseIntError),
-    ParseFloat(ParseFloatError),
-    ParseResponse(String),
-    ParseUser(String),
-    OversizedData(String),
-    Decompression(String),
-    Query(String),
-    Debug(String),
-    NoMoreBufferSpace(String),
-    Unimplemented(String),
-    Serialization(String),
-    Deserialization(String),
-    Structure(String),
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord)]
+pub enum ErrorTag {
+    Utf8,
+    Io,
+    Instruction,
+    Confirmation,
+    Authentication,
+    Crypto,
+    ParseInt,
+    ParseFloat,
+    ParseResponse,
+    ParseUser,
+    OversizedData,
+    Decompression,
+    Query,
+    Debug,
+    NoMoreBufferSpace,
+    Unimplemented,
+    Serialization,
+    Deserialization,
+    Structure,
 }
 
-impl fmt::Display for EzError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            EzError::Utf8(e) => write!(f, "Encontered invalid utf-8: {}\n", e),
-            EzError::Io(e) => write!(f, "Encountered an IO error: {}", e),
-            EzError::Instruction(e) => write!(f, "{}", e),
-            EzError::Confirmation(e) => write!(f, "Received corrupt confirmation {:?}", e),
-            EzError::Authentication(e) => write!(f, "{}", e),
-            EzError::Crypto(e) => write!(f, "There has been a crypto error. Most likely the nonce was incorrect. The error is: {}", e),
-            EzError::ParseInt(e) => write!(f, "There has been a problem parsing an integer. The error signature is: {}", e),
-            EzError::ParseFloat(e) => write!(f, "There has been a problem parsing a float. The error signature is: {}", e),
-            EzError::ParseUser(e) => write!(f, "Failed to parse user from string because: {}", e),
-            EzError::OversizedData(s) => write!(f, "Sent data is too long. Maximum data size is {MAX_DATA_LEN}.\nAdditional information: {}", s),
-            EzError::ParseResponse(e) => write!(f, "{}", e),
-            EzError::Decompression(e) => write!(f, "Decompression error occurred from miniz_oxide library.\nLibrary error: {}", e),
-            EzError::Query(s) => write!(f, "Query could not be processed because of:\n############################{}\n################################", s),
-            EzError::NoMoreBufferSpace(x) => write!(f, "No more space in buffer pool. Need to free {x} bytes"),
-            EzError::Unimplemented(s) => write!(f, "{}", s),
-            EzError::Debug(s) => write!(f, "{}", s),
-            EzError::Serialization(s) => write!(f, "{}", s),
-            EzError::Deserialization(s) => write!(f, "{}", s),
-            EzError::Structure(s) => write!(f, "{}", s),
-
-        }
-    }
-}
-
-impl From<std::io::Error> for EzError {
-    fn from(e: std::io::Error) -> Self {
-        EzError::Io(e.kind())
-    }
-}
-
-impl From<Utf8Error> for EzError {
-    fn from(e: Utf8Error) -> Self {
-        EzError::Utf8(e)
-    }
-}
-
-impl From<InstructionError> for EzError {
-    fn from(e: InstructionError) -> Self {
-        EzError::Instruction(e.to_string())
-    }
-}
-
-impl From<AuthenticationError> for EzError {
-    fn from(e: AuthenticationError) -> Self {
-        EzError::Authentication(e.to_string())
-    }
-}
-
-impl From<aead::Error> for EzError {
-    fn from(e: aead::Error) -> Self {
-        EzError::Crypto(format!("{e}"))
-    }
-}
-
-impl From<ParseIntError> for EzError {
-    fn from(e: ParseIntError) -> Self {
-        EzError::ParseInt(e)
-    }
-}
-
-impl From<ParseFloatError> for EzError {
-    fn from(e: ParseFloatError) -> Self {
-        EzError::ParseFloat(e)
-    }
-}
-
-impl From<CborError> for EzError {
-    fn from(e: CborError) -> Self {
-        let s = match e {
-            CborError::IllFormed(x) => x,
-            CborError::Unexpected(x) => x,
-        };
-        EzError::Serialization(s)
-    }
-}
-
-impl From<FromUtf8Error> for EzError {
-    fn from(e: FromUtf8Error) -> Self {
-        EzError::Utf8(e.utf8_error())
-    }
-}
-
-impl From<eznoise::NoiseError> for EzError {
-    fn from(e: eznoise::NoiseError) -> Self {
-        match e {
-            eznoise::NoiseError::Ring => EzError::Crypto("".to_owned()),
-            eznoise::NoiseError::WrongState => EzError::Crypto("Noise error. Noise is in wrong state".to_owned()),
-            eznoise::NoiseError::Io => EzError::Io(ErrorKind::BrokenPipe),
-        }
-    }
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord)]
+pub struct EzError {
+    pub tag: ErrorTag,
+    pub text: String,
 }
 
 impl EzError {
     pub fn to_binary(&self) -> Vec<u8> {
         let mut binary = Vec::new();
-        match self {
-            EzError::Utf8(s) => {
-                binary.extend_from_slice(ksf("Utf8").raw());
-                binary.extend_from_slice(s.to_string().as_bytes());
-            }
-            EzError::Io(s) => {
-                binary.extend_from_slice(ksf("Io").raw());
-                binary.extend_from_slice(s.to_string().as_bytes());
-            }
-            EzError::Instruction(s) => {
-                binary.extend_from_slice(ksf("Instruction").raw());
-                binary.extend_from_slice(s.as_bytes());
-            }
-            EzError::Confirmation(s) => {
-                binary.extend_from_slice(ksf("Confirmation").raw());
-                binary.extend_from_slice(s.as_bytes());
-            }
-            EzError::Authentication(s) => {
-                binary.extend_from_slice(ksf("Authentication").raw());
-                binary.extend_from_slice(s.as_bytes());
-            }
-            EzError::Crypto(s) => {
-                binary.extend_from_slice(ksf("Crypto").raw());
-                binary.extend_from_slice(s.as_bytes());
-            }
-            EzError::ParseInt(s) => {
-                binary.extend_from_slice(ksf("ParseInt").raw());
-                binary.extend_from_slice(s.to_string().as_bytes());
-            }
-            EzError::ParseFloat(s) => {
-                binary.extend_from_slice(ksf("ParseFloat").raw());
-                binary.extend_from_slice(s.to_string().as_bytes());
-            }
-            EzError::ParseResponse(s) => {
-                binary.extend_from_slice(ksf("ParseResponse").raw());
-                binary.extend_from_slice(s.as_bytes());
-            }
-            EzError::ParseUser(s) => {
-                binary.extend_from_slice(ksf("ParseUser").raw());
-                binary.extend_from_slice(s.as_bytes());
-            }
-            EzError::OversizedData(s) => {
-                binary.extend_from_slice(ksf("OversizedData").raw());
-                binary.extend_from_slice(s.as_bytes());
-            }
-            EzError::Decompression(s) => {
-                binary.extend_from_slice(ksf("Decompression").raw());
-                binary.extend_from_slice(s.as_bytes());
-            }
-            EzError::Query(s) => {
-                binary.extend_from_slice(ksf("Query").raw());
-                binary.extend_from_slice(s.as_bytes());
-            }
-            EzError::Debug(s) => {
-                binary.extend_from_slice(ksf("Debug").raw());
-                binary.extend_from_slice(s.as_bytes());
-            }
-            EzError::NoMoreBufferSpace(s) => {
-                binary.extend_from_slice(ksf("NoMoreBufferSpace").raw());
-                binary.extend_from_slice(s.as_bytes());
-            }
-            EzError::Unimplemented(s) => {
-                binary.extend_from_slice(ksf("Unimplemented").raw());
-                binary.extend_from_slice(s.as_bytes());
-            }
-            EzError::Serialization(s) => {
-                binary.extend_from_slice(ksf("Serialization").raw());
-                binary.extend_from_slice(s.as_bytes());
-            }
-            EzError::Deserialization(s) => {
-                binary.extend_from_slice(ksf("Deserialization").raw());
-                binary.extend_from_slice(s.as_bytes());
-            }
-            EzError::Structure(s) => {
-                binary.extend_from_slice(ksf("Structure").raw());
-                binary.extend_from_slice(s.as_bytes());
-            }
-        }
+        match self.tag {
+            ErrorTag::Utf8 => binary.extend_from_slice(ksf("Utf8").raw()),
+            ErrorTag::Io => binary.extend_from_slice(ksf("Io").raw()),
+            ErrorTag::Instruction => binary.extend_from_slice(ksf("Instruction").raw()),
+            ErrorTag::Confirmation => binary.extend_from_slice(ksf("Confirmation").raw()),
+            ErrorTag::Authentication => binary.extend_from_slice(ksf("Authentication").raw()),
+            ErrorTag::Crypto => binary.extend_from_slice(ksf("Crypto").raw()),
+            ErrorTag::ParseInt => binary.extend_from_slice(ksf("ParseInt").raw()),
+            ErrorTag::ParseFloat => binary.extend_from_slice(ksf("ParseFloat").raw()),
+            ErrorTag::ParseResponse => binary.extend_from_slice(ksf("ParseResponse").raw()),
+            ErrorTag::ParseUser => binary.extend_from_slice(ksf("ParseUser").raw()),
+            ErrorTag::OversizedData => binary.extend_from_slice(ksf("OversizedData").raw()),
+            ErrorTag::Decompression => binary.extend_from_slice(ksf("Decompression").raw()),
+            ErrorTag::Query => binary.extend_from_slice(ksf("Query").raw()),
+            ErrorTag::Debug => binary.extend_from_slice(ksf("Debug").raw()),
+            ErrorTag::NoMoreBufferSpace => binary.extend_from_slice(ksf("NoMoreBufferSpace").raw()),
+            ErrorTag::Unimplemented => binary.extend_from_slice(ksf("Unimplemented").raw()),
+            ErrorTag::Serialization => binary.extend_from_slice(ksf("Serialization").raw()),
+            ErrorTag::Deserialization => binary.extend_from_slice(ksf("Deserialization").raw()),
+            ErrorTag::Structure => binary.extend_from_slice(ksf("Structure").raw()),
+        };
+
+        binary.extend_from_slice(&self.text.len().to_le_bytes());
+        binary.extend_from_slice(self.text.as_bytes());
 
         binary
     }
+
+    pub fn from_binary(binary: &[u8]) -> Result<EzError, EzError> {
+        let tag = KeyString::try_from(&binary[0..64])?;
+        let tag = match tag.as_str() {
+            "Utf8" => ErrorTag::Utf8,
+            "Io" => ErrorTag::Io,
+            "Instruction" => ErrorTag::Instruction,
+            "Confirmation" => ErrorTag::Confirmation,
+            "Authentication" => ErrorTag::Authentication,
+            "Crypto" => ErrorTag::Crypto,
+            "ParseInt" => ErrorTag::ParseInt,
+            "ParseFloat" => ErrorTag::ParseFloat,
+            "ParseResponse" => ErrorTag::ParseResponse,
+            "ParseUser" => ErrorTag::ParseUser,
+            "OversizedData" => ErrorTag::OversizedData,
+            "Decompression" => ErrorTag::Decompression,
+            "Query" => ErrorTag::Query,
+            "Debug" => ErrorTag::Debug,
+            "NoMoreBufferSpace" => ErrorTag::NoMoreBufferSpace,
+            "Unimplemented" => ErrorTag::Unimplemented,
+            "Serialization" => ErrorTag::Serialization,
+            "Deserialization" => ErrorTag::Deserialization,
+            "Structure" => ErrorTag::Structure,
+            other => return Err(EzError{tag: ErrorTag::Unimplemented, text: format!("No error type called '{}'", other)})
+        };
+        let len = u64_from_le_slice(&binary[64..72]) as usize;
+        let text = String::from_utf8(binary[72..72+len].to_vec())?;
+
+        Ok(EzError{tag, text})
+    }
 }
+
+impl Display for EzError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut disp = "Tag: ".to_owned();
+        match self.tag {
+            ErrorTag::Utf8 => disp.push_str("Utf8"),
+            ErrorTag::Io => disp.push_str("Io"),
+            ErrorTag::Instruction => disp.push_str("Instruction"),
+            ErrorTag::Confirmation => disp.push_str("Confirmation"),
+            ErrorTag::Authentication => disp.push_str("Authentication"),
+            ErrorTag::Crypto => disp.push_str("Crypto"),
+            ErrorTag::ParseInt => disp.push_str("ParseInt"),
+            ErrorTag::ParseFloat => disp.push_str("ParseFloat"),
+            ErrorTag::ParseResponse => disp.push_str("ParseResponse"),
+            ErrorTag::ParseUser => disp.push_str("ParseUser"),
+            ErrorTag::OversizedData => disp.push_str("OversizedData"),
+            ErrorTag::Decompression => disp.push_str("Decompression"),
+            ErrorTag::Query => disp.push_str("Query"),
+            ErrorTag::Debug => disp.push_str("Debug"),
+            ErrorTag::NoMoreBufferSpace => disp.push_str("NoMoreBufferSpace"),
+            ErrorTag::Unimplemented => disp.push_str("Unimplemented"),
+            ErrorTag::Serialization => disp.push_str("Serialization"),
+            ErrorTag::Deserialization => disp.push_str("Deserialization"),
+            ErrorTag::Structure => disp.push_str("Structure"),
+        };
+        disp.push_str("\nError text:\n");
+        disp.push_str(&self.text);
+        disp.push('\n');
+        write!(f, "{}", disp)
+    }
+}
+
+impl From<std::io::Error> for EzError {
+    fn from(e: std::io::Error) -> Self {
+        let tag = ErrorTag::Io;
+        let text = e.to_string();
+        EzError { tag, text }
+    }
+}
+
+impl From<Utf8Error> for EzError {
+    fn from(e: Utf8Error) -> Self {
+        let tag = ErrorTag::Utf8;
+        let text = e.to_string();
+        EzError { tag, text }
+    }
+}
+
+impl From<InstructionError> for EzError {
+    fn from(e: InstructionError) -> Self {
+        let tag = ErrorTag::Instruction;
+        let text = e.to_string();
+        EzError { tag, text }
+    }
+}
+
+impl From<AuthenticationError> for EzError {
+    fn from(e: AuthenticationError) -> Self {
+        let tag = ErrorTag::Authentication;
+        let text = e.to_string();
+        EzError { tag, text }
+    }
+}
+
+impl From<aead::Error> for EzError {
+    fn from(e: aead::Error) -> Self {
+        let tag = ErrorTag::Crypto;
+        let text = e.to_string();
+        EzError { tag, text }
+    }
+}
+
+impl From<ParseIntError> for EzError {
+    fn from(e: ParseIntError) -> Self {
+        let tag = ErrorTag::ParseInt;
+        let text = e.to_string();
+        EzError { tag, text }
+    }
+}
+
+impl From<ParseFloatError> for EzError {
+    fn from(e: ParseFloatError) -> Self {
+        let tag = ErrorTag::ParseFloat;
+        let text = e.to_string();
+        EzError { tag, text }
+    }
+}
+
+impl From<CborError> for EzError {
+    fn from(e: CborError) -> Self {
+        let tag = ErrorTag::Deserialization;
+        let text = match e {
+            CborError::IllFormed(x) => x,
+            CborError::Unexpected(x) => x,
+        };
+        EzError{tag, text}
+    }
+}
+
+impl From<FromUtf8Error> for EzError {
+    fn from(e: FromUtf8Error) -> Self {
+        let tag = ErrorTag::Utf8;
+        let text = e.to_string();
+        EzError { tag, text }
+    }
+}
+
+impl From<eznoise::NoiseError> for EzError {
+    fn from(_e: eznoise::NoiseError) -> Self {
+        let tag = ErrorTag::Io;
+        let text = "No information about NoiseErrors. Sorry, hackers.".to_owned();
+        EzError { tag, text }
+    }
+}
+
+
+
+
+// /// The main error of all EZDB. Any error that can occur during a client request should be covered here. Internal errors are covered elsewhere.
+// #[derive(Debug)]
+// pub enum EzError {
+//     Utf8(Utf8Error),
+//     Io(ErrorKind),
+//     Instruction(String),
+//     Confirmation(String),
+//     Authentication(String),
+//     Crypto(String),
+//     ParseInt(ParseIntError),
+//     ParseFloat(ParseFloatError),
+//     ParseResponse(String),
+//     ParseUser(String),
+//     OversizedData(String),
+//     Decompression(String),
+//     Query(String),
+//     Debug(String),
+//     NoMoreBufferSpace(String),
+//     Unimplemented(String),
+//     Serialization(String),
+//     Deserialization(String),
+//     Structure(String),
+// }
+
+// impl fmt::Display for EzError {
+//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+//         match self {
+//             EzError::Utf8(e) => write!(f, "Encontered invalid utf-8: {}\n", e),
+//             EzError::Io(e) => write!(f, "Encountered an IO error: {}", e),
+//             EzError::Instruction(e) => write!(f, "{}", e),
+//             EzError::Confirmation(e) => write!(f, "Received corrupt confirmation {:?}", e),
+//             EzError::Authentication(e) => write!(f, "{}", e),
+//             EzError::Crypto(e) => write!(f, "There has been a crypto error. Most likely the nonce was incorrect. The error is: {}", e),
+//             EzError::ParseInt(e) => write!(f, "There has been a problem parsing an integer. The error signature is: {}", e),
+//             EzError::ParseFloat(e) => write!(f, "There has been a problem parsing a float. The error signature is: {}", e),
+//             EzError::ParseUser(e) => write!(f, "Failed to parse user from string because: {}", e),
+//             EzError::OversizedData(s) => write!(f, "Sent data is too long. Maximum data size is {MAX_DATA_LEN}.\nAdditional information: {}", s),
+//             EzError::ParseResponse(e) => write!(f, "{}", e),
+//             EzError::Decompression(e) => write!(f, "Decompression error occurred from miniz_oxide library.\nLibrary error: {}", e),
+//             EzError::Query(s) => write!(f, "Query could not be processed because of:\n############################{}\n################################", s),
+//             EzError::NoMoreBufferSpace(x) => write!(f, "No more space in buffer pool. Need to free {x} bytes"),
+//             EzError::Unimplemented(s) => write!(f, "{}", s),
+//             EzError::Debug(s) => write!(f, "{}", s),
+//             EzError::Serialization(s) => write!(f, "{}", s),
+//             EzError::Deserialization(s) => write!(f, "{}", s),
+//             EzError::Structure(s) => write!(f, "{}", s),
+
+//         }
+//     }
+// }
+
+// impl From<std::io::Error> for EzError {
+//     fn from(e: std::io::Error) -> Self {
+//         EzError::Io(e.kind())
+//     }
+// }
+
+// impl From<Utf8Error> for EzError {
+//     fn from(e: Utf8Error) -> Self {
+//         EzError::Utf8(e)
+//     }
+// }
+
+// impl From<InstructionError> for EzError {
+//     fn from(e: InstructionError) -> Self {
+//         EzError::Instruction(e.to_string())
+//     }
+// }
+
+// impl From<AuthenticationError> for EzError {
+//     fn from(e: AuthenticationError) -> Self {
+//         EzError::Authentication(e.to_string())
+//     }
+// }
+
+// impl From<aead::Error> for EzError {
+//     fn from(e: aead::Error) -> Self {
+//         EzError::Crypto(format!("{e}"))
+//     }
+// }
+
+// impl From<ParseIntError> for EzError {
+//     fn from(e: ParseIntError) -> Self {
+//         EzError::ParseInt(e)
+//     }
+// }
+
+// impl From<ParseFloatError> for EzError {
+//     fn from(e: ParseFloatError) -> Self {
+//         EzError::ParseFloat(e)
+//     }
+// }
+
+// impl From<CborError> for EzError {
+//     fn from(e: CborError) -> Self {
+//         let s = match e {
+//             CborError::IllFormed(x) => x,
+//             CborError::Unexpected(x) => x,
+//         };
+//         EzError::Serialization(s)
+//     }
+// }
+
+// impl From<FromUtf8Error> for EzError {
+//     fn from(e: FromUtf8Error) -> Self {
+//         EzError::Utf8(e.utf8_error())
+//     }
+// }
+
+// impl From<eznoise::NoiseError> for EzError {
+//     fn from(e: eznoise::NoiseError) -> Self {
+//         match e {
+//             eznoise::NoiseError::Ring => EzError::Crypto("".to_owned()),
+//             eznoise::NoiseError::WrongState => EzError::Crypto("Noise error. Noise is in wrong state".to_owned()),
+//             eznoise::NoiseError::Io => EzError::Io(ErrorKind::BrokenPipe),
+//         }
+//     }
+// }
+
+// impl EzError {
+//     pub fn to_binary(&self) -> Vec<u8> {
+//         let mut binary = Vec::new();
+//         match self {
+//             EzError::Utf8(s) => {
+//                 binary.extend_from_slice(ksf("Utf8").raw());
+//                 binary.extend_from_slice(s.to_string().as_bytes());
+//             }
+//             EzError::Io(s) => {
+//                 binary.extend_from_slice(ksf("Io").raw());
+//                 binary.extend_from_slice(s.to_string().as_bytes());
+//             }
+//             EzError::Instruction(s) => {
+//                 binary.extend_from_slice(ksf("Instruction").raw());
+//                 binary.extend_from_slice(s.as_bytes());
+//             }
+//             EzError::Confirmation(s) => {
+//                 binary.extend_from_slice(ksf("Confirmation").raw());
+//                 binary.extend_from_slice(s.as_bytes());
+//             }
+//             EzError::Authentication(s) => {
+//                 binary.extend_from_slice(ksf("Authentication").raw());
+//                 binary.extend_from_slice(s.as_bytes());
+//             }
+//             EzError::Crypto(s) => {
+//                 binary.extend_from_slice(ksf("Crypto").raw());
+//                 binary.extend_from_slice(s.as_bytes());
+//             }
+//             EzError::ParseInt(s) => {
+//                 binary.extend_from_slice(ksf("ParseInt").raw());
+//                 binary.extend_from_slice(s.to_string().as_bytes());
+//             }
+//             EzError::ParseFloat(s) => {
+//                 binary.extend_from_slice(ksf("ParseFloat").raw());
+//                 binary.extend_from_slice(s.to_string().as_bytes());
+//             }
+//             EzError::ParseResponse(s) => {
+//                 binary.extend_from_slice(ksf("ParseResponse").raw());
+//                 binary.extend_from_slice(s.as_bytes());
+//             }
+//             EzError::ParseUser(s) => {
+//                 binary.extend_from_slice(ksf("ParseUser").raw());
+//                 binary.extend_from_slice(s.as_bytes());
+//             }
+//             EzError::OversizedData(s) => {
+//                 binary.extend_from_slice(ksf("OversizedData").raw());
+//                 binary.extend_from_slice(s.as_bytes());
+//             }
+//             EzError::Decompression(s) => {
+//                 binary.extend_from_slice(ksf("Decompression").raw());
+//                 binary.extend_from_slice(s.as_bytes());
+//             }
+//             EzError::Query(s) => {
+//                 binary.extend_from_slice(ksf("Query").raw());
+//                 binary.extend_from_slice(s.as_bytes());
+//             }
+//             EzError::Debug(s) => {
+//                 binary.extend_from_slice(ksf("Debug").raw());
+//                 binary.extend_from_slice(s.as_bytes());
+//             }
+//             EzError::NoMoreBufferSpace(s) => {
+//                 binary.extend_from_slice(ksf("NoMoreBufferSpace").raw());
+//                 binary.extend_from_slice(s.as_bytes());
+//             }
+//             EzError::Unimplemented(s) => {
+//                 binary.extend_from_slice(ksf("Unimplemented").raw());
+//                 binary.extend_from_slice(s.as_bytes());
+//             }
+//             EzError::Serialization(s) => {
+//                 binary.extend_from_slice(ksf("Serialization").raw());
+//                 binary.extend_from_slice(s.as_bytes());
+//             }
+//             EzError::Deserialization(s) => {
+//                 binary.extend_from_slice(ksf("Deserialization").raw());
+//                 binary.extend_from_slice(s.as_bytes());
+//             }
+//             EzError::Structure(s) => {
+//                 binary.extend_from_slice(ksf("Structure").raw());
+//                 binary.extend_from_slice(s.as_bytes());
+//             }
+//         }
+
+//         binary
+//     }
+// }
 
 
 /// An enum that lists the possible instructions that the database can receive.

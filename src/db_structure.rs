@@ -75,7 +75,7 @@ impl TryFrom<&[u8]> for KeyString {
             Ok(_) => {
                 Ok(KeyString {inner})
             },
-            Err(e) => Err(EzError::Utf8(e))
+            Err(e) => Err(EzError{tag: ErrorTag::Utf8, text: e.to_string()})
         }
     }
 }
@@ -696,7 +696,7 @@ impl ColumnTable {
         */
 
         if s.is_empty() {
-            return Err(EzError::Deserialization("Input string is empty".to_owned()));
+            return Err(EzError{tag: ErrorTag::Deserialization, text: ("Input string is empty".to_owned())});
         }
 
         let mut header = Vec::new();
@@ -712,11 +712,11 @@ impl ColumnTable {
             let temp: Vec<&str> = item.split(',').collect();
             let mut header_item = HeaderItem::new();
             if temp.is_empty() {
-                return Err(EzError::Deserialization("Header is empty".to_owned()));
+                return Err(EzError{tag: ErrorTag::Deserialization, text: ("Header is empty".to_owned())});
             } else if temp.len() == 1 {
                 header_item.kind = DbType::Text;
             } else if temp.len() > 2 {
-                return Err(EzError::Deserialization("Incorrectly formatted header".to_owned()));
+                return Err(EzError{tag: ErrorTag::Deserialization, text: ("Incorrectly formatted header".to_owned())});
             } else {
                 header_item.name = KeyString::from(temp[0].trim());
                 let mut t = temp[1].trim().split('-');
@@ -725,19 +725,19 @@ impl ColumnTable {
                     "I" | "Int" | "int" | "i" => header_item.kind = DbType::Int,
                     "F" | "Float" | "float" | "f" => header_item.kind = DbType::Float,
                     "T" | "Text" | "text" | "t" => header_item.kind = DbType::Text,
-                    _ => return Err(EzError::Deserialization(format!("Unsupported type: {}", next))),
+                    _ => return Err(EzError{tag: ErrorTag::Deserialization, text: (format!("Unsupported type: {}", next))}),
                 }
                 match t.next().unwrap() {
                     "P" => {
                         if primary_key_set {
-                            return Err(EzError::Deserialization("Too many primary keys specified".to_owned()));
+                            return Err(EzError{tag: ErrorTag::Deserialization, text: ("Too many primary keys specified".to_owned())});
                         }
                         header_item.key = TableKey::Primary;
                         primary_key_set = true;
                     }
                     "N" => header_item.key = TableKey::None,
                     "F" => header_item.key = TableKey::Foreign,
-                    _ => return Err(EzError::Deserialization("Unsupported key type".to_owned())),
+                    _ => return Err(EzError{tag: ErrorTag::Deserialization, text: ("Unsupported key type".to_owned())}),
                 }
             }
             header.push(header_item);
@@ -775,7 +775,7 @@ impl ColumnTable {
                             Ok(x) => x,
                             Err(_) => {
                                 println!("failed to parse float: {:x?}", cell.as_bytes());
-                                return Err(EzError::Deserialization(format!("Could not parse item at position: {}", index)));
+                                return Err(EzError{tag: ErrorTag::Deserialization, text: (format!("Could not parse item at position: {}", index))});
                             }
                         };
                         outvec.push(temp);
@@ -791,7 +791,7 @@ impl ColumnTable {
                             Ok(x) => x,
                             Err(_) => {
                                 println!("failes to parse int: {}", cell);
-                                return Err(EzError::Deserialization(format!("Could not parse item at position: {}", index)));
+                                return Err(EzError{tag: ErrorTag::Deserialization, text: (format!("Could not parse item at position: {}", index))});
                             },
                         };
                         outvec.push(temp);
@@ -819,7 +819,7 @@ impl ColumnTable {
 
         let primary_key_index = match primary_key_index {
             Some(x) => x,
-            None => return Err(EzError::Deserialization("No primary key specified".to_owned()))
+            None => return Err(EzError{tag: ErrorTag::Deserialization, text: "No primary key specified".to_owned()})
         };
 
         match &result[&primary_key_index] {
@@ -827,7 +827,7 @@ impl ColumnTable {
                 let mut test_set = HashSet::new();
                 for item in col.iter() {
                     if test_set.contains(item) {
-                        return Err(EzError::Deserialization(format!("Primary key is not unique. Item {} is repeated", item)))
+                        return Err(EzError{tag: ErrorTag::Deserialization, text: format!("Primary key is not unique. Item {} is repeated", item)})
                     }
                     test_set.insert(item);
                 }
@@ -836,7 +836,7 @@ impl ColumnTable {
                 let mut test_set = HashSet::new();
                 for item in col.iter() {
                     if test_set.contains(item) {
-                        return Err(EzError::Deserialization(format!("Primary key is not unique. Item {} is repeated", item)))
+                        return Err(EzError{tag: ErrorTag::Deserialization, text: format!("Primary key is not unique. Item {} is repeated", item)})
                     }
                     test_set.insert(item);
                 }
@@ -2060,18 +2060,18 @@ impl ColumnTable {
     pub fn from_binary(name: Option<&str>, binary: &[u8]) -> Result<ColumnTable, EzError> {
 
         if binary.len() < 128 + 8 + 8 {
-            return Err(EzError::Deserialization("binary is less than 144 bytes".to_owned()));
+            return Err(EzError{tag: ErrorTag::Deserialization, text: ("binary is less than 144 bytes".to_owned())});
         }
 
         let packet_type = match KeyString::try_from(&binary[0..64]) {
             Ok(x) => x,
-            Err(_) => return Err(EzError::Deserialization("Packet_type corrupted".to_owned())),
+            Err(_) => return Err(EzError{tag: ErrorTag::Deserialization, text: ("Packet_type corrupted".to_owned())}),
         };
 
         let mut table_name = KeyString::try_from(&binary[64..128])?;
         match packet_type.as_str() {
             "EZDB_COLUMNTABLE" => (),
-            _ => return Err(EzError::Deserialization("Not ColumnTable".to_owned()))
+            _ => return Err(EzError{tag: ErrorTag::Deserialization, text: ("Not ColumnTable".to_owned()}))
         };
 
         let header_len = u64_from_le_slice(&binary[128..136]) as usize;
@@ -2302,7 +2302,7 @@ pub fn table_from_inserts(value_columns: &[KeyString], values: &str, table_name:
 
     let first_line = match values.split('\n').next() {
         Some(x) => x,
-        None => return Err(EzError::Deserialization("Empty input".to_owned())),
+        None => return Err(EzError{tag: ErrorTag::Deserialization, text: ("Empty input".to_owned())}),
     };
 
     let mut i = 0;
@@ -2320,7 +2320,7 @@ pub fn table_from_inserts(value_columns: &[KeyString], values: &str, table_name:
         } else if value.len() <= 64 {
             new_header.push(HeaderItem{name: value_columns[i], kind: DbType::Text, key: temp_key})
         } else {
-            return Err(EzError::Deserialization(format!("Unsupported type: {}", value)))
+            return Err(EzError{tag: ErrorTag::Deserialization, text: (format!("Unsupported type: {}", value)}))
         }
         i += 1;
     }

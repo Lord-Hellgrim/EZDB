@@ -3,7 +3,7 @@ use aes_gcm::{
     Aes256Gcm, Key // Or `Aes128Gcm`
 };
 
-use crate::utilities::EzError;
+use crate::utilities::{ErrorTag, EzError};
 
 // TODO Add a handler for using the tag
 pub fn encrypt_aes256(s: &[u8], key: &[u8]) -> (Vec<u8>, [u8;12]) {
@@ -49,7 +49,7 @@ pub fn encrypt_aes256_nonce_prefixed(s: &[u8], key: &[u8]) -> Vec<u8> {
 pub fn decrypt_aes256_with_prefixed_nonce(s: &[u8], key: &[u8]) -> Result<Vec<u8>, EzError> {
     println!("calling: decrypt_aes256_with_prefixed_nonce()");
     if s.len() < 13 {
-        return Err(EzError::Crypto("slice has no bytes to encrypt".to_owned()))
+        return Err(EzError{tag: ErrorTag::Crypto, text: "slice has no bytes to encrypt".to_owned()})
     }
 
     // TODO Add clause to handle the case where the nonce is not 12 bytes
