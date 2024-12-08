@@ -1,15 +1,16 @@
 use core::str;
-use std::{collections::BTreeMap, sync::{atomic::Ordering, Arc, RwLock}};
+use std::{collections::BTreeMap, sync::{Arc, RwLock}};
 
 use ezcbor::cbor::decode_cbor;
 use eznoise::Connection;
 
-use crate::{auth::{check_permission, User}, utilities::{self, ErrorTag}}; 
-use crate::db_structure::{ColumnTable, KeyString, Value};
+use crate::{auth::{check_permission, User}, utilities::ErrorTag}; 
+use crate::db_structure::KeyString;
 use crate::ezql::{execute_EZQL_queries, parse_serial_query}; 
-use crate::utilities::{EzError, get_current_time, bytes_to_str, };
+use crate::utilities::EzError;
 use crate::server_networking::Database;
 
+#[allow(unused)]
 use crate::PATH_SEP;
 
 

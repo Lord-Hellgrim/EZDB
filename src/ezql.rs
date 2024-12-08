@@ -2205,7 +2205,7 @@ pub fn execute_summary_query(query: Query, table: &ColumnTable) -> Result<Option
 
 pub fn execute_alt_summary_query(query: &Query, table: &ColumnTable) -> Result<Option<ColumnTable>, EzError> {
     match query {
-        Query::ALTSUMMARY { table_name, columns } => {
+        Query::ALTSUMMARY { table_name: _, columns } => {
             let mut result = ColumnTable::blank(&BTreeSet::new(), KeyString::from("RESULT"), "QUERY");
 
             result.add_column(ksf("Statistic"), DbColumn::Texts(vec![
@@ -2274,6 +2274,7 @@ pub fn execute_alt_summary_query(query: &Query, table: &ColumnTable) -> Result<O
     }
 }
 
+#[allow(unused)]
 pub fn execute_inner_join_query(query: Query, database: Arc<Database>) -> Result<Option<ColumnTable>, EzError> {
     // println!("calling: execute_inner_join_query()");
     
@@ -2284,6 +2285,7 @@ pub fn execute_inner_join_query(query: Query, database: Arc<Database>) -> Result
     Err(EzError{tag: ErrorTag::Unimplemented, text: "inner joins are not yet implemented".to_owned()})
 }
 
+#[allow(unused)]
 pub fn execute_right_join_query(query: Query, database: Arc<Database>) -> Result<Option<ColumnTable>, EzError> {
     // println!("calling: execute_right_join_query()");
 
@@ -2293,7 +2295,7 @@ pub fn execute_right_join_query(query: Query, database: Arc<Database>) -> Result
 
     Err(EzError{tag: ErrorTag::Unimplemented, text: "right joins are not yet implemented".to_owned()})
 }
-
+#[allow(unused)]
 pub fn execute_full_join_query(query: Query, database: Arc<Database>) -> Result<Option<ColumnTable>, EzError> {
     // println!("calling: execute_full_join_query()");
 

@@ -1,12 +1,12 @@
 use std::collections::{BTreeMap, HashSet};
 use std::fs::{read_dir, File};
-use std::io::{BufWriter, Read, Write};
+use std::io::{Read, Write};
 use std::os::unix::fs::MetadataExt;
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, RwLock};
 
-use crate::db_structure::{write_column_table_binary_header, DbColumn, KeyString, Value};
-use crate::utilities::{ErrorTag, EzError};
+use crate::db_structure::{write_column_table_binary_header, DbColumn, KeyString, Metadata, Value};
+use crate::utilities::{ksf, ErrorTag, EzError};
 use crate::db_structure::ColumnTable;
 use crate::PATH_SEP;
 
@@ -85,6 +85,14 @@ impl BufferPool {
 
             self.add_value(value)?;
         }
+
+        let core_value_1 = Value{name: ksf("core1"), body: vec![1,2,3,4,5,6,7,8], metadata: Metadata::new("core")};
+        let core_value_2 = Value{name: ksf("core2"), body: vec![8,7,6,5,4,3,2,1], metadata: Metadata::new("core")};
+        let core_value_3 = Value{name: ksf("core3"), body: vec![0,0,0,0,0,0,0,0], metadata: Metadata::new("core")};
+
+        self.add_value(core_value_1);
+        self.add_value(core_value_2);
+        self.add_value(core_value_3);
         
         Ok(())
     }

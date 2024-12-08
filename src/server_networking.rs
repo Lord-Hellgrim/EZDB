@@ -2,23 +2,21 @@ use std::collections::{BTreeMap, HashMap};
 use std::io::Write;
 use std::net::{TcpListener, TcpStream};
 use std::os::fd::{AsFd, AsRawFd, FromRawFd};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 use std::str::{self};
-use std::time::Duration;
 use std::convert::{TryFrom, From};
 
 use ezcbor::cbor::{decode_cbor, Cbor};
-use eznoise::{HandshakeState, KeyPair};
+use eznoise::KeyPair;
 use nix::sys::epoll::{Epoll, EpollCreateFlags, EpollEvent, EpollFlags};
 
-use crate::auth::{check_kv_permission, check_permission, user_has_permission, AuthenticationError, Permission, User};
+use crate::auth::{check_kv_permission, check_permission, user_has_permission, Permission, User};
 use crate::disk_utilities::{BufferPool, MAX_BUFFERPOOL_SIZE};
 use crate::ezql::{execute_EZQL_queries, execute_kv_queries, parse_kv_queries_from_binary, parse_queries_from_binary};
 use crate::logging::Logger;
 use crate::thread_pool::{initialize_thread_pool, Job};
-use crate::utilities::{authenticate_client, ksf, perform_handshake_and_authenticate, read_known_length, ErrorTag, EzError, Instruction, InstructionError};
-use crate::db_structure::{ColumnTable, KeyString};
-use crate::handlers::*;
+use crate::utilities::{authenticate_client, ksf, read_known_length, ErrorTag, EzError, Instruction};
+use crate::db_structure::KeyString;
 use crate::PATH_SEP;
 
 pub const INSTRUCTION_LENGTH: usize = 284;

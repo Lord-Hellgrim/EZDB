@@ -2,11 +2,10 @@ use std::str::{self};
 
 use eznoise::{initiate_connection, Connection};
 
-use crate::auth::User;
 use crate::db_structure::{ColumnTable, KeyString, Metadata, Value};
 use crate::ezql::{KvQuery, Query};
-use crate::utilities::{bytes_to_str, ksf, parse_response, u64_from_le_slice, ErrorTag, EzError, Instruction};
-use crate::PATH_SEP;
+use crate::utilities::{ksf, u64_from_le_slice, ErrorTag, EzError};
+// use crate::PATH_SEP;
 
 
 pub enum Response {
@@ -83,15 +82,20 @@ pub fn send_kv_queries(connection: &mut Connection, queries: &[KvQuery]) -> Resu
 
     let number_of_responses = u64_from_le_slice(&response[0..8]) as usize;
     let mut offsets = Vec::new();
+    let mut last = 0;
     for i in 0..number_of_responses {
         let offset = u64_from_le_slice(&response[8+8*i..8+8*i+8]) as usize;
-        offsets.push(offset);
+        offsets.push(last + offset);
+        last += offset;
     }
+
+    println!("offsets: {:?}", offsets);
     
     let body = &response[8+8*offsets.len()..];
     
     let mut results = Vec::new();
     for i in 0..offsets.len() {
+        println!("i: {}", i);
         let current_blob: &[u8];
         if i == offsets.len() {
             current_blob = &body[offsets[i]..];
@@ -99,7 +103,7 @@ pub fn send_kv_queries(connection: &mut Connection, queries: &[KvQuery]) -> Resu
             current_blob = &body[offsets[i]..offsets[i+1]];
         }
 
-        let tag = KeyString::try_from(&current_blob[0..64])?;
+        let tag = KeyString::try_from(&current_blob[0..64]).unwrap();
         match tag.as_str() {
             "VALUE" => {
                 let name = KeyString::try_from(&current_blob[64..128])?;
@@ -109,7 +113,8 @@ pub fn send_kv_queries(connection: &mut Connection, queries: &[KvQuery]) -> Resu
                 results.push(Ok(Some(value)));
             },
             "ERROR" => {
-
+                let error = EzError::from_binary(&current_blob[64..])?;
+                results.push(Err(error));
             } ,
             "NONE"  => {
                 results.push(Ok(None));
@@ -121,14 +126,14 @@ pub fn send_kv_queries(connection: &mut Connection, queries: &[KvQuery]) -> Resu
 
     }
 
-    todo!()
+    Ok(results)
 
 }
 
 
 #[cfg(test)]
 mod tests {
-    #![allow(unused)]
+    #![allow(unused, non_snake_case)]
     use std::{fs::remove_file, path::Path, time::Duration};
 
     use crate::{db_structure::ColumnTable, ezql::RangeOrListOrAll, utilities::ksf};
@@ -172,6 +177,26 @@ mod tests {
         println!("{}", response2);
 
         assert_eq!(response1, response2);
+    }
+
+    #[test]
+    fn test_kv_query() {
+        let address = "127.0.0.1:3004";
+        let username = "admin";
+        let password = "admin";
+        let mut connection = make_connection(address, username, password).unwrap();
+
+        let kv_queries = vec![
+            KvQuery::Read(ksf("core1")),
+            KvQuery::Read(ksf("core2")),
+            KvQuery::Read(ksf("core3")),
+            KvQuery::Read(ksf("core4")),
+        ];
+
+        let results = send_kv_queries(&mut connection, &kv_queries).unwrap();
+        for result in results {
+            println!("{:?}", result);
+        }
     }
 
 

@@ -3,6 +3,7 @@ use miniz_oxide::inflate::decompress_to_vec;
 // use brotli::{CompressorReader, Decompressor};
 
 use crate::utilities::{usize_from_le_slice, ErrorTag, EzError};
+#[allow(unused)]
 use crate::PATH_SEP;
 
 
@@ -46,7 +47,6 @@ pub const MAX_PACKET_SIZE: usize = 1_000_000_000;
 /// Puts the uncompressed size of the package as a usize in the first 8 bytes
 pub fn miniz_compress(data: &[u8]) -> Result<Vec<u8>, EzError> {
     println!("calling: miniz_compress()");
-
     if data.len() > MAX_PACKET_SIZE {
         return Err(EzError{tag: ErrorTag::OversizedData, text: format!("Data sized {} is too big to handle", data.len())});
     }

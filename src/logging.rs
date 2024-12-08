@@ -1,7 +1,8 @@
-use std::{collections::BTreeMap, fmt::Display, fs::{File, OpenOptions}, io::{Read, Seek, Write}, os::unix::fs::FileExt, sync::{atomic::{AtomicU64, Ordering}, Mutex}};
+use std::{collections::BTreeMap, fmt::Display, fs::{File, OpenOptions}, io::{Read, Write}, sync::atomic::{AtomicU64, Ordering}};
 
-use crate::{db_structure::{ColumnTable, KeyString}, ezql::Query, utilities::{ez_hash, get_current_time, get_precise_time, print_sep_list, u64_from_le_slice, Instruction}, server_networking::Database};
+use crate::{db_structure::{ColumnTable, KeyString}, utilities::{get_precise_time, print_sep_list, u64_from_le_slice}};
 
+#[allow(unused)]
 use crate::PATH_SEP;
 
 
@@ -51,53 +52,33 @@ impl Entry {
         println!("calling: Entry::to_binary()");
 
         let mut binary: Vec<u8> = Vec::new();
-
-        let mut entry_size = 0;
         binary.extend_from_slice(&(0 as usize).to_le_bytes());
 
         binary.extend_from_slice(&self.count.to_le_bytes());
-        entry_size += 8;
-
         binary.extend_from_slice(&self.user.raw());
-        entry_size += 64;
-
         binary.extend_from_slice(&self.client_address.raw());
-        entry_size += 64;
-
-        binary.extend_from_slice(&self.query.len().to_le_bytes());
-        entry_size += 8;
-        
+        binary.extend_from_slice(&self.query.len().to_le_bytes());        
         binary.extend_from_slice(&self.query.as_bytes());
-        entry_size += self.query.len();
-
         for (name, table) in &self.before_snap {
             binary.push(b'B');
-            entry_size += 1;
 
             let table_binary = &table.to_binary();
             binary.extend_from_slice(&(table_binary.len()).to_le_bytes());
-            entry_size += 8;
-
+    
             binary.extend_from_slice(name.raw());
-            entry_size += 64;
-
+    
             binary.extend_from_slice(&table_binary);
-            entry_size += table_binary.len();
         }
 
         for (name, table) in &self.after_snap {
             binary.push(b'A');
-            entry_size += 1;
 
             let table_binary = &table.to_binary();
             binary.extend_from_slice(&(table_binary.len()).to_le_bytes());
-            entry_size += 8;
 
             binary.extend_from_slice(name.raw());
-            entry_size += 64;
 
             binary.extend_from_slice(&table_binary);
-            entry_size += table_binary.len();
         }
 
         match self.finished {

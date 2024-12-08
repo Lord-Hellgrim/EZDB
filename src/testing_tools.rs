@@ -2,7 +2,7 @@ use std::{collections::{BTreeMap, BTreeSet}, sync::atomic::AtomicU64};
 
 use rand::{distributions::Standard, prelude::Distribution, Rng};
 
-use crate::{db_structure::{ColumnTable, DbColumn, DbType, HeaderItem, KeyString, Metadata, TableKey}, ezql::{AltStatistic, Condition, KvQuery, OpOrCond, Operator, Query, RangeOrListOrAll, StatOp, Statistic, Test, Update, UpdateOp}, utilities::{get_current_time, ksf}};
+use crate::{db_structure::{ColumnTable, DbColumn, DbType, HeaderItem, KeyString, Metadata, TableKey}, ezql::{AltStatistic, Condition, KvQuery, OpOrCond, Operator, Query, RangeOrListOrAll, StatOp, Statistic, Test, Update, UpdateOp}, utilities::{get_current_time, ksf, ErrorTag, EzError}};
 
 
 fn random_vec<T>(max_length: usize) -> Vec<T>  where Standard: Distribution<T> {
@@ -335,6 +335,34 @@ pub fn create_fixed_table(n: usize) -> ColumnTable {
     table.add_column(ksf("texts"), DbColumn::Texts(texts)).unwrap();
 
     table
+}
+
+pub fn random_ez_error() -> EzError {
+    let mut rng = rand::thread_rng();
+    let tag = match rng.gen_range(0..19) {
+        0 => ErrorTag::Utf8,
+        1 => ErrorTag::Io,
+        2 => ErrorTag::Instruction,
+        3 => ErrorTag::Confirmation,
+        4 => ErrorTag::Authentication,
+        5 => ErrorTag::Crypto,
+        6 => ErrorTag::ParseInt,
+        7 => ErrorTag::ParseFloat,
+        8 => ErrorTag::ParseResponse,
+        9 => ErrorTag::ParseUser,
+        10 => ErrorTag::OversizedData,
+        11 => ErrorTag::Decompression,
+        12 => ErrorTag::Query,
+        13 => ErrorTag::Debug,
+        14 => ErrorTag::NoMoreBufferSpace,
+        15 => ErrorTag::Unimplemented,
+        16 => ErrorTag::Serialization,
+        17 => ErrorTag::Deserialization,
+        18 => ErrorTag::Structure,
+        x => unreachable!()
+    };
+    let text = random_keystring().as_str().to_string();
+    EzError{tag, text}
 }
 
 

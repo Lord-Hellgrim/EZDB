@@ -7,7 +7,7 @@ use std::{
 use ezcbor::cbor::{byteslice_from_cbor, byteslice_to_cbor, expected_data_item, Cbor, CborError, DataItem};
 
 use crate::utilities::*;
-
+#[allow(unused)]
 use crate::PATH_SEP;
 
 /// Alias for SmartString

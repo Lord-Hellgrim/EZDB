@@ -1,7 +1,5 @@
 use std::net::TcpStream;
 
-use crate::utilities::{bytes_to_str, EzError};
-
 
 
 pub fn check_if_http_request(stream: &TcpStream) -> bool {

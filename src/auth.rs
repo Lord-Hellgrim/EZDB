@@ -221,7 +221,7 @@ pub fn check_kv_permission(
 
     for query in queries {
         match query {
-            KvQuery::Create(key_string, _) => if user.can_upload {continue},
+            KvQuery::Create(_key_string, _) => if user.can_upload {continue},
             KvQuery::Read(key_string) => if user.can_read.contains(key_string.as_str()) {continue},
             KvQuery::Update(key_string, _) => if user.can_write.contains(key_string.as_str()) {continue},
             KvQuery::Delete(key_string) => if user.can_write.contains(key_string.as_str()) {continue},

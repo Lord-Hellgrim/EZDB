@@ -1224,6 +1224,8 @@ pub fn parse_response(response: &str, username: &str, table_name: &str) -> Resul
 
 #[cfg(test)]
 mod tests {
+    use crate::testing_tools::random_ez_error;
+
     use super::*;
 
     #[test]
@@ -1283,17 +1285,6 @@ mod tests {
         println!("sum: {}", sum);
         assert!(sum == 18);
     }
-    
-    #[test]
-    fn test_sum_i32() {
-        let i32_slice: Vec<i32> = (0..98304).collect();
-        let start = std::time::Instant::now();
-        for i in 0..100 {
-            let sum = sum_i32_slice(&i32_slice);
-        }
-        let stop = start.elapsed().as_millis();
-        println!("{}", stop);
-    }
 
     #[test]
     fn test_sum_f32_slice() {
@@ -1301,6 +1292,16 @@ mod tests {
         let sum = sum_f32_slice(&data);
         println!("sum: {}", sum);
         assert!(sum == 18.0);
+    }
+
+    #[test]
+    fn test_ez_error_serde() {
+        for _ in 0..100 {
+            let error = random_ez_error();
+            let binary = error.to_binary();
+            let parsed = EzError::from_binary(&binary).unwrap();
+            assert_eq!(error, parsed);
+        }
     }
 
 }
