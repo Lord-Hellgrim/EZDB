@@ -90,9 +90,8 @@ pub fn send_kv_queries(connection: &mut Connection, queries: &[KvQuery]) -> Resu
     
     let body = &response[8+8*offsets.len()..];
     
-    let mut results = Vec::new(); 
-    let mut i = 0;
-    while i < offsets.len() {
+    let mut results = Vec::new();
+    for i in 0..offsets.len() {
         let current_blob: &[u8];
         if i == offsets.len() {
             current_blob = &body[offsets[i]..];
@@ -119,7 +118,6 @@ pub fn send_kv_queries(connection: &mut Connection, queries: &[KvQuery]) -> Resu
                 results.push(Err(EzError::Query(format!("Incorrectly formatted response. '{}' is not a valid response type", other))));
             }
         }
-
 
     }
 

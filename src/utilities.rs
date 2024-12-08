@@ -148,6 +148,92 @@ impl From<eznoise::NoiseError> for EzError {
     }
 }
 
+impl EzError {
+    pub fn to_binary(&self) -> Vec<u8> {
+        let mut binary = Vec::new();
+        match self {
+            EzError::Utf8(s) => {
+                binary.extend_from_slice(ksf("Utf8").raw());
+                binary.extend_from_slice(s.to_string().as_bytes());
+            }
+            EzError::Io(s) => {
+                binary.extend_from_slice(ksf("Io").raw());
+                binary.extend_from_slice(s.to_string().as_bytes());
+            }
+            EzError::Instruction(s) => {
+                binary.extend_from_slice(ksf("Instruction").raw());
+                binary.extend_from_slice(s.as_bytes());
+            }
+            EzError::Confirmation(s) => {
+                binary.extend_from_slice(ksf("Confirmation").raw());
+                binary.extend_from_slice(s.as_bytes());
+            }
+            EzError::Authentication(s) => {
+                binary.extend_from_slice(ksf("Authentication").raw());
+                binary.extend_from_slice(s.as_bytes());
+            }
+            EzError::Crypto(s) => {
+                binary.extend_from_slice(ksf("Crypto").raw());
+                binary.extend_from_slice(s.as_bytes());
+            }
+            EzError::ParseInt(s) => {
+                binary.extend_from_slice(ksf("ParseInt").raw());
+                binary.extend_from_slice(s.to_string().as_bytes());
+            }
+            EzError::ParseFloat(s) => {
+                binary.extend_from_slice(ksf("ParseFloat").raw());
+                binary.extend_from_slice(s.to_string().as_bytes());
+            }
+            EzError::ParseResponse(s) => {
+                binary.extend_from_slice(ksf("ParseResponse").raw());
+                binary.extend_from_slice(s.as_bytes());
+            }
+            EzError::ParseUser(s) => {
+                binary.extend_from_slice(ksf("ParseUser").raw());
+                binary.extend_from_slice(s.as_bytes());
+            }
+            EzError::OversizedData(s) => {
+                binary.extend_from_slice(ksf("OversizedData").raw());
+                binary.extend_from_slice(s.as_bytes());
+            }
+            EzError::Decompression(s) => {
+                binary.extend_from_slice(ksf("Decompression").raw());
+                binary.extend_from_slice(s.as_bytes());
+            }
+            EzError::Query(s) => {
+                binary.extend_from_slice(ksf("Query").raw());
+                binary.extend_from_slice(s.as_bytes());
+            }
+            EzError::Debug(s) => {
+                binary.extend_from_slice(ksf("Debug").raw());
+                binary.extend_from_slice(s.as_bytes());
+            }
+            EzError::NoMoreBufferSpace(s) => {
+                binary.extend_from_slice(ksf("NoMoreBufferSpace").raw());
+                binary.extend_from_slice(s.as_bytes());
+            }
+            EzError::Unimplemented(s) => {
+                binary.extend_from_slice(ksf("Unimplemented").raw());
+                binary.extend_from_slice(s.as_bytes());
+            }
+            EzError::Serialization(s) => {
+                binary.extend_from_slice(ksf("Serialization").raw());
+                binary.extend_from_slice(s.as_bytes());
+            }
+            EzError::Deserialization(s) => {
+                binary.extend_from_slice(ksf("Deserialization").raw());
+                binary.extend_from_slice(s.as_bytes());
+            }
+            EzError::Structure(s) => {
+                binary.extend_from_slice(ksf("Structure").raw());
+                binary.extend_from_slice(s.as_bytes());
+            }
+        }
+
+        binary
+    }
+}
+
 
 /// An enum that lists the possible instructions that the database can receive.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
