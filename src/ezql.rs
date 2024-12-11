@@ -1304,7 +1304,7 @@ pub fn parse_serial_query(query_string: &str) -> Result<Vec<Query>, EzError> {
     let mut result = Vec::new();
 
     for subquery in query_string.split("->") {
-        result.push(parse_EZQL(subquery)?);
+        result.push(parse_ezql(subquery)?);
     }
 
     Ok(result)
@@ -1318,9 +1318,8 @@ pub struct ParserState {
 }
 
 #[allow(non_snake_case)]
-pub fn parse_EZQL(query_string: &str) -> Result<Query, EzError> {
+pub fn parse_ezql(query_string: &str) -> Result<Query, EzError> {
     // println!("calling: parse_EZQL()");
-
 
     let mut state = ParserState {
         depth: 0,
@@ -1747,7 +1746,6 @@ pub fn execute_kv_queries(kv_queries: Vec<KvQuery>, database: Arc<Database>) -> 
                 let value = Value{
                     name: key_string,
                     body: vec,
-                    metadata: Metadata::new("TODO: PUT REAL CLIENT HERE"),
                 };
                 match database.buffer_pool.add_value(value) {
                     Ok(_) => continue,
@@ -1767,7 +1765,6 @@ pub fn execute_kv_queries(kv_queries: Vec<KvQuery>, database: Arc<Database>) -> 
                 let value = Value{
                     name: key_string,
                     body: vec,
-                    metadata: Metadata::new("TODO: PUT REAL CLIENT HERE"),
                 };
 
                 let read_lock = database.buffer_pool.values.read().unwrap();
@@ -2571,7 +2568,7 @@ mod tests {
         let LEFT_JOIN_query_string = "LEFT_JOIN(left_table: products, right_table: warehouses, primary_keys: 0113000..18572054, match_columns: (location, id))";
         let SUMMARY_query_string = "SUMMARY(table_name: products, columns: ((SUM stock), (MEAN price)))";
         
-        let INSERT_query = parse_EZQL(INSERT_query_string).unwrap();
+        let INSERT_query = parse_ezql(INSERT_query_string).unwrap();
         dbg!(INSERT_query);
         // let SELECT_query = parse_EZQL(SELECT_query_string).unwrap();
         // let UPDATE_query = parse_EZQL(UPDATE_query_string).unwrap();
@@ -2642,7 +2639,7 @@ mod tests {
         let parsed = parse_serial_query(query).unwrap();
         let result = execute_select_query(parsed[0].clone(), &table).unwrap().unwrap();
         println!("{}", result);
-        assert_eq!("heiti,t-N;magn,i-N;vnr,i-P\nundirlegg2;100;113000\nundirlegg;200;113035\nflísalím;42;18572054", result.to_string());
+        assert_eq!("id,i-P;name,t-N;price,i-N\n113000;undirlegg2;100\n113035;undirlegg;200\n18572054;flísalím;42", result.to_string());
     }
 
     #[test]
@@ -2713,7 +2710,7 @@ mod tests {
     #[test]
     fn test_UPDATE() {
         let query = "UPDATE(table_name: products, primary_keys: *, conditions: ((id starts_with 011)), updates: ((price += 100), (stock -= 100)))";
-        let parsed = parse_EZQL(query).unwrap();
+        let parsed = parse_ezql(query).unwrap();
         let products = std::fs::read_to_string(format!("test_files{PATH_SEP}products.csv")).unwrap();
         let mut table = ColumnTable::from_csv_string(&products, "products", "test").unwrap();
         println!("before:\n{}", table);
@@ -2741,11 +2738,11 @@ mod tests {
     #[test]
     fn test_INSERT() {
         let query = "INSERT(table_name: products, value_columns: (id, stock, location, price), new_values: ((0113035, 500, LAG15, 995), (0113000, 100, LAG30, 495)))";
-        let parsed = parse_EZQL(query).unwrap();
+        let parsed = parse_ezql(query).unwrap();
         let products = std::fs::read_to_string(format!("test_files{PATH_SEP}products.csv")).unwrap();
         
         let INSERT_query = "INSERT(table_name: test, value_columns: (vnr, heiti, magn, lager), new_values: ( (175, HAMMAR, 52, lag15), (173, HAMMAR, 51, lag20) ))";
-        let parsed_insert_query = parse_EZQL(&INSERT_query).unwrap();
+        let parsed_insert_query = parse_ezql(&INSERT_query).unwrap();
         let google_docs_csv = std::fs::read_to_string(format!("test_files{PATH_SEP}test_csv_from_google_sheets_combined_sorted.csv")).unwrap();
         let mut t = ColumnTable::from_csv_string(&google_docs_csv, "test", "test").unwrap();
     
@@ -2761,7 +2758,7 @@ mod tests {
         let mut products_table = ColumnTable::from_csv_string(&products, "Products", "test").unwrap();
         println!("{}", products_table);
         let query = "INSERT(table_name: Products, value_columns: (id, name, description, price, picture), new_values: (1,coke,refreshing beverage,200,coke))";
-        let parsed_query = parse_EZQL(query).unwrap();
+        let parsed_query = parse_ezql(query).unwrap();
         println!("{}", parsed_query);
         execute_insert_query(parsed_query, &mut products_table).unwrap();
         println!("and then:\n{}", products_table);
@@ -2772,7 +2769,7 @@ mod tests {
     #[test]
     fn test_DELETE() {
         let query = "DELETE(table_name: products, primary_keys: *, conditions: ((price greater_than 3000) AND (stock less_than 1000)))";
-        let parsed = parse_EZQL(query).unwrap();
+        let parsed = parse_ezql(query).unwrap();
         let products = std::fs::read_to_string(format!("test_files{PATH_SEP}products.csv")).unwrap();
         let mut table = ColumnTable::from_csv_string(&products, "products", "test").unwrap();
         println!("before:\n{}", table);
@@ -2787,10 +2784,10 @@ mod tests {
     #[test]
     fn test_alternate() {
         let good = "SUMMARY(table_name: products, columns: ((SUM stock), (MEAN price)))";
-        let good = parse_EZQL(good).unwrap();
+        let good = parse_ezql(good).unwrap();
         dbg!(good);
         let bad = "SUMMARY(table_name: products, columns: ((SUM stock), (MEAN price))";
-        let e = parse_EZQL(bad);
+        let e = parse_ezql(bad);
         assert!(e.is_err());
     }
 

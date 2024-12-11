@@ -2472,22 +2472,20 @@ fn merge_in_order<T: Clone + Display>(one: &[T], two: &[T], record_vec: &[u8]) -
 }
 
 /// This is the struct that carries the binary blob of the key/value pairs along with some metadata
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord)]
 pub struct Value {
     pub name: KeyString,
     pub body: Vec<u8>,
-    pub metadata: Metadata,
 }
 
 impl Value {
-    pub fn new(name: &str, creator: &str, body: &[u8]) -> Value {
+    pub fn new(name: &str, body: &[u8]) -> Value {
         
         let mut body = Vec::from(body);
         body.shrink_to_fit();
         Value {
             name: KeyString::from(name),
             body: body,
-            metadata: Metadata::new(creator),
         }
     }
 
@@ -2496,8 +2494,6 @@ impl Value {
 
         assert_eq!(self.name, value.name);
         self.body = value.body;
-        self.metadata.last_access.store(get_current_time(), Ordering::Relaxed);
-        self.metadata.times_accessed.fetch_add(1, Ordering::Relaxed);
 
     } 
 
@@ -2507,34 +2503,27 @@ impl Value {
         let mut output = Vec::with_capacity(self.body.len() + 80);
 
         // WRITING METADATA
-        output.extend_from_slice(self.metadata.created_by.raw());
-        output.extend_from_slice(&self.metadata.last_access.load(Ordering::Relaxed).to_le_bytes());
-        output.extend_from_slice(&self.metadata.times_accessed.load(Ordering::Relaxed).to_le_bytes());
-
+        output.extend_from_slice(self.name.raw());
         output.extend_from_slice(&self.body);
 
         output
     }
 
-    pub fn from_binary(name: &str, binary: &[u8]) -> Value {
-        
+    pub fn from_binary(name: &str, binary: &[u8]) -> Result<Value, EzError> {
 
-
-        let metadata_created_by = KeyString::try_from(&binary[0..64]).expect("This should only fail if the binary data is corrupt");
-        let metadata_last_access = u64_from_le_slice(&binary[64..72]);
-        let metadata_times_accessed = u64_from_le_slice(&binary[72..80]);
-
-        let mut metadata = Metadata::new(metadata_created_by.as_str());
-        metadata.last_access = AtomicU64::new(metadata_last_access);
-        metadata.times_accessed = AtomicU64::new(metadata_times_accessed);
-
-        let body = &binary[80..];
-
-        Value {
-            name: KeyString::from(name),
-            body: body.to_vec(),
-            metadata,
+        let binary_name = KeyString::try_from(&binary[0..64])?;
+        if binary_name.as_str() != name {
+            return Err(EzError {tag: ErrorTag::Deserialization, text: "given name does not match written name of value".to_owned()})
         }
+
+        let body = &binary[64..];
+
+        Ok(
+            Value {
+                name: KeyString::from(name),
+                body: body.to_vec(),
+            }
+        )
     }
 }
 

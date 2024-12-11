@@ -4,7 +4,7 @@ use eznoise::{initiate_connection, Connection};
 
 use crate::db_structure::{ColumnTable, KeyString, Metadata, Value};
 use crate::ezql::{KvQuery, Query};
-use crate::utilities::{ksf, u64_from_le_slice, ErrorTag, EzError};
+use crate::utilities::{ksf, kv_query_results_from_binary, u64_from_le_slice, ErrorTag, EzError};
 // use crate::PATH_SEP;
 
 
@@ -80,51 +80,9 @@ pub fn send_kv_queries(connection: &mut Connection, queries: &[KvQuery]) -> Resu
 
     let response = connection.RECEIVE_C2()?;
 
-    let number_of_responses = u64_from_le_slice(&response[0..8]) as usize;
-    let mut offsets = Vec::new();
-    let mut last = 0;
-    for i in 0..number_of_responses {
-        let offset = u64_from_le_slice(&response[8+8*i..8+8*i+8]) as usize;
-        offsets.push(last + offset);
-        last += offset;
-    }
+    let results = kv_query_results_from_binary(&response)?;
 
-    println!("offsets: {:?}", offsets);
     
-    let body = &response[8+8*offsets.len()..];
-    
-    let mut results = Vec::new();
-    for i in 0..offsets.len() {
-        println!("i: {}", i);
-        let current_blob: &[u8];
-        if i == offsets.len() {
-            current_blob = &body[offsets[i]..];
-        } else {
-            current_blob = &body[offsets[i]..offsets[i+1]];
-        }
-
-        let tag = KeyString::try_from(&current_blob[0..64]).unwrap();
-        match tag.as_str() {
-            "VALUE" => {
-                let name = KeyString::try_from(&current_blob[64..128])?;
-                let len = u64_from_le_slice(&current_blob[128..136]) as usize;
-                let value = current_blob[136..136+len].to_vec();
-                let value = Value {name, body: value, metadata: Metadata::new("bleh")};
-                results.push(Ok(Some(value)));
-            },
-            "ERROR" => {
-                let error = EzError::from_binary(&current_blob[64..])?;
-                results.push(Err(error));
-            } ,
-            "NONE"  => {
-                results.push(Ok(None));
-            },
-            other => {
-                results.push(Err(EzError{tag: ErrorTag::Query, text: format!("Incorrectly formatted response. '{}' is not a valid response type", other)}));
-            }
-        }
-
-    }
 
     Ok(results)
 

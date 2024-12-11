@@ -19,7 +19,7 @@ use aes_gcm::aead;
 use sha2::{Sha256, Digest};
 
 use crate::auth::AuthenticationError;
-use crate::db_structure::KeyString;
+use crate::db_structure::{KeyString, Metadata, Value};
 use crate::server_networking::Database;
 
 
@@ -1222,11 +1222,137 @@ pub fn parse_response(response: &str, username: &str, table_name: &str) -> Resul
 
 }
 
+pub fn kv_query_results_to_binary(query_results: &Vec<Result<Option<Value>, EzError>>) -> Vec<u8> {
+    let mut binary = Vec::new();
+    binary.extend_from_slice(&query_results.len().to_le_bytes());
+    for _ in 0..query_results.len() {
+        binary.extend_from_slice(&[0u8;8]);
+    }
+    let mut offsets = Vec::new();
+
+    for result in query_results {
+        dbg!(&result);
+        match result {
+            Ok(x) => match x {
+                Some(value) => {
+                    let len = value.body.len();
+                    let mut temp = Vec::new();
+                    temp.extend_from_slice(ksf("VALUE").raw());
+                    temp.extend_from_slice(value.name.raw());
+                    temp.extend_from_slice(&len.to_le_bytes());
+                    temp.extend_from_slice(&value.body);
+                    offsets.push(temp.len());
+                    binary.extend_from_slice(&temp);
+                },
+                None => {
+                    let mut temp = Vec::new();
+                    temp.extend_from_slice(ksf("NONE").raw());
+                    offsets.push(temp.len());
+                    binary.extend_from_slice(&temp);
+                }
+            },
+            Err(e) => {
+                let mut temp = Vec::new();
+                temp.extend_from_slice(ksf("ERROR").raw());
+                temp.extend_from_slice(&e.to_binary());
+                offsets.push(temp.len());
+                binary.extend_from_slice(&temp);
+            }
+        }
+    }
+
+    let mut i = 0;
+    for offset in offsets {
+        binary[8+i..8+i+8].copy_from_slice(&offset.to_le_bytes());
+        i += 8;
+    }
+    binary
+}
+
+pub fn kv_query_results_from_binary(binary: &[u8]) -> Result<Vec<Result<Option<Value>, EzError>>, EzError> {
+    let number_of_responses = u64_from_le_slice(&binary[0..8]) as usize;
+    let mut offsets = Vec::new();
+    let mut last = 0;
+    for i in 0..number_of_responses {
+        let offset = u64_from_le_slice(&binary[8+8*i..8+8*i+8]) as usize;
+        offsets.push(last + offset);
+        last += offset;
+    }
+
+    println!("offsets: {:?}", offsets);
+    
+    let body = &binary[8+8*offsets.len()..];
+    
+    let mut results = Vec::new();
+    for i in 0..offsets.len() {
+        println!("i: {}", i);
+        let current_blob: &[u8];
+        if i == 0 {
+            current_blob = &body[0..offsets[i]];
+        } else {
+            current_blob = &body[offsets[i-1]..offsets[i]];
+        }
+
+        let tag = KeyString::try_from(&current_blob[0..64]).unwrap();
+        match tag.as_str() {
+            "VALUE" => {
+                let name = KeyString::try_from(&current_blob[64..128])?;
+                let len = u64_from_le_slice(&current_blob[128..136]) as usize;
+                let value = current_blob[136..136+len].to_vec();
+                let value = Value {name, body: value};
+                results.push(Ok(Some(value)));
+            },
+            "ERROR" => {
+                let error = EzError::from_binary(&current_blob[64..])?;
+                results.push(Err(error));
+            } ,
+            "NONE"  => {
+                results.push(Ok(None));
+            },
+            other => {
+                results.push(Err(EzError{tag: ErrorTag::Query, text: format!("Incorrectly formatted response. '{}' is not a valid response type", other)}));
+            }
+        }
+
+    }
+
+    Ok(results)
+}
+
+
 #[cfg(test)]
 mod tests {
     use crate::testing_tools::random_ez_error;
 
     use super::*;
+
+    #[test]
+    fn test_kv_queries_serde() {
+        let results: Vec<Result<Option<Value>, EzError>> = vec![
+            Ok(
+                Some(Value{name: ksf("test2"), body: vec![8,7,6,5,4,3,2,1]}),
+            ),
+            Ok(
+                Some(Value{name: ksf("test2"), body: vec![0,0,0,0,0,0,0,0]}),
+            ),
+            Ok(
+                Some(Value{name: ksf("test1"), body: vec![1,2,3,4,5,6,7,8]}),
+            ),
+            Ok(
+                None,
+            ),
+            Err(
+                EzError{tag: ErrorTag::Query, text: "Test".to_owned()}
+            )
+
+        ];
+
+        let binary = kv_query_results_to_binary(&results);
+
+        let parsed = kv_query_results_from_binary(&binary).unwrap();
+
+        assert_eq!(results, parsed);
+    }
 
     #[test]
     fn test_bytes_to_str() {

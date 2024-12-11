@@ -81,14 +81,14 @@ impl BufferPool {
             let mut binary = Vec::with_capacity(file_size as usize);
             value_file.read_to_end(&mut binary)?;
 
-            let value = Value::from_binary(&name, &binary);
+            let value = Value::from_binary(&name, &binary)?;
 
             self.add_value(value)?;
         }
 
-        let core_value_1 = Value{name: ksf("core1"), body: vec![1,2,3,4,5,6,7,8], metadata: Metadata::new("core")};
-        let core_value_2 = Value{name: ksf("core2"), body: vec![8,7,6,5,4,3,2,1], metadata: Metadata::new("core")};
-        let core_value_3 = Value{name: ksf("core3"), body: vec![0,0,0,0,0,0,0,0], metadata: Metadata::new("core")};
+        let core_value_1 = Value{name: ksf("core1"), body: vec![1,2,3,4,5,6,7,8]};
+        let core_value_2 = Value{name: ksf("core2"), body: vec![8,7,6,5,4,3,2,1]};
+        let core_value_3 = Value{name: ksf("core3"), body: vec![0,0,0,0,0,0,0,0]};
 
         self.add_value(core_value_1);
         self.add_value(core_value_2);

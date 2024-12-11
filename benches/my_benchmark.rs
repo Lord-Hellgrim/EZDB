@@ -10,7 +10,7 @@ use EZDB::compression::miniz_compress;
 use EZDB::compression::miniz_decompress;
 use EZDB::db_structure::*;
 use EZDB::ezql::*;
-use EZDB::ezql::parse_EZQL;
+use EZDB::ezql::parse_ezql;
 
 use EZDB::testing_tools::create_fixed_table;
 use EZDB::utilities::*;

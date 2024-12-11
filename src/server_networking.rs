@@ -15,8 +15,8 @@ use crate::disk_utilities::{BufferPool, MAX_BUFFERPOOL_SIZE};
 use crate::ezql::{execute_EZQL_queries, execute_kv_queries, parse_kv_queries_from_binary, parse_queries_from_binary};
 use crate::logging::Logger;
 use crate::thread_pool::{initialize_thread_pool, Job};
-use crate::utilities::{authenticate_client, ksf, read_known_length, ErrorTag, EzError, Instruction};
-use crate::db_structure::KeyString;
+use crate::utilities::{authenticate_client, ksf, kv_query_results_to_binary, read_known_length, u64_from_le_slice, ErrorTag, EzError, Instruction};
+use crate::db_structure::{KeyString, Value};
 use crate::PATH_SEP;
 
 pub const INSTRUCTION_LENGTH: usize = 284;
@@ -272,55 +272,9 @@ pub fn answer_kv_query(binary: &[u8], user: &str, db_ref: Arc<Database>) -> Resu
     let queries = parse_kv_queries_from_binary(&binary)?;
 
     check_kv_permission(&queries, user, db_ref.users.clone())?;
-    let query_results = execute_kv_queries(queries, db_ref);
+    let query_results: Vec<Result<Option<crate::db_structure::Value>, EzError>> = execute_kv_queries(queries, db_ref);
 
-    let mut binary = Vec::new();
-    binary.extend_from_slice(&query_results.len().to_le_bytes());
-    for _ in 0..query_results.len() {
-        binary.extend_from_slice(&[0u8;8]);
-    }
-    let mut offsets = Vec::new();
-
-    for result in query_results {
-        match result {
-            Ok(x) => match x {
-                Some(value) => {
-                    let len = value.body.len();
-                    let mut temp = Vec::new();
-                    temp.extend_from_slice(ksf("VALUE").raw());
-                    temp.extend_from_slice(value.name.raw());
-                    temp.extend_from_slice(&len.to_le_bytes());
-                    temp.extend_from_slice(&value.body);
-                    offsets.push(temp.len());
-                    binary.extend_from_slice(&temp);
-                },
-                None => {
-                    let mut temp = Vec::new();
-                    temp.extend_from_slice(ksf("NONE").raw());
-                    offsets.push(temp.len());
-                    binary.extend_from_slice(&temp);
-                }
-            },
-            Err(e) => {
-                let error_text = e.to_string();
-                let error_text_bytes = error_text.as_bytes();
-                let len = error_text_bytes.len();
-                let mut temp = Vec::new();
-                temp.extend_from_slice(ksf("ERROR").raw());
-                temp.extend_from_slice(&len.to_le_bytes());
-                temp.extend_from_slice(error_text_bytes);
-                offsets.push(temp.len());
-                binary.extend_from_slice(&temp);
-            }
-        }
-    }
-
-    let mut i = 0;
-    for offset in offsets {
-        binary[8+i..8+i+8].copy_from_slice(&offset.to_le_bytes());
-        i += 8;
-    }
-
+    let mut binary = kv_query_results_to_binary(&query_results);
     
 
     Ok(binary)
