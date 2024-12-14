@@ -1766,7 +1766,14 @@ pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Res
                     },
                 }
             }
-            Query::CREATE { table } => todo!(),
+            Query::CREATE { table } => {
+                match database.buffer_pool.add_table(table.clone()) {
+                    Ok(_) => {
+                        result_table = None;
+                    },
+                    Err(e) => return Err(e),
+                }
+            },
         }
     }
 
