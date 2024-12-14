@@ -20,7 +20,7 @@ pub struct Join {
 // }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord)]
-pub struct AltStatistic{
+pub struct Statistic{
     pub column: KeyString,
     pub actions: BTreeSet<StatOp>,
 }
@@ -34,76 +34,19 @@ pub enum StatOp {
     STDEV,
 }
 
-
-#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord)]
-pub enum Statistic{
-    SUM(KeyString),
-    MEAN(KeyString),
-    MEDIAN(KeyString),
-    MODE(KeyString),
-    STDEV(KeyString),
-}
-
-impl Statistic {
-    pub fn get_column_name(&self) -> KeyString {
-        match self {
-            Statistic::SUM(key_string) => *key_string,
-            Statistic::MEAN(key_string) => *key_string,
-            Statistic::MEDIAN(key_string) => *key_string,
-            Statistic::MODE(key_string) => *key_string,
-            Statistic::STDEV(key_string) => *key_string,
-        }
-    }
-}
-
-impl Display for Statistic {
+impl Display for StatOp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // println!("calling: Statistic::fmt()");
-
         match self {
-            Statistic::SUM(x) => write!(f, "(SUM {x})"),
-            Statistic::MEAN(x) => write!(f, "(MEAN {x})"),
-            Statistic::MODE(x) => write!(f, "(MODE {x})"),
-            Statistic::STDEV(x) => write!(f, "(STDEV {x})"),
-            Statistic::MEDIAN(x) => write!(f, "(MEDIAN {x})"),
+            StatOp::SUM => write!(f, "SUM"),
+            StatOp::MEAN => write!(f, "MEAN"),
+            StatOp::MEDIAN => write!(f, "MEDIAN"),
+            StatOp::MODE => write!(f, "MODE"),
+            StatOp::STDEV => write!(f, "STDEV"),
         }
     }
 }
 
-impl Default for Statistic {
-    fn default() -> Self {
-        // println!("calling: Statistic::fmt()");
-
-        Statistic::SUM(KeyString::from("id"))
-    }
-}
-
-impl FromStr for Statistic {
-    type Err = EzError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        // println!("calling: Statistic::from_str()");
-
-        let split = s.split_whitespace();
-        if split.count() != 2 {
-            Err(EzError{tag: ErrorTag::Query, text: "Statistic must be 2 items separated by whitespace".to_owned()})
-        } else {
-            let mut split = s.split_whitespace();
-            let first = split.next().unwrap();
-            let second = split.next().unwrap();
-            match first {
-                "SUM" => Ok(Statistic::SUM(KeyString::from(second))),
-                "MEAN" => Ok(Statistic::MEAN(KeyString::from(second))),
-                "MODE" => Ok(Statistic::MODE(KeyString::from(second))),
-                "MEDIAN" => Ok(Statistic::MEDIAN(KeyString::from(second))),
-                "STDEV" => Ok(Statistic::STDEV(KeyString::from(second))),
-                _ => Err(EzError{tag: ErrorTag::Query, text: "First Statistic item must be SUM, MEAN, MODE, or STDEV".to_owned()}),
-            }
-        }
-    }
-}
-
-pub fn alt_statistics_to_binary(statistics: &[AltStatistic]) -> Vec<u8> {
+pub fn statistics_to_binary(statistics: &[Statistic]) -> Vec<u8> {
     let mut stats = Vec::new();
     for item in statistics {
         stats.extend_from_slice(item.column.raw());
@@ -123,7 +66,7 @@ pub fn alt_statistics_to_binary(statistics: &[AltStatistic]) -> Vec<u8> {
 }
 
 
-pub fn alt_statistics_from_binary(binary: &[u8]) -> Result<Vec<AltStatistic>, EzError> {
+pub fn statistics_from_binary(binary: &[u8]) -> Result<Vec<Statistic>, EzError> {
     let mut stats = Vec::new();
 
     let mut i = 0;
@@ -145,7 +88,7 @@ pub fn alt_statistics_from_binary(binary: &[u8]) -> Result<Vec<AltStatistic>, Ez
             actions.insert(action);
         }
 
-        stats.push(AltStatistic{column, actions});
+        stats.push(Statistic{column, actions});
 
         i += len as usize;
     }
@@ -154,57 +97,6 @@ pub fn alt_statistics_from_binary(binary: &[u8]) -> Result<Vec<AltStatistic>, Ez
 
 }
 
-
-pub fn statistics_to_binary(statistics: &[Statistic]) -> Vec<u8> {
-    let mut stats = Vec::new();
-    for stat in statistics {
-        match stat {
-            Statistic::SUM(key_string) => {
-                stats.extend_from_slice(KeyString::from("SUM").raw());
-                stats.extend_from_slice(key_string.raw());
-                
-            },
-            Statistic::MEAN(key_string) => {
-                stats.extend_from_slice(KeyString::from("MEAN").raw());
-                stats.extend_from_slice(key_string.raw());
-            },
-            Statistic::MEDIAN(key_string) => {
-                stats.extend_from_slice(KeyString::from("MEDIAN").raw());
-                stats.extend_from_slice(key_string.raw());
-            },
-            Statistic::MODE(key_string) => {
-                stats.extend_from_slice(KeyString::from("MODE").raw());
-                stats.extend_from_slice(key_string.raw());
-            },
-            Statistic::STDEV(key_string) => {
-                stats.extend_from_slice(KeyString::from("STDEV").raw());
-                stats.extend_from_slice(key_string.raw());
-            },
-        }
-    }
-    
-    stats
-}
-
-pub fn statistics_from_binary(binary: &[u8]) -> Result<Vec<Statistic>, EzError> {
-    let mut stats = Vec::new();
-
-    for chunk in binary.chunks(128) {
-        let stat = KeyString::try_from(&chunk[0..64])?;
-        let name = KeyString::try_from(&chunk[64..128])?;
-        match stat.as_str() {
-            "SUM" => stats.push(Statistic::SUM(name)),
-            "MEAN" => stats.push(Statistic::MEAN(name)),
-            "MODE" => stats.push(Statistic::MODE(name)),
-            "MEDIAN" => stats.push(Statistic::MEDIAN(name)),
-            "STDEV" => stats.push(Statistic::STDEV(name)),
-            _ => return Err(EzError{tag: ErrorTag::Query, text: format!("Statistic summary: '{}' is not supported", stat)})
-        }
-    }
-
-    Ok(stats)
-
-}
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub enum KvQuery {
@@ -318,6 +210,7 @@ pub fn parse_kv_queries_from_binary(binary: &[u8]) -> Result<Vec<KvQuery>, EzErr
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 #[allow(non_camel_case_types)]
 pub enum Query {
+    CREATE{table: ColumnTable},
     SELECT{table_name: KeyString, primary_keys: RangeOrListOrAll, columns: Vec<KeyString>, conditions: Vec<OpOrCond>},
     LEFT_JOIN{left_table_name: KeyString, right_table_name: KeyString, match_columns: (KeyString, KeyString), primary_keys: RangeOrListOrAll},
     INNER_JOIN,
@@ -327,7 +220,6 @@ pub enum Query {
     INSERT{table_name: KeyString, inserts: ColumnTable},
     DELETE{primary_keys: RangeOrListOrAll, table_name: KeyString, conditions: Vec<OpOrCond>},
     SUMMARY{table_name: KeyString, columns: Vec<Statistic>},
-    ALTSUMMARY{table_name: KeyString, columns: Vec<AltStatistic>},
 }
 
 impl Display for Query {
@@ -387,12 +279,20 @@ impl Display for Query {
                 ));
             },
             Query::SUMMARY { table_name, columns } => {
-                printer.push_str(&format!("SUMMARY(table_name: {}, columns: ({}))",
-                        table_name,
-                        print_sep_list(columns, ", "),
-                ));
+                printer.push_str(&format!("SUMMARY(table_name: {}, stats: (",table_name));
+                for column in columns {
+                    printer.push_str(column.column.as_str());
+                    printer.push_str(" -> ");
+                    for action in &column.actions {
+                        printer.push_str(&format!("{}, ", action));
+                    }
+                    printer.push(')');
+                }
             },
-            _ => unimplemented!("Have no implemented all joins yet")
+            Query::CREATE { table } => printer.push_str(&format!("CREATE(table_name: {}", table.name)),
+            Query::INNER_JOIN => todo!(),
+            Query::RIGHT_JOIN => todo!(),
+            Query::FULL_JOIN => todo!(),
         }
 
 
@@ -457,10 +357,10 @@ impl Query {
             Query::INSERT { table_name, inserts: _ } => *table_name,
             Query::DELETE { primary_keys: _, table_name, conditions: _ } => *table_name,
             Query::SUMMARY { table_name, columns: _ } => *table_name,
-            Query::ALTSUMMARY { table_name, columns: _ } => *table_name,
             Query::INNER_JOIN => todo!(),
             Query::RIGHT_JOIN => todo!(),
             Query::FULL_JOIN => todo!(),
+            Query::CREATE { table } => table.name,
         }
     }
 
@@ -553,16 +453,16 @@ impl Query {
                 binary[24..32].copy_from_slice(len);
                 
             },
-            Query::ALTSUMMARY { table_name, columns } => {
-                let stats = alt_statistics_to_binary(columns);
-                handles[0..8].copy_from_slice(&stats.len().to_le_bytes());
+            Query::CREATE { table } => {
+                let table_name = table.name;
+                let table = table.to_binary();
+                handles[0..8].copy_from_slice(&table.len().to_le_bytes());
                 binary.extend_from_slice(&handles);
-                binary.extend_from_slice(KeyString::from("ALTSUMMARY").raw());
+                binary.extend_from_slice(KeyString::from("CREATE").raw());
                 binary.extend_from_slice(table_name.raw());
-                binary.extend_from_slice(&stats);
+                binary.extend_from_slice(&table);
                 let len = &binary.len().to_le_bytes();
                 binary[24..32].copy_from_slice(len);
-                
             },
         }
         binary
@@ -638,13 +538,11 @@ impl Query {
                 Ok( Query::SUMMARY { table_name, columns } )
 
             },
-            "ALTSUMMARY" => {
-                let stat_len = u64_from_le_slice(&handles[0..8]) as usize;
-                let columns = alt_statistics_from_binary(&body[128..128+stat_len])?;
-
-                Ok( Query::ALTSUMMARY { table_name, columns } )
-
-            },
+            "CREATE" => {
+                let table_len = u64_from_le_slice(&handles[0..8]) as usize;
+                let table = ColumnTable::from_binary(None, &body[128..128+table_len])?;
+                Ok( Query::CREATE { table })
+            }
             _ => return Err(EzError{tag: ErrorTag::Query, text: format!("Query type '{}' is not supported", query_type)}),
         }
 
@@ -1534,38 +1432,8 @@ pub fn parse_ezql(query_string: &str) -> Result<Query, EzError> {
             }
         },
 
-        Query::SUMMARY{ table_name, columns } => {
-
-            let temp_table_name = match args.get("table_name") {
-                Some(x) => {
-                    let x = match x.first() {
-                        Some(n) => n,
-                        None => return Err(EzError{tag: ErrorTag::Query, text: "Missing table_name".to_owned()}),
-                    };
-                    KeyString::from(x.as_str())
-                },
-                None => return Err(EzError{tag: ErrorTag::Query, text: "Missing table_name".to_owned()}),
-            };
-            *table_name = KeyString::from(temp_table_name.as_str());
-
-            // SUMMARY(table_name: products, columns: ((SUM stock), (MEAN price)))
-            let summary = match args.get("columns") {
-                Some(x) => x,
-                None => return Err(EzError{tag: ErrorTag::Query, text: "Missing columns".to_owned()}),
-            };
-
-            let mut temp = Vec::with_capacity(summary.len());
-            for stat in summary {
-                let s = Statistic::from_str(stat)?;
-                temp.push(s);
-            }
-
-            *columns = temp;
-
-        },
-
-        Query::ALTSUMMARY { table_name, columns } => {
-
+        Query::SUMMARY { table_name, columns } => {
+            todo!()
         },
 
         _ => unimplemented!()
@@ -1877,10 +1745,11 @@ pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Res
                     },
                 }
             },
-            Query::SUMMARY{ table_name, columns: _ } => {
+            
+            Query::SUMMARY { table_name, columns } => {
                 match result_table {
                     Some(table) => {
-                        let result = execute_summary_query(query, &table)?;
+                        let result = execute_summary_query(&query, &table)?;
                         match result {
                             Some(s) => return Ok(Some(s)),
                             None => todo!(),
@@ -1889,27 +1758,7 @@ pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Res
                     None => {
                         let tables = database.buffer_pool.tables.read().unwrap();
                         let table = tables.get(table_name).unwrap().read().unwrap();
-                        let result = execute_summary_query(query, &table)?;
-                        match result {
-                            Some(s) => return Ok(Some(s)),
-                            None => todo!(),
-                        };
-                    },
-                }
-            },
-            Query::ALTSUMMARY { table_name, columns } => {
-                match result_table {
-                    Some(table) => {
-                        let result = execute_alt_summary_query(&query, &table)?;
-                        match result {
-                            Some(s) => return Ok(Some(s)),
-                            None => todo!(),
-                        };
-                    },
-                    None => {
-                        let tables = database.buffer_pool.tables.read().unwrap();
-                        let table = tables.get(table_name).unwrap().read().unwrap();
-                        let result = execute_alt_summary_query(&query, &table)?;
+                        let result = execute_summary_query(&query, &table)?;
                         match result {
                             Some(s) => return Ok(Some(s)),
                             None => todo!(),
@@ -1917,6 +1766,7 @@ pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Res
                     },
                 }
             }
+            Query::CREATE { table } => todo!(),
         }
     }
 
@@ -2125,84 +1975,10 @@ pub fn execute_select_query(query: Query, table: &ColumnTable) -> Result<Option<
     }
 }
 
-pub fn execute_summary_query(query: Query, table: &ColumnTable) -> Result<Option<ColumnTable>, EzError> {
-    // println!("calling: execute_summary_query()");
 
+pub fn execute_summary_query(query: &Query, table: &ColumnTable) -> Result<Option<ColumnTable>, EzError> {
     match query {
         Query::SUMMARY { table_name: _, columns } => {
-            let mut result = ColumnTable::blank(&BTreeSet::new(), KeyString::from("RESULT"), "QUERY");
-
-            for stat in columns {
-                let _ = match stat {
-                    Statistic::SUM(column) => {
-                        let requested_column = match table.columns.get(&column) {
-                            Some(c) => c,
-                            None => return Err(EzError{tag: ErrorTag::Query, text: format!("No column named {} in table {}", column, table.name)})
-                        };
-                        match requested_column {
-                            DbColumn::Floats(col) => result.add_column(KeyString::from(format!("SUM_{}", column).as_str()), DbColumn::Floats(vec![sum_f32_slice(col)])),
-                            DbColumn::Ints(col) => result.add_column(KeyString::from(format!("SUM_{}", column).as_str()), DbColumn::Ints(vec![sum_i32_slice(col)])),
-                            DbColumn::Texts(_col) => result.add_column(KeyString::from(format!("SUM_{}", column).as_str()), DbColumn::Texts(vec![KeyString::from("Can't SUM a text column")])),
-                        }
-                    },
-                    Statistic::MEAN(column) => {
-                        let requested_column = match table.columns.get(&column) {
-                            Some(c) => c,
-                            None => return Err(EzError{tag: ErrorTag::Query, text: format!("No column named {} in table {}", column, table.name)})
-                        };
-                        match requested_column {
-                            DbColumn::Floats(col) => result.add_column(KeyString::from(format!("MEAN_{}", column).as_str()), DbColumn::Floats(vec![mean_f32_slice(col)])),
-                            DbColumn::Ints(col) => result.add_column(KeyString::from(format!("MEAN_{}", column).as_str()), DbColumn::Floats(vec![mean_i32_slice(col)])),
-                            DbColumn::Texts(_col) => result.add_column(KeyString::from(format!("MEAN_{}", column).as_str()), DbColumn::Texts(vec![KeyString::from("Can't mean a text column")])),
-                        }
-                    },
-                    Statistic::MEDIAN(column) => {
-                        let requested_column = match table.columns.get(&column) {
-                            Some(c) => c,
-                            None => return Err(EzError{tag: ErrorTag::Query, text: format!("No column named {} in table {}", column, table.name)})
-                        };
-                        match requested_column {
-                            DbColumn::Floats(col) => result.add_column(KeyString::from(format!("MEDIAN_{}", column).as_str()), DbColumn::Floats(vec![median_f32_slice(col)])),
-                            DbColumn::Ints(col) => result.add_column(KeyString::from(format!("MEDIAN_{}", column).as_str()), DbColumn::Floats(vec![median_i32_slice(col)])),
-                            DbColumn::Texts(_col) => result.add_column(KeyString::from(format!("MEDIAN_{}", column).as_str()), DbColumn::Texts(vec![KeyString::from("Can't median a text column")])),
-                        }
-                    },
-                    Statistic::MODE(column) => {
-                        let requested_column = match table.columns.get(&column) {
-                            Some(c) => c,
-                            None => return Err(EzError{tag: ErrorTag::Query, text: format!("No column named {} in table {}", column, table.name)})
-                        };
-                        match requested_column {
-                            DbColumn::Floats(_col) => result.add_column(KeyString::from(format!("MODE_{}", column).as_str()), DbColumn::Texts(vec![KeyString::from("Can't mode a float slice")])),
-                            DbColumn::Ints(col) => result.add_column(KeyString::from(format!("MODE_{}", column).as_str()), DbColumn::Ints(vec![mode_i32_slice(col)])),
-                            DbColumn::Texts(col) => result.add_column(KeyString::from(format!("MODE_{}", column).as_str()), DbColumn::Texts(vec![mode_string_slice(col)])),
-                        }
-                    },
-                    Statistic::STDEV(column) => {
-                        let requested_column = match table.columns.get(&column) {
-                            Some(c) => c,
-                            None => return Err(EzError{tag: ErrorTag::Query, text: format!("No column named {} in table {}", column, table.name)})
-                        };
-                        match requested_column {
-                            DbColumn::Floats(col) => result.add_column(KeyString::from(format!("STDEV_{}", column).as_str()), DbColumn::Floats(vec![stdev_f32_slice(col)])),
-                            DbColumn::Ints(col) => result.add_column(KeyString::from(format!("STDEV_{}", column).as_str()), DbColumn::Floats(vec![stdev_i32_slice(col)])),
-                            DbColumn::Texts(_col) => result.add_column(KeyString::from(format!("STDEV_{}", column).as_str()), DbColumn::Texts(vec![KeyString::from("Can't stdev a text column")])),
-                        }
-                    },
-                };
-
-            }
-
-
-            Ok(Some(result))
-        },
-        other_query => return Err(EzError{tag: ErrorTag::Query, text: format!("Wrong type of query passed to execute_select_query() function.\nReceived query: {}", other_query)}),
-    }
-}
-
-pub fn execute_alt_summary_query(query: &Query, table: &ColumnTable) -> Result<Option<ColumnTable>, EzError> {
-    match query {
-        Query::ALTSUMMARY { table_name: _, columns } => {
             let mut result = ColumnTable::blank(&BTreeSet::new(), KeyString::from("RESULT"), "QUERY");
 
             result.add_column(ksf("Statistic"), DbColumn::Texts(vec![
@@ -2213,18 +1989,16 @@ pub fn execute_alt_summary_query(query: &Query, table: &ColumnTable) -> Result<O
                 ksf("STDEV"),
             ]))?;
 
-            for alt_stat in columns {
-                let requested_column = match table.columns.get(&alt_stat.column) {
+            for stat in columns {
+                let requested_column = match table.columns.get(&stat.column) {
                     Some(x) => x,
-                    None => return Err(EzError{tag: ErrorTag::Query, text: format!("No column named {} in table {}", alt_stat.column, table.name)}),
+                    None => return Err(EzError{tag: ErrorTag::Query, text: format!("No column named {} in table {}", stat.column, table.name)}),
                 };
-
-
 
                 match requested_column {
                     DbColumn::Ints(vec) => {
                         let mut temp = [0i32; 5].to_vec();
-                        for action in &alt_stat.actions {
+                        for action in &stat.actions {
                             match action {
                                 StatOp::SUM => temp[0] = sum_i32_slice(&vec),
                                 StatOp::MEAN => temp[1] = mean_i32_slice(&vec) as i32,
@@ -2233,11 +2007,11 @@ pub fn execute_alt_summary_query(query: &Query, table: &ColumnTable) -> Result<O
                                 StatOp::STDEV => temp[4] = stdev_i32_slice(&vec) as i32,
                             }
                         }
-                        result.add_column(alt_stat.column, DbColumn::Ints(temp))?;
+                        result.add_column(stat.column, DbColumn::Ints(temp))?;
                     },
                     DbColumn::Texts(vec) => {
                         let mut temp = [ksf(""); 5].to_vec();
-                        for action in &alt_stat.actions {
+                        for action in &stat.actions {
                             match action {
                                 StatOp::SUM => temp[0] = ksf("can't sum text"),
                                 StatOp::MEAN => temp[1] = ksf("can't mean text"),
@@ -2246,11 +2020,11 @@ pub fn execute_alt_summary_query(query: &Query, table: &ColumnTable) -> Result<O
                                 StatOp::STDEV => temp[4] = ksf("can't stdev text"),
                             }
                         }
-                        result.add_column(alt_stat.column, DbColumn::Texts(temp))?;
+                        result.add_column(stat.column, DbColumn::Texts(temp))?;
                     },
                     DbColumn::Floats(vec) => {
                         let mut temp = [0f32; 5].to_vec();
-                        for action in &alt_stat.actions {
+                        for action in &stat.actions {
                             match action {
                                 StatOp::SUM => temp[0] = sum_f32_slice(&vec),
                                 StatOp::MEAN => temp[1] = mean_f32_slice(&vec),
@@ -2259,7 +2033,7 @@ pub fn execute_alt_summary_query(query: &Query, table: &ColumnTable) -> Result<O
                                 StatOp::STDEV => temp[4] = stdev_f32_slice(&vec),
                             }
                         }
-                        result.add_column(alt_stat.column, DbColumn::Floats(temp))?;
+                        result.add_column(stat.column, DbColumn::Floats(temp))?;
                     },
                 }
             }
@@ -2528,7 +2302,7 @@ mod tests {
 
     use rand::Rng;
 
-    use crate::{testing_tools::{random_kv_query, random_query}, utilities::ksf};
+    use crate::{testing_tools::{random_column_table, random_kv_query, random_query}, utilities::ksf};
 
     use super::*;
 
@@ -2830,6 +2604,16 @@ mod tests {
         println!("{:?}", binary);
         let parsed = Query::from_binary(&binary).unwrap();
         assert_eq!(query, parsed);
+    }
+
+    #[test]
+    fn test_CREATE_query_binary() {
+        for i in 0..100 {
+            let query = random_query();
+            let binary_query = query.to_binary();
+            let parsed_query = Query::from_binary(&binary_query).unwrap();
+            assert_eq!(query, parsed_query);
+        }
     }
 
     #[test]

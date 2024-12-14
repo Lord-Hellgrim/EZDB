@@ -2,7 +2,7 @@ use std::{collections::{BTreeMap, BTreeSet}, sync::atomic::AtomicU64};
 
 use rand::{distributions::Standard, prelude::Distribution, Rng};
 
-use crate::{db_structure::{ColumnTable, DbColumn, DbType, HeaderItem, KeyString, Metadata, TableKey}, ezql::{AltStatistic, Condition, KvQuery, OpOrCond, Operator, Query, RangeOrListOrAll, StatOp, Statistic, Test, Update, UpdateOp}, utilities::{get_current_time, ksf, ErrorTag, EzError}};
+use crate::{db_structure::{ColumnTable, DbColumn, DbType, HeaderItem, KeyString, Metadata, TableKey}, ezql::{Statistic, Condition, KvQuery, OpOrCond, Operator, Query, RangeOrListOrAll, StatOp, Test, Update, UpdateOp}, utilities::{get_current_time, ksf, ErrorTag, EzError}};
 
 
 fn random_vec<T>(max_length: usize) -> Vec<T>  where Standard: Distribution<T> {
@@ -52,11 +52,11 @@ fn random_metadata() -> Metadata {
 }
 
 
-pub fn random_column_table() -> ColumnTable {
+pub fn random_column_table(max_cols: usize, max_rows: usize) -> ColumnTable {
     let mut rng = rand::thread_rng();
 
-    let num_columns = rng.gen_range(3..30);
-    let num_rows = rng.gen_range(1..10000);
+    let num_columns = rng.gen_range(3..max_cols);
+    let num_rows = rng.gen_range(1..max_rows);
 
     let mut header = BTreeSet::new();
     for _ in 0..num_columns {
@@ -200,28 +200,7 @@ fn random_updates(max_length: usize) -> Vec<Update> {
 
 }
 
-fn random_statistics(max_length: usize) -> Vec<Statistic> {
-    
-    let mut updates = Vec::new();
-    for _ in 0..rand::thread_rng().gen_range(0..max_length) {
-
-        let stat = match rand::thread_rng().gen_range(0..5) {
-            0 => Statistic::SUM(random_keystring()),
-            1 => Statistic::MEAN(random_keystring()),
-            2 => Statistic::MEDIAN(random_keystring()),
-            3 => Statistic::MODE(random_keystring()),
-            4 => Statistic::STDEV(random_keystring()),
-            _ => unreachable!("range")
-        };
-    
-        updates.push(stat);
-    }
-
-    updates
-
-}
-
-fn random_alt_statistics(max_length: usize, max_actions: usize) -> Vec<AltStatistic> {
+fn random_statistics(max_length: usize, max_actions: usize) -> Vec<Statistic> {
     
     let mut updates = Vec::new();
     for _ in 0..rand::thread_rng().gen_range(0..max_length) {
@@ -244,7 +223,7 @@ fn random_alt_statistics(max_length: usize, max_actions: usize) -> Vec<AltStatis
         }
 
     
-        updates.push(AltStatistic{column, actions});
+        updates.push(Statistic{column, actions});
     }
 
     updates
@@ -276,8 +255,7 @@ pub fn random_query() -> Query {
     let conditions = random_conditions();
     let match_columns = (random_keystring(), random_keystring());
     let updates = random_updates(1000);
-    let summaries = random_statistics(10);
-    let alt_summaries = random_alt_statistics(10, 3);
+    let alt_summaries = random_statistics(10, 3);
 
     let query_type = rng.gen_range(0..7);
     match query_type {
@@ -291,16 +269,16 @@ pub fn random_query() -> Query {
             Query::UPDATE { table_name, primary_keys, conditions, updates }
         }
         3 => {
-            Query::INSERT { table_name, inserts: random_column_table() }
+            Query::INSERT { table_name, inserts: random_column_table(10, 100) }
         }
         4 => {
             Query::DELETE { primary_keys, table_name, conditions }
         }
         5 => {
-            Query::SUMMARY { table_name, columns: summaries }
-        }
+            Query::SUMMARY { table_name, columns: alt_summaries }
+        },
         6 => {
-            Query::ALTSUMMARY { table_name, columns: alt_summaries }
+            Query::CREATE { table: random_column_table(10, 100) }
         }
         _ => unreachable!("range")
     }
@@ -376,7 +354,7 @@ mod tests {
 
     #[test]
     fn test_random_column_table() {
-        let table = random_column_table();
+        let table = random_column_table(10, 10);
         println!("{}", table);
     }
 
@@ -394,14 +372,7 @@ mod tests {
         for _ in 0..1000 {
             let query = random_query();
             let binary_query = query.to_binary();
-            let parsed_query = match Query::from_binary(&binary_query) {
-                Ok(x) => x,
-                Err(e) => {
-                    println!("Query:\n#################################################\n\n{}", query);
-                    Query::from_binary(&binary_query).unwrap();
-                    continue
-                }
-            };
+            let parsed_query = Query::from_binary(&binary_query).unwrap();
             assert_eq!(query, parsed_query);
         }
     }
