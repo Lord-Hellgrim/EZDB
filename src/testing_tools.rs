@@ -111,10 +111,7 @@ pub fn random_column_table(max_cols: usize, max_rows: usize) -> ColumnTable {
         }
     }
 
-    let metadata = random_metadata();
-
     ColumnTable {
-        metadata,
         name,
         header,
         columns: cols,

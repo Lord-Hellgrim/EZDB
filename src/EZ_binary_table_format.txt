@@ -1,0 +1,73 @@
+  pub fn write_column_table_binary_header(binary: &mut Vec<u8>, table: &ColumnTable) -> usize {
+    
+    binary.extend_from_slice(ksf("EZDB_COLUMNTABLE").raw());
+    binary.extend_from_slice(table.name.raw());
+    
+    // WRITING LENGTHS
+    binary.extend_from_slice(&table.header.len().to_le_bytes());
+    binary.extend_from_slice(&table.len().to_le_bytes());
+    
+    // WRITING TABLE NAME
+    
+    // WRITING HEADER
+    let mut keys_and_kinds = Vec::new();
+    let mut names = Vec::new();
+    for item in &table.header {
+        let kind = match item.kind {
+            DbType::Int => b'i',
+            DbType::Float => b'f',
+            DbType::Text => b't',
+        };
+        let key_type = match &item.key {
+            TableKey::Primary => b'P',
+            TableKey::None => b'N',
+            TableKey::Foreign => b'F',
+        };
+        keys_and_kinds.extend_from_slice(&[0,0,0,kind,0,0,0,key_type]);
+        names.extend_from_slice(item.name.raw());
+    }
+    binary.extend_from_slice(&keys_and_kinds);
+    binary.extend_from_slice(&names);
+    
+    128 + table.header.len()+80
+} 
+
+
+0-8                     Header length (little endian 8 bytes)
+8-16                    Table length (little endian 8 bytes)
+16-16+(header length)   
+
+
+pub fn to_binary(&self) -> Vec<u8> {
+        
+        let mut binary: Vec<u8> = Vec::with_capacity(self.size_of_table());
+        
+        write_column_table_binary_header(&mut binary, self);
+        
+        // WRITING COLUMNS
+        for column in self.columns.values() {
+            match &column {
+                DbColumn::Floats(col) => {
+
+                    for item in col {
+                        binary.extend_from_slice(&item.to_le_bytes());
+                    }
+                }
+                &DbColumn::Ints(col) => {
+                    for item in col {
+                        // println!("item: {}", item);
+                        binary.extend_from_slice(&item.to_le_bytes());
+                    }
+                }
+                DbColumn::Texts(col) => {
+                    for item in col {
+                        binary.extend_from_slice(item.raw());
+                    }
+                }
+            };
+        }
+        binary
+    }
+
+
+  

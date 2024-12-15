@@ -514,7 +514,6 @@ impl Cbor for TableKey {
 /// This is the main data structure of EZDB. It represents a table as a list of columns.
 #[derive(Clone, Debug)]
 pub struct ColumnTable {
-    pub metadata: Metadata,
     pub name: KeyString,
     pub header: BTreeSet<HeaderItem>,
     pub columns: BTreeMap<KeyString, DbColumn>,
@@ -544,7 +543,6 @@ impl Cbor for ColumnTable {
     fn to_cbor_bytes(&self) -> Vec<u8> {
 
         let mut bytes = Vec::new();
-        bytes.extend_from_slice(&self.metadata.to_cbor_bytes());
         bytes.extend_from_slice(&self.name.to_cbor_bytes());
         bytes.extend_from_slice(&self.header.to_cbor_bytes());
         bytes.extend_from_slice(&self.columns.to_cbor_bytes());
@@ -559,8 +557,6 @@ impl Cbor for ColumnTable {
 
         let mut i = 0;
         
-        let (metadata, bytes_read) = <Metadata as Cbor>::from_cbor_bytes(&bytes[i..])?;
-        i += bytes_read;
         let (name, bytes_read) = <KeyString as Cbor>::from_cbor_bytes(&bytes[i..])?;
         i += bytes_read;
         let (header, bytes_read) = <BTreeSet<HeaderItem> as Cbor>::from_cbor_bytes(&bytes[i..])?;
@@ -569,7 +565,7 @@ impl Cbor for ColumnTable {
         i += bytes_read;
         Ok(
             (
-                Self { metadata, name, header, columns  },
+                Self { name, header, columns  },
                 i
             )
         )
@@ -624,7 +620,6 @@ impl ColumnTable {
     pub fn create_empty(name: &str, created_by: &str) -> ColumnTable {
 
         ColumnTable {
-            metadata: Metadata::new(created_by),
             name: ksf(name),
             header: BTreeSet::new(),
             columns: BTreeMap::new(),
@@ -644,7 +639,6 @@ impl ColumnTable {
         }
 
         ColumnTable {
-            metadata: Metadata::new(created_by),
             name: name,
             header: header.clone(),
             columns,
@@ -847,7 +841,6 @@ impl ColumnTable {
         let header: BTreeSet<HeaderItem> = header.iter().cloned().collect();
 
         let mut output = ColumnTable {
-            metadata: Metadata::new(created_by),
             name: KeyString::from(table_name),
             header: header,
             columns: result,
@@ -1272,7 +1265,6 @@ impl ColumnTable {
         }
 
         ColumnTable {
-            metadata: Metadata::new("QUERY"),
             name: *new_name,
             header: self.header.clone(),
             columns: result_columns,
@@ -1292,7 +1284,6 @@ impl ColumnTable {
         if columns[0].as_str() == "*" || columns[0].as_str() == "*" {
             return Ok(
                 ColumnTable {
-                    metadata: Metadata::new("query"),
                     name: KeyString::from(new_name),
                     header: self.header.clone(),
                     columns: self.columns.clone(),
@@ -1317,7 +1308,6 @@ impl ColumnTable {
 
         Ok(
             ColumnTable {
-                metadata: Metadata::new("query"),
                 name: KeyString::from(new_name),
                 header: new_table_header,
                 columns: new_table_inner,
@@ -1420,7 +1410,6 @@ impl ColumnTable {
         }
 
         let mut temp_table = ColumnTable {
-            metadata: Metadata::new("none"),
             name: KeyString::from("none"),
             header: target.header.clone(),
             columns: BTreeMap::new(),
@@ -1542,7 +1531,6 @@ impl ColumnTable {
         ColumnTable {
             name: KeyString::from("subtable"),
             header: self.header.clone(),
-            metadata: self.metadata.clone(),
             columns: subtable,
         }
 
@@ -2110,19 +2098,9 @@ impl ColumnTable {
 
         println!("HEADER: {:?}", header);
 
-        let metadata_slice = &binary[144+header_len*8 + header_len*64..144+header_len*8 + header_len*64 + 80];
-
-        let metadata_created_by = KeyString::try_from(&metadata_slice[0..64])?;
-        let metadata_last_access = u64_from_le_slice(&metadata_slice[64..72]);
-        let metadata_times_accessed = u64_from_le_slice(&metadata_slice[72..80]);
-        
-        let mut metadata = Metadata::new(metadata_created_by.as_str());
-        metadata.last_access = AtomicU64::new(metadata_last_access);
-        metadata.times_accessed = AtomicU64::new(metadata_times_accessed);
-
         let mut columns = BTreeMap::new();
 
-        let mut pointer = 144+header_len*8 + header_len*64 + 80;
+        let mut pointer = 144+header_len*8 + header_len*64;
         for item in &header {
             match item.kind {
                 DbType::Int => {
@@ -2154,7 +2132,6 @@ impl ColumnTable {
         }
 
         let new_table = ColumnTable {
-            metadata,
             name: table_name,
             header,
             columns,
@@ -2196,11 +2173,6 @@ pub fn write_column_table_binary_header(binary: &mut Vec<u8>, table: &ColumnTabl
     }
     binary.extend_from_slice(&keys_and_kinds);
     binary.extend_from_slice(&names);
-
-    // WRITING METADATA
-    binary.extend_from_slice(table.metadata.created_by.raw());
-    binary.extend_from_slice(&table.metadata.last_access.load(Ordering::Relaxed).to_le_bytes());
-    binary.extend_from_slice(&table.metadata.times_accessed.load(Ordering::Relaxed).to_le_bytes());
     
     128 + table.header.len()+80
 } 

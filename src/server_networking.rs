@@ -7,7 +7,7 @@ use std::str::{self};
 use std::convert::{TryFrom, From};
 
 use ezcbor::cbor::{decode_cbor, Cbor};
-use eznoise::KeyPair;
+use eznoise::{Connection, KeyPair};
 use nix::sys::epoll::{Epoll, EpollCreateFlags, EpollEvent, EpollFlags};
 
 use crate::auth::{check_kv_permission, check_permission, user_has_permission, Permission, User};
@@ -99,6 +99,10 @@ impl Database {
         };
 
         Ok(database)
+    }
+
+    pub fn contains_table(&self, table_name: KeyString) -> bool {
+        self.buffer_pool.tables.read().unwrap().contains_key(&table_name)
     }
 }
 
@@ -251,11 +255,11 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
 
 }
 
-pub fn answer_query(binary: &[u8], user: &str, db_ref: Arc<Database>) -> Result<Vec<u8>, EzError> {
+pub fn answer_query(binary: &[u8], connection: &mut Connection, db_ref: Arc<Database>) -> Result<Vec<u8>, EzError> {
 
     let queries = parse_queries_from_binary(&binary)?;
 
-    check_permission(&queries, user, db_ref.users.clone())?;
+    check_permission(&queries, connection.peer.as_str(), db_ref.users.clone())?;
     let requested_table = match execute_EZQL_queries(queries, db_ref) {
         Ok(res) => match res {
             Some(table) => table.to_binary(),
@@ -267,11 +271,11 @@ pub fn answer_query(binary: &[u8], user: &str, db_ref: Arc<Database>) -> Result<
     Ok(requested_table)
 }
 
-pub fn answer_kv_query(binary: &[u8], user: &str, db_ref: Arc<Database>) -> Result<Vec<u8>, EzError> {
+pub fn answer_kv_query(binary: &[u8], connection: &mut Connection, db_ref: Arc<Database>) -> Result<Vec<u8>, EzError> {
 
     let queries = parse_kv_queries_from_binary(&binary)?;
 
-    check_kv_permission(&queries, user, db_ref.users.clone())?;
+    check_kv_permission(&queries, connection.peer.as_str(), db_ref.users.clone())?;
     let query_results: Vec<Result<Option<crate::db_structure::Value>, EzError>> = execute_kv_queries(queries, db_ref);
 
     let mut binary = kv_query_results_to_binary(&query_results);

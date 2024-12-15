@@ -61,9 +61,9 @@ pub fn initialize_thread_pool(number_of_threads: usize, db_ref: Arc<Database>) -
                         println!("data: {:?}", &data[64..]);
                         let result = match KeyString::try_from(&data[0..64]) {
                             Ok(s) => match s.as_str() {
-                                "QUERY" => answer_query(&data[64..], &job.connection.peer, loop_db_ref),
+                                "QUERY" => answer_query(&data[64..], &mut job.connection, loop_db_ref),
                                 "ADMIN" => perform_administration(&data[64..], loop_db_ref),
-                                "KVQUERY" => answer_kv_query(&data[64..], &job.connection.peer, loop_db_ref),
+                                "KVQUERY" => answer_kv_query(&data[64..], &mut job.connection, loop_db_ref),
                                 action => {
                                     println!("Asked to perform unsupported action: '{}'", action);
 
