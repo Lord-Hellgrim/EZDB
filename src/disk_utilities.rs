@@ -5,8 +5,8 @@ use std::os::unix::fs::MetadataExt;
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, RwLock};
 
-use crate::db_structure::{write_column_table_binary_header, DbColumn, KeyString, Metadata, Value};
-use crate::utilities::{ksf, ErrorTag, EzError};
+use crate::db_structure::{write_column_table_binary_header, DbColumn, Metadata, Value};
+use crate::utilities::{ksf, KeyString, ErrorTag, EzError};
 use crate::db_structure::ColumnTable;
 use crate::PATH_SEP;
 

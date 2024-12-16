@@ -12,14 +12,14 @@ use std::{usize, fmt};
 
 use std::arch::x86_64;
 
-use ezcbor::cbor::CborError;
+use ezcbor::cbor::{byteslice_from_cbor, byteslice_to_cbor, Cbor, CborError};
 use eznoise::CipherState;
 use fnv::FnvHashMap;
 use aes_gcm::aead;
 use sha2::{Sha256, Digest};
 
 use crate::auth::AuthenticationError;
-use crate::db_structure::{KeyString, Metadata, Value};
+use crate::db_structure::Value;
 use crate::server_networking::Database;
 
 
@@ -232,6 +232,167 @@ impl From<eznoise::NoiseError> for EzError {
     }
 }
 
+
+#[derive(Clone, Copy, Hash, PartialEq)]
+pub struct KeyString {
+    inner: [u8;64],
+}
+
+
+impl fmt::Debug for KeyString {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        
+        f.debug_struct("KeyString").field("inner", &self.as_str()).finish()
+    }
+}
+
+impl fmt::Display for KeyString {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let text = std::str::from_utf8(&self.inner).expect(&format!("A KeyString should always be valid utf8.\nThe KeyString that was just attempted to Display was:\n{:x?}", self.inner));
+        write!(f, "{}", text)
+    }   
+}
+
+impl Default for KeyString {
+    fn default() -> Self {
+        Self { inner: [0;64] }
+    }
+}
+
+/// Turns a &str into a KeyString. If the &str has more than 64 bytes, the last bytes will be cut.
+impl From<&str> for KeyString {
+    fn from(s: &str) -> Self {
+
+        let mut inner = [0u8;64];
+
+        let mut min = std::cmp::min(s.len(), 64);
+        inner[0..min].copy_from_slice(&s.as_bytes()[0..min]);
+
+        loop {
+            if min == 0 {break}
+            match std::str::from_utf8(&inner[0..min]) {
+                Ok(_) => break,
+                Err(_) => min -= 1,
+            }
+        }
+
+        KeyString {
+            inner
+        }
+    }
+}
+
+impl TryFrom<&[u8]> for KeyString {
+    type Error = EzError;
+
+    fn try_from(s: &[u8]) -> Result<Self, Self::Error> {
+        let mut inner = [0u8;64];
+
+        let min = std::cmp::min(s.len(), 64);
+        inner[0..min].copy_from_slice(&s[0..min]);
+
+        match std::str::from_utf8(&inner) {
+            Ok(_) => {
+                Ok(KeyString {inner})
+            },
+            Err(e) => Err(EzError{tag: ErrorTag::Utf8, text: e.to_string()})
+        }
+    }
+}
+
+impl Eq for KeyString {}
+
+impl Ord for KeyString {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.as_str().cmp(other.as_str())
+    }
+}
+
+impl PartialOrd for KeyString {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.as_str().cmp(other.as_str()))
+    }
+}
+
+impl Cbor for KeyString {
+    fn to_cbor_bytes(&self) -> Vec<u8> {
+        byteslice_to_cbor(self.as_bytes())
+    }
+
+    fn from_cbor_bytes(bytes: &[u8]) -> Result<(Self, usize), ezcbor::cbor::CborError>
+        where 
+            Self: Sized 
+    {
+        let (bytes, bytes_read) = byteslice_from_cbor(bytes)?;
+        let text = match String::from_utf8(bytes) {
+            Ok(t) => t,
+            Err(_) => return Err(CborError::Unexpected(format!("Error originated in KeyString implementation")))
+        };
+        Ok((KeyString::from(text.as_str()), bytes_read))
+    }
+}
+
+impl KeyString {
+
+    pub fn new() -> Self {
+        KeyString {
+            inner: [0u8; 64]
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        let mut output = 0;
+        for byte in self.inner {
+            match byte {
+                0 => break,
+                _ => output += 1,
+            }
+        }
+        output
+    }
+
+    pub fn push(&mut self, s: &str) -> usize {
+
+        let start = self.as_str().len();
+        let len = std::cmp::min(s.len(), 64-start);
+
+        self.inner[start..start+len].copy_from_slice(&s.as_bytes()[0..len]);
+
+        len
+    }
+
+    pub fn as_str(&self) -> &str {
+        // This is safe since an enforced invariant of KeyString is that it is utf8
+        unsafe { std::str::from_utf8_unchecked(&self.inner[0..self.len()]) }
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.inner[0..self.len()]
+    }
+
+    pub fn raw(&self) -> &[u8] {
+        &self.inner
+    }
+
+    /// These functions may panic and should only be called if you are certain that the KeyString contains a valid number
+    pub fn to_i32(&self) -> i32 {
+        self.as_str().parse::<i32>().unwrap()
+    }
+
+    /// These functions may panic and should only be called if you are certain that the KeyString contains a valid number
+    pub fn to_f32(&self) -> f32 {
+        self.as_str().parse::<f32>().unwrap()
+    }
+
+    pub fn to_i32_checked(&self) -> Result<i32, ParseIntError> {
+        self.as_str().parse::<i32>()
+    }
+
+    pub fn to_f32_checked(&self) -> Result<f32, ParseFloatError> {
+        self.as_str().parse::<f32>()
+    }
+
+}
 
 
 

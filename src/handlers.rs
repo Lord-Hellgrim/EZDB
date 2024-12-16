@@ -4,10 +4,9 @@ use std::{collections::BTreeMap, sync::{Arc, RwLock}};
 use ezcbor::cbor::decode_cbor;
 use eznoise::Connection;
 
-use crate::{auth::{check_permission, User}, utilities::ErrorTag}; 
-use crate::db_structure::KeyString;
+use crate::{auth::{check_permission, User}, utilities::ErrorTag};
 use crate::ezql::{execute_EZQL_queries, parse_serial_query}; 
-use crate::utilities::EzError;
+use crate::utilities::{EzError, KeyString};
 use crate::server_networking::Database;
 
 #[allow(unused)]

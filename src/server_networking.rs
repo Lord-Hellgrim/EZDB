@@ -15,8 +15,8 @@ use crate::disk_utilities::{BufferPool, MAX_BUFFERPOOL_SIZE};
 use crate::ezql::{execute_EZQL_queries, execute_kv_queries, parse_kv_queries_from_binary, parse_queries_from_binary};
 use crate::logging::Logger;
 use crate::thread_pool::{initialize_thread_pool, Job};
-use crate::utilities::{authenticate_client, ksf, kv_query_results_to_binary, read_known_length, u64_from_le_slice, ErrorTag, EzError, Instruction};
-use crate::db_structure::{KeyString, Value};
+use crate::utilities::{authenticate_client, KeyString, ksf, kv_query_results_to_binary, read_known_length, u64_from_le_slice, ErrorTag, EzError, Instruction};
+use crate::db_structure::Value;
 use crate::PATH_SEP;
 
 pub const INSTRUCTION_LENGTH: usize = 284;
