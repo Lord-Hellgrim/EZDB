@@ -1,8 +1,6 @@
 use std::{collections::{BTreeSet, HashMap, HashSet}, fmt::Display, str::FromStr, sync::Arc};
 
-use nix::libc::IN_CREATE;
-
-use crate::{db_structure::{remove_indices, table_from_inserts, ColumnTable, DbColumn, Metadata, Value}, server_networking::Database, utilities::{ksf, mean_f32_slice, mean_i32_slice, median_f32_slice, median_i32_slice, mode_i32_slice, mode_string_slice, print_sep_list, stdev_f32_slice, stdev_i32_slice, sum_f32_slice, sum_i32_slice, u64_from_le_slice, usize_from_le_slice, ErrorTag, EzError, KeyString}};
+use crate::{db_structure::{remove_indices, table_from_inserts, ColumnTable, DbColumn, DbValue, Metadata, Value}, server_networking::Database, utilities::{i32_from_le_slice, ksf, mean_f32_slice, mean_i32_slice, median_f32_slice, median_i32_slice, mode_i32_slice, mode_string_slice, print_sep_list, stdev_f32_slice, stdev_i32_slice, sum_f32_slice, sum_i32_slice, u64_from_le_slice, usize_from_le_slice, ErrorTag, EzError, KeyString}};
 
 use crate::PATH_SEP;
 
@@ -575,11 +573,11 @@ pub fn queries_to_binary(queries: &[Query]) -> Vec<u8> {
     binary
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub struct Update {
     pub attribute: KeyString,
     pub operator: UpdateOp,
-    pub value: KeyString,
+    pub value: DbValue,
 }
 
 impl Display for Update {
@@ -594,7 +592,7 @@ impl Display for Update {
             UpdateOp::Append => "append",
             UpdateOp::Prepend => "prepend",
         };
-        write!(f, "({} {} {})", self.attribute.as_str(), op, self.value.as_str())
+        write!(f, "({} {} {})", self.attribute.as_str(), op, self.value.to_string())
     }
 }
 
@@ -613,7 +611,7 @@ impl FromStr for Update {
             output = Update {
                 attribute: KeyString::from(t.next().unwrap()),
                 operator: UpdateOp::from_str(t.next().unwrap())?,
-                value: KeyString::from(t.next().unwrap()),
+                value: DbValue::Text(KeyString::from(t.next().unwrap())),
             };
         } else {
             let mut acc = Vec::new();
@@ -645,7 +643,7 @@ impl FromStr for Update {
                 output = Update {
                     attribute: KeyString::from(acc[0].as_str()),
                     operator: UpdateOp::from_str(acc[1].as_str())?,
-                    value: KeyString::from(acc[2].as_str()),
+                    value: DbValue::Text(KeyString::from(acc[2].as_str())),
                 };
             } else {
                 return Err(EzError{tag: ErrorTag::Query, text: format!("Update: '{}' could not be parsed from string", ksf(s))})
@@ -664,7 +662,7 @@ impl Update {
         Update {
             attribute: KeyString::new(),
             operator: UpdateOp::Assign,
-            value: KeyString::new(),
+            value: DbValue::Text(KeyString::new()),
         }
     }
 
@@ -672,15 +670,45 @@ impl Update {
         let mut binary = Vec::new();
         binary.extend_from_slice(self.attribute.raw());
         binary.extend_from_slice(self.operator.to_keystring().raw());
-        binary.extend_from_slice(self.value.raw());
+        match &self.value {
+            DbValue::Int(x) => {
+                binary.extend_from_slice(&(b'i' as usize).to_le_bytes());
+                binary.extend_from_slice(ksf(&x.to_string()).raw());
+            }
+            DbValue::Float(x) => {
+                binary.extend_from_slice(&(b'f' as usize).to_le_bytes());
+                binary.extend_from_slice(ksf(&x.to_string()).raw());
+            }
+            DbValue::Text(x) => {
+                binary.extend_from_slice(&(b't' as usize).to_le_bytes());
+                binary.extend_from_slice(ksf(&x.to_string()).raw());
+            }
+            DbValue::Blob(vec) => {
+                binary.extend_from_slice(&(b'B' as usize).to_le_bytes());
+                binary.extend_from_slice(&vec.len().to_le_bytes());
+                binary.extend_from_slice(&vec);
+            },
+        }
         binary
     }
 
     pub fn from_binary(binary: &[u8]) -> Result<Update, EzError> {
+        if binary.len() < 128+8+64 {
+            return Err(EzError { tag: ErrorTag::Deserialization, text: format!("Update binaries are at least 200 bytes") })
+        }
         let attribute = KeyString::try_from(&binary[0..64])?;
         let operator = UpdateOp::from_binary(&binary[64..128])?;
-        let value = KeyString::try_from(&binary[128..192])?;
-        Ok(Update{ attribute, operator, value })
+        let kind = u64_from_le_slice(&binary[128..128+8]) as u8 as char;
+        match kind {
+            'i' => Ok(Update { attribute, operator, value: DbValue::Int(KeyString::try_from(&binary[128+8..128+8+64])?.to_i32_checked()?)}),
+            'f' => Ok(Update { attribute, operator, value: DbValue::Float(KeyString::try_from(&binary[128+8..128+8+64])?.to_f32_checked()?)}),
+            't' => Ok(Update { attribute, operator, value: DbValue::Text(KeyString::try_from(&binary[128+8..128+8+64])?)}),
+            'B' => {
+                let len = u64_from_le_slice(&binary[128+8..128+16]) as usize;
+                Ok(Update { attribute, operator, value: DbValue::Blob(binary[128+16..128+16+len].to_vec() )})
+            },
+            x => panic!("DbValue '{}'", x),
+        }
     }
 }
 
@@ -1819,12 +1847,15 @@ pub fn execute_left_join_query(query: Query, left_table: &ColumnTable, right_tab
 
 
 #[inline]
-pub fn update_i32(keepers: &[usize], column: &mut [i32], op: UpdateOp, value: KeyString) -> Result<(), EzError> {
-    let new_value = value.to_i32_checked()?;
+pub fn update_i32(keepers: &[usize], column: &mut [i32], op: UpdateOp, value: &DbValue) -> Result<(), EzError> {
+    let new_value = match value {
+        DbValue::Int(x) => x,
+        _ => return Err(EzError { tag: ErrorTag::Query, text: format!("an int can only be updated by an int") })
+    };
     match op {
         UpdateOp::Assign => {
             for keeper in keepers {
-                column[*keeper] = new_value;
+                column[*keeper] = *new_value;
             }
 
         },
@@ -1854,12 +1885,15 @@ pub fn update_i32(keepers: &[usize], column: &mut [i32], op: UpdateOp, value: Ke
 }
 
 #[inline]
-pub fn update_f32(keepers: &[usize], column: &mut [f32], op: UpdateOp, value: KeyString) -> Result<(), EzError> {
-    let new_value = value.to_f32_checked()?;
+pub fn update_f32(keepers: &[usize], column: &mut [f32], op: UpdateOp, value: &DbValue) -> Result<(), EzError> {
+    let new_value = match value {
+        DbValue::Float(x) => x,
+        _ => return Err(EzError { tag: ErrorTag::Query, text: format!("a float can only be updated by a float") })
+    };
     match op {
         UpdateOp::Assign => {
             for keeper in keepers {
-                column[*keeper] = new_value;
+                column[*keeper] = *new_value;
             }
 
         },
@@ -1889,12 +1923,34 @@ pub fn update_f32(keepers: &[usize], column: &mut [f32], op: UpdateOp, value: Ke
 }
 
 #[inline]
-pub fn update_keystrings(keepers: &[usize], column: &mut [KeyString], op: UpdateOp, value: KeyString) -> Result<(), EzError> {
-    let new_value = value;
+pub fn update_blobs(keepers: &[usize], column: &mut [Vec<u8>], op: UpdateOp, value: &DbValue) -> Result<(), EzError> {
+    let new_value = match value {
+        DbValue::Blob(x) => x,
+        _ => return Err(EzError { tag: ErrorTag::Query, text: format!("an int can only be updated by an int") })
+    };
     match op {
         UpdateOp::Assign => {
             for keeper in keepers {
-                column[*keeper] = new_value;
+                column[*keeper] = new_value.clone();
+            }
+        },
+        _ => {
+            return Err(EzError{tag: ErrorTag::Query, text: "Only assign operations can be performed on blob data".to_owned()})
+        },
+    }
+    Ok(())
+}
+
+#[inline]
+pub fn update_keystrings(keepers: &[usize], column: &mut [KeyString], op: UpdateOp, value: &DbValue) -> Result<(), EzError> {
+    let new_value = match value {
+        DbValue::Text(x) => x,
+        _ => return Err(EzError { tag: ErrorTag::Query, text: format!("an int can only be updated by an int") })
+    };
+    match op {
+        UpdateOp::Assign => {
+            for keeper in keepers {
+                column[*keeper] = *new_value;
             }
         },
         UpdateOp::PlusEquals => return Err(EzError{tag: ErrorTag::Query, text: "Can't do math on text".to_owned()}),
@@ -1931,9 +1987,10 @@ pub fn execute_update_query(query: Query, table: &mut ColumnTable) -> Result<Opt
                 };
 
                 match active_column {
-                    DbColumn::Ints(vec) => update_i32(&keepers, vec.as_mut_slice(), update.operator, update.value)?,
-                    DbColumn::Texts(vec) => update_keystrings(&keepers, vec.as_mut_slice(), update.operator, update.value)?,
-                    DbColumn::Floats(vec) => update_f32(&keepers, vec.as_mut_slice(), update.operator, update.value)?,
+                    DbColumn::Ints(vec) => update_i32(&keepers, vec.as_mut_slice(), update.operator, &update.value)?,
+                    DbColumn::Texts(vec) => update_keystrings(&keepers, vec.as_mut_slice(), update.operator, &update.value)?,
+                    DbColumn::Floats(vec) => update_f32(&keepers, vec.as_mut_slice(), update.operator, &update.value)?,
+                    DbColumn::Blobs(vec) => update_blobs(&keepers, vec.as_mut_slice(), update.operator, &update.value)?,
                 }
 
             }
@@ -2042,6 +2099,19 @@ pub fn execute_summary_query(query: &Query, table: &ColumnTable) -> Result<Optio
                         }
                         result.add_column(stat.column, DbColumn::Floats(temp))?;
                     },
+                    DbColumn::Blobs(vec) => {
+                        let mut temp = [ksf(""); 5].to_vec();
+                        for action in &stat.actions {
+                            match action {
+                                StatOp::SUM => temp[0] = ksf("can't sum blobs"),
+                                StatOp::MEAN => temp[1] = ksf("can't mean blobs"),
+                                StatOp::MEDIAN => temp[2] = ksf("can't median blobs"),
+                                StatOp::MODE => temp[3] = ksf("can't mode blobs"),
+                                StatOp::STDEV => temp[4] = ksf("can't stdev blobs"),
+                            }
+                        }
+                        result.add_column(stat.column, DbColumn::Texts(temp))?;
+                    },
                 }
             }
 
@@ -2114,9 +2184,8 @@ pub fn keys_to_indexes(table: &ColumnTable, keys: &RangeOrListOrAll) -> Result<V
                     };
                     indexes = (first..last).collect();
                 },
-                DbColumn::Floats(_n) => {
-                    unreachable!("There should never be a float primary key")
-                },
+                DbColumn::Floats(_n) => unreachable!("There should never be a float primary key"),
+                DbColumn::Blobs(_n) => unreachable!("There should never be a blob primary key"),
             }
         },
         RangeOrListOrAll::List(ref keys) => {
@@ -2135,9 +2204,6 @@ pub fn keys_to_indexes(table: &ColumnTable, keys: &RangeOrListOrAll) -> Result<V
                         }
                     }
                 },
-                DbColumn::Floats(_) => {
-                    unreachable!("There should never be a float primary key")
-                },
                 DbColumn::Texts(column) => {
                     if keys.len() > column.len() {
                         return Err(EzError{tag: ErrorTag::Query, text: "There are more keys requested than there are indexes to get".to_owned()})
@@ -2152,6 +2218,8 @@ pub fn keys_to_indexes(table: &ColumnTable, keys: &RangeOrListOrAll) -> Result<V
                         }
                     }
                 },
+                DbColumn::Floats(_) => unreachable!("There should never be a float primary key"),
+                DbColumn::Blobs(_) => unreachable!("There should never be a blob primary key"),
             }
         },
         RangeOrListOrAll::All => indexes = (0..table.len()).collect(),
@@ -2187,6 +2255,7 @@ pub fn filter_keepers(conditions: &Vec<OpOrCond>, primary_keys: &RangeOrListOrAl
                                     DbColumn::Ints(col) => if col[*index] == bar.to_i32() {keepers.push(*index)},
                                     DbColumn::Floats(col) => if col[*index] == bar.to_f32() {keepers.push(*index)},
                                     DbColumn::Texts(col) => if col[*index] == *bar {keepers.push(*index)},
+                                    DbColumn::Blobs(col) => if col[*index] == *bar {keepers.push(*index)},
                                 }
                             },
                             Test::NotEquals(bar) => {
