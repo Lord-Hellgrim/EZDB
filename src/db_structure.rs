@@ -121,13 +121,44 @@ impl DbValue {
             }
             DbValue::Text(key_string) => {
                 binary.push(b't');
+                binary.extend_from_slice(&[0u8;7]);
+                binary.extend_from_slice(key_string.raw());
             }
             DbValue::Blob(vec) => {
                 binary.push(b'B');
+                binary.extend_from_slice(&vec.len().to_le_bytes()[1..]);
+                binary.extend_from_slice(vec);
             }
         };
 
         binary
+    }
+
+    pub fn from_binary(binary: &[u8]) -> Result<DbValue, EzError> {
+
+        if binary.len() < 8 {
+            return Err(EzError { tag: ErrorTag::Deserialization, text: format!("cannot deserialize a DbValue from less than 8 bytes. Was passed: '{}' bytes", binary.len()) })
+        }
+
+        match binary[0] {
+            b'i' => {
+                let i = i32_from_le_slice(&binary[4..8]);
+                Ok(DbValue::Int(i))
+            }
+            b'f' => {
+                let f = f32_from_le_slice(&binary[4..8]);
+                Ok(DbValue::Float(f))
+            }
+            b't' => {
+                let ks = KeyString::try_from(&binary[8..72])?;
+                Ok(DbValue::Text(ks))
+            }
+            b'B' => {
+                let len = u64_from_le_slice(&[0,binary[1], binary[2], binary[3], binary[4], binary[5], binary[6], binary[7]]) as usize;
+                Ok(DbValue::Blob(binary[8..8+len].to_vec()))
+            }
+            other => return Err(EzError { tag: ErrorTag::Deserialization, text: format!("Unsupported data type: '{}'", other) })
+        }
     }
 }
 

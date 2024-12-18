@@ -879,7 +879,7 @@ impl RangeOrListOrAll {
 }
 
 /// Represents the condition a item must pass to be included in the result
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub struct Condition {
     pub attribute: KeyString,
     pub test: Test,
@@ -895,18 +895,8 @@ impl Display for Condition {
 
 impl Condition {
 
-    pub fn new(attribute: &str, test: &str, bar: &str) -> Result<Self, EzError> {
+    pub fn new(attribute: &str, test: Test) -> Result<Self, EzError> {
         // println!("calling: Condition::new()");
-
-        let test = match test {
-            "equals" => Test::Equals(KeyString::from(bar)),
-            "less_than" => Test::Less(KeyString::from(bar)),
-            "greater_than" => Test::Greater(KeyString::from(bar)),
-            "starts_with" => Test::Starts(KeyString::from(bar)),
-            "ends_with" => Test::Ends(KeyString::from(bar)),
-            "contains" => Test::Contains(KeyString::from(bar)),
-            _ => return Err(EzError{tag: ErrorTag::Query, text: format!("Test type '{}' is not supported", test)})
-        };
 
         Ok(Condition {
             attribute: KeyString::from(attribute),
@@ -914,53 +904,6 @@ impl Condition {
         })
     }
 
-    fn from_str(s: &str) -> Result<Self, EzError> {
-        // println!("calling: Condition::from_str()");
-
-        let output: Condition;
-        let mut t = s.split_whitespace();
-        if s.split_whitespace().count() < 3 {
-            return Err(EzError{tag: ErrorTag::Query, text: format!("Condition type '{}' is invalid", ksf(s))})
-        }
-        if s.split_whitespace().count() == 3 {
-            output = Condition {
-                attribute: KeyString::from(t.next().unwrap()),
-                test: Test::new(t.next().unwrap(), t.next().unwrap()),
-            };
-        } else {
-            let mut acc = Vec::new();
-            let mut buf = String::new();
-            let mut inside = false;
-            for c in s.chars() {
-                // println!("buf: {}", buf);
-                if c.is_whitespace() {
-                    if inside {
-                        buf.push(c);
-                        continue;
-                    } else {
-                        acc.push(buf.clone());
-                        buf.clear();
-                        // println!("acc: {:?}", acc);
-                        continue;
-                    }
-                } else if c == '"' {
-                    inside ^= true;
-                    continue;
-                } else {
-                    buf.push(c);
-                }
-            }
-            acc.push(buf);
-
-            if acc.len() == 3 {
-                output = Condition::new(&acc[0], &acc[1], &acc[2])?;
-            } else {
-                return Err(EzError{tag: ErrorTag::Query, text: format!("Condition: '{}' is incorreclty formatted", s)})
-            }
-        }
-
-        Ok(output)
-    }
 
     pub fn from_binary(binary: &[u8]) -> Result<Self, EzError> {
         let attribute = KeyString::try_from(&binary[0..64])?;
@@ -973,7 +916,7 @@ impl Condition {
 
         Condition {
             attribute: KeyString::from(""),
-            test: Test::Equals(KeyString::from("")),
+            test: Test::Equals(DbValue::Blob(Vec::new())),
         }
     }
 }
@@ -995,7 +938,7 @@ impl Operator {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub enum OpOrCond {
     Cond(Condition),
     Op(Operator),
@@ -1042,7 +985,7 @@ impl OpOrCond {
                     return Err(EzError{tag: ErrorTag::Query, text: format!("Cond is at least 128 bytes. Input binary is {}", binary.len())})
                 }
                 let second = KeyString::try_from(&binary[64..128])?;
-                let third = KeyString::try_from(&binary[128..192])?;
+                let third = DbValue::from_binary(&binary[128..])?;
                 match second.as_str() {
                     "Equals" => Ok(OpOrCond::Cond(Condition {attribute: first, test: Test::Equals(third)})),
                     "NotEquals" => Ok(OpOrCond::Cond(Condition {attribute: first, test: Test::NotEquals(third)})),
@@ -1135,33 +1078,33 @@ impl Test {
     pub fn to_binary(&self) -> Vec<u8> {
         let mut binary = Vec::new();
         match self {
-            Test::Equals(key_string) => {
+            Test::Equals(val) => {
                 binary.extend_from_slice(KeyString::from("Equals").raw());
-                binary.extend_from_slice(key_string.raw());
+                binary.extend_from_slice(&val.to_binary());
             },
-            Test::NotEquals(key_string) => {
+            Test::NotEquals(val) => {
                 binary.extend_from_slice(KeyString::from("NotEquals").raw());
-                binary.extend_from_slice(key_string.raw());    
+                binary.extend_from_slice(&val.to_binary());    
             },
-            Test::Less(key_string) => {
+            Test::Less(val) => {
                 binary.extend_from_slice(KeyString::from("Less").raw());
-                binary.extend_from_slice(key_string.raw());    
+                binary.extend_from_slice(&val.to_binary());    
             },
-            Test::Greater(key_string) => {
+            Test::Greater(val) => {
                 binary.extend_from_slice(KeyString::from("Greater").raw());
-                binary.extend_from_slice(key_string.raw());    
+                binary.extend_from_slice(&val.to_binary());    
             },
-            Test::Starts(key_string) => {
+            Test::Starts(val) => {
                 binary.extend_from_slice(KeyString::from("Starts").raw());
-                binary.extend_from_slice(key_string.raw());    
+                binary.extend_from_slice(&val.to_binary());    
             },
-            Test::Ends(key_string) => {
+            Test::Ends(val) => {
                 binary.extend_from_slice(KeyString::from("Ends").raw());
-                binary.extend_from_slice(key_string.raw());    
+                binary.extend_from_slice(&val.to_binary());    
             },
-            Test::Contains(key_string) => {
+            Test::Contains(val) => {
                 binary.extend_from_slice(KeyString::from("Contains").raw());
-                binary.extend_from_slice(key_string.raw());    
+                binary.extend_from_slice(&val.to_binary());    
             },
         }
         binary
