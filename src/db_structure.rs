@@ -105,6 +105,12 @@ impl Display for DbValue {
     }
 }
 
+impl DbValue {
+    pub fn to_binary(&self) -> {
+        
+    }
+}
+
 /// Identifies a type of a DbVec
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum DbType {

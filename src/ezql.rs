@@ -1088,15 +1088,15 @@ pub fn conditions_from_binary(binary: &[u8]) -> Result<Vec<OpOrCond>, EzError> {
 }
 
 /// Represents the currenlty implemented tests
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub enum Test {
-    Equals(KeyString),
-    NotEquals(KeyString),
-    Less(KeyString),
-    Greater(KeyString),
-    Starts(KeyString),
-    Ends(KeyString),
-    Contains(KeyString),
+    Equals(DbValue),
+    NotEquals(DbValue),
+    Less(DbValue),
+    Greater(DbValue),
+    Starts(DbValue),
+    Ends(DbValue),
+    Contains(DbValue),
     //Closure,   could you imagine?
 }
 
@@ -1117,17 +1117,17 @@ impl Display for Test {
 }
 
 impl Test {
-    pub fn new(input: &str, bar: &str) -> Self {
+    pub fn new(input: &str, bar: DbValue) -> Self {
         // println!("calling: Test::new()");
 
         match input.to_lowercase().as_str() {
-            "Equals" | "equals"  => Test::Equals(KeyString::from(bar)),
-            "NotEquals" | "not_equals" => Test::NotEquals(KeyString::from(bar)),
-            "Less" | "less_than" => Test::Less(KeyString::from(bar)),
-            "Greater" | "greater_than" => Test::Greater(KeyString::from(bar)),
-            "Starts" | "starts_with" => Test::Starts(KeyString::from(bar)),
-            "Ends" | "ends_with" => Test::Ends(KeyString::from(bar)),
-            "Contains" | "contains"=> Test::Contains(KeyString::from(bar)),
+            "Equals" | "equals"  => Test::Equals(bar),
+            "NotEquals" | "not_equals" => Test::NotEquals(bar),
+            "Less" | "less_than" => Test::Less(bar),
+            "Greater" | "greater_than" => Test::Greater(bar),
+            "Starts" | "starts_with" => Test::Starts(bar),
+            "Ends" | "ends_with" => Test::Ends(bar),
+            "Contains" | "contains"=> Test::Contains(bar),
             _ => todo!(),
         }
     }
