@@ -35,7 +35,6 @@ string_from_keystring :: proc(ks: KeyString, allocator := context.temp_allocator
 EzTable :: struct {
     name: KeyString,
     columns: map[KeyString]DbColumn,
-    metadata: Metadata,
 }
 
 DbColumn :: union {

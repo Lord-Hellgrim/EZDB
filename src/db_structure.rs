@@ -106,8 +106,28 @@ impl Display for DbValue {
 }
 
 impl DbValue {
-    pub fn to_binary(&self) -> {
-        
+    pub fn to_binary(&self) -> Vec<u8> {
+        let mut binary = Vec::new();
+        match self {
+            DbValue::Int(i) => {
+                binary.push(b'i');
+                binary.extend_from_slice(&[0,0,0]);
+                binary.extend_from_slice(&i.to_le_bytes());
+            }
+            DbValue::Float(i) => {
+                binary.push(b'f');
+                binary.extend_from_slice(&[0,0,0]);
+                binary.extend_from_slice(&i.to_le_bytes());
+            }
+            DbValue::Text(key_string) => {
+                binary.push(b't');
+            }
+            DbValue::Blob(vec) => {
+                binary.push(b'B');
+            }
+        };
+
+        binary
     }
 }
 
