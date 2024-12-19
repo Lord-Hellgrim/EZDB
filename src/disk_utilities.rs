@@ -180,76 +180,11 @@ impl BufferPool {
 }
 
 
-pub fn write_table_in_pages(mut dst: impl Write, table: &ColumnTable) -> Result<(), EzError> {
-    
-    let mut header = Vec::new();
-    write_column_table_binary_header(&mut header, table);
-
-    for page in header.chunks(4096) {
-        dst.write_all(page)?;
-    }
-
-    let mut buf = [0u8;4096]; 
-    for column in table.columns.values() {
-        match &column {
-            DbColumn::Floats(col) => {
-                
-                for chunk in col.chunks(1024) {
-                    buf = [0u8;4096];
-
-                    for i in 0..chunk.len() {
-                        buf[4*i..4*i+4].copy_from_slice(&chunk[i].to_le_bytes());
-                    }
-                    dst.write_all(&buf)?;
-                }
-
-            }
-            &DbColumn::Ints(col) => {
-                for chunk in col.chunks(64) {
-                    buf = [0u8;4096];
-
-                    for i in 0..chunk.len() {
-                        buf[4*i..4*i+4].copy_from_slice(&chunk[i].to_le_bytes());
-                    }
-                    dst.write_all(&buf)?;
-
-                }
-            }
-            DbColumn::Texts(col) => {
-                for chunk in col.chunks(64) {
-                    for i in 0..chunk.len() {
-                        buf[64*i..64*i+64].copy_from_slice(&chunk[i].raw());
-                    }
-                    dst.write_all(&buf)?;
-
-                }
-            }
-        };
-    }
-    
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     #![allow(unused)]
 
     use super::*;
 
-    #[test]
-    fn test_paged_write() {
-        // let input = "vnr,i-P;heiti,t;magn,i\n113035;undirlegg;200\n113050;annad undirlegg;500";
-        let input = std::fs::read_to_string(format!(
-            "test_files{PATH_SEP}good_csv.txt"
-        ))
-        .unwrap();
-        let t = ColumnTable::from_csv_string(&input, "test", "test").unwrap();
-        let bin_t = t.to_binary();
-        let mut page_t = Vec::new();
-        write_table_in_pages(&mut page_t, &t).unwrap();
-        let trans_t = ColumnTable::from_binary(Some("test"), &bin_t).unwrap();
-        assert_eq!(page_t, bin_t);
-        assert_eq!(t, trans_t);
-    }
 
 }

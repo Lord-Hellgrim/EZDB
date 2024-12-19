@@ -5,41 +5,12 @@ use ezcbor::cbor::decode_cbor;
 use eznoise::Connection;
 
 use crate::{auth::{check_permission, User}, utilities::ErrorTag};
-use crate::ezql::{execute_EZQL_queries, parse_serial_query}; 
+use crate::ezql::{execute_EZQL_queries}; 
 use crate::utilities::{EzError, KeyString};
 use crate::server_networking::Database;
 
 #[allow(unused)]
 use crate::PATH_SEP;
-
-
-pub fn handle_query_request(
-    connection: &mut Connection,
-    database: Arc<Database>,
-    user: &str,
-) -> Result<(), EzError> {
-    // PARSE INSTRUCTION
-    println!("calling: handle_query_request()");
-    
-    let query = connection.RECEIVE_C1()?;
-    let query = str::from_utf8(&query)?;
-    let queries = parse_serial_query(query)?;
-
-    check_permission(&queries, user, database.users.clone())?;
-    let requested_table = match execute_EZQL_queries(queries, database) {
-        Ok(res) => match res {
-            Some(table) => table.to_binary(),
-            None => "None.".as_bytes().to_vec(),
-        },
-        Err(e) => format!("ERROR -> Could not process query because of error: '{}'", e.to_string()).as_bytes().to_vec(),
-    };
-
-    match connection.SEND_C2(&requested_table) {
-        Ok(_) => Ok(()),
-        Err(e) => Err(e.into()),
-    }
-}
-
 
 
 /// Handles the request for the list of tables.

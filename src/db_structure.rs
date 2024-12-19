@@ -106,6 +106,35 @@ impl Display for DbValue {
 }
 
 impl DbValue {
+
+    pub fn to_i32(&self) -> i32 {
+        match self {
+            DbValue::Int(i) => *i,
+            x => panic!("A call to DbValue.to_i32() failed. Actual value: '{}'", x)
+        }
+    }
+
+    pub fn to_f32(&self) -> f32 {
+        match self {
+            DbValue::Float(f) => *f,
+            x => panic!("A call to DbValue.to_f32() failed. Actual value: '{}'", x)
+        }
+    }
+
+    pub fn to_keystring(&self) -> KeyString {
+        match self {
+            DbValue::Text(t) => *t,
+            x => panic!("A call to DbValue.to_keystring() failed. Actual value: '{}'", x)
+        }
+    }
+
+    pub fn to_blob(&self) -> &[u8] {
+        match self {
+            DbValue::Blob(blob) => blob,
+            x => panic!("A call to DbValue.to_blob() failed. Actual value: '{}'", x)
+        }
+    }
+
     pub fn to_binary(&self) -> Vec<u8> {
         let mut binary = Vec::new();
         match self {

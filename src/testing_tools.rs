@@ -2,7 +2,7 @@ use std::{collections::{BTreeMap, BTreeSet}, sync::atomic::AtomicU64};
 
 use rand::{distributions::Standard, prelude::Distribution, Rng};
 
-use crate::{db_structure::{ColumnTable, DbColumn, DbType, HeaderItem, Metadata, TableKey}, ezql::{Condition, KvQuery, OpOrCond, Operator, Query, RangeOrListOrAll, StatOp, Statistic, Test, Update, UpdateOp}, utilities::{get_current_time, ksf, ErrorTag, EzError, KeyString}};
+use crate::{db_structure::{ColumnTable, DbColumn, DbType, DbValue, HeaderItem, Metadata, TableKey}, ezql::{Condition, KvQuery, OpOrCond, Operator, Query, RangeOrListOrAll, StatOp, Statistic, Test, Update, UpdateOp}, utilities::{get_current_time, ksf, ErrorTag, EzError, KeyString}};
 
 
 fn random_vec<T>(max_length: usize) -> Vec<T>  where Standard: Distribution<T> {
@@ -108,6 +108,13 @@ pub fn random_column_table(max_cols: usize, max_rows: usize) -> ColumnTable {
                 }
                 cols.insert(name, DbColumn::Texts(col));
             },
+            DbType::Blob => {
+                let mut col: Vec<Vec<u8>> = Vec::new();
+                for _ in 0..num_rows {
+                    col.push(random_vec(100));
+                }
+                cols.insert(name, DbColumn::Blobs(col));
+            },
         }
     }
 
@@ -137,18 +144,30 @@ fn random_range_or_list_or_all() -> RangeOrListOrAll {
     }
 }
 
+fn random_db_value() -> DbValue {
+    let mut rng = rand::thread_rng();
+
+    match rng.gen_range(0..4) {
+        0 => DbValue::Int(rng.gen()),
+        1 => DbValue::Float(rng.gen()),
+        2 => DbValue::Text(random_keystring()),
+        3 => DbValue::Blob(random_vec(100)),
+        _ => unreachable!("Range is limited"),
+    }
+}
+
 fn random_test() -> Test {
 
     let mut rng = rand::thread_rng();
 
     match rng.gen_range(0..5) {
-        0 => Test::Contains(random_keystring()),
-        1 => Test::Equals(random_keystring()),
-        2 => Test::NotEquals(random_keystring()),
-        3 => Test::Starts(random_keystring()),
-        4 => Test::Ends(random_keystring()),
-        5 => Test::Greater(random_keystring()),
-        6 => Test::Less(random_keystring()),
+        0 => Test::Contains(random_db_value()),
+        1 => Test::Equals(random_db_value()),
+        2 => Test::NotEquals(random_db_value()),
+        3 => Test::Starts(random_db_value()),
+        4 => Test::Ends(random_db_value()),
+        5 => Test::Greater(random_db_value()),
+        6 => Test::Less(random_db_value()),
         _ => unreachable!("Range")
     }
     
@@ -179,7 +198,7 @@ fn random_updates(max_length: usize) -> Vec<Update> {
     for _ in 0..rand::thread_rng().gen_range(0..max_length) {
 
         let attribute = random_keystring();
-        let value = random_keystring();
+        let value = random_db_value();
         let operator = match rand::thread_rng().gen_range(0..6) {
             0 => UpdateOp::Append,
             1 => UpdateOp::Assign,

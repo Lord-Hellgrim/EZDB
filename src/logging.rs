@@ -283,7 +283,7 @@ impl Logger {
 
 #[cfg(test)]
 mod tests {
-    use crate::{ezql::{execute_insert_query, parse_ezql}};
+    use crate::{ezql::{execute_insert_query}};
 
     use super::*;
 

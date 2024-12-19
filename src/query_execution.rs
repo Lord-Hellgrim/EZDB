@@ -85,6 +85,7 @@ pub enum DbSlice<'a> {
     Ints(&'a [i32]),
     Texts(&'a [KeyString]),
     Floats(&'a [f32]),
+    Blobs(&'a [Vec<u8>]),
 }
 
 pub fn db_slice_from_column<'a>(column: &'a DbColumn) -> DbSlice<'a> {
@@ -92,6 +93,7 @@ pub fn db_slice_from_column<'a>(column: &'a DbColumn) -> DbSlice<'a> {
         DbColumn::Ints(vec) => DbSlice::Ints(vec.as_slice()),
         DbColumn::Texts(vec) => DbSlice::Texts(vec.as_slice()),
         DbColumn::Floats(vec) => DbSlice::Floats(vec.as_slice()),
+        DbColumn::Blobs(vec) => DbSlice::Blobs(vec),
     }
 }
 
@@ -121,6 +123,7 @@ impl SubTable<'_> {
                 DbSlice::Floats(col) => col.len(),
                 DbSlice::Ints(col) => col.len(),
                 DbSlice::Texts(col) => col.len(),
+                DbSlice::Blobs(col) => col.len(),
             },
             None => 0,
         }
@@ -188,6 +191,9 @@ pub fn keys_to_indexes_subtable(table: &SubTable, keys: &RangeOrListOrAll) -> Re
                 DbSlice::Floats(_n) => {
                     unreachable!("There should never be a float primary key")
                 },
+                DbSlice::Blobs(_n) => {
+                    unreachable!("There should never be a blob primary key")
+                },
             }
         },
         RangeOrListOrAll::List(ref keys) => {
@@ -208,6 +214,9 @@ pub fn keys_to_indexes_subtable(table: &SubTable, keys: &RangeOrListOrAll) -> Re
                 },
                 DbSlice::Floats(_) => {
                     unreachable!("There should never be a float primary key")
+                },
+                DbSlice::Blobs(_) => {
+                    unreachable!("There should never be a blob primary key")
                 },
                 DbSlice::Texts(column) => {
                     if keys.len() > column.len() {
@@ -257,45 +266,49 @@ pub fn filter_keepers_subtable(conditions: &Vec<OpOrCond>, primary_keys: &RangeO
                                 match column {
                                     DbSlice::Ints(col) => if col[*index] == bar.to_i32() {keepers.push(*index)},
                                     DbSlice::Floats(col) => if col[*index] == bar.to_f32() {keepers.push(*index)},
-                                    DbSlice::Texts(col) => if col[*index] == *bar {keepers.push(*index)},
+                                    DbSlice::Texts(col) => if col[*index] == bar.to_keystring() {keepers.push(*index)},
+                                    DbSlice::Blobs(col) => if col[*index] == bar.to_blob() {keepers.push(*index)},
                                 }
                             },
                             Test::NotEquals(bar) => {
                                 match column {
                                     DbSlice::Ints(col) => if col[*index] != bar.to_i32() {keepers.push(*index)},
                                     DbSlice::Floats(col) => if col[*index] != bar.to_f32() {keepers.push(*index)},
-                                    DbSlice::Texts(col) => if col[*index] != *bar {keepers.push(*index)},
+                                    DbSlice::Texts(col) => if col[*index] != bar.to_keystring() {keepers.push(*index)},
+                                    DbSlice::Blobs(col) => if col[*index] != bar.to_blob() {keepers.push(*index)},
                                 }
                             },
                             Test::Less(bar) => {
                                 match column {
                                     DbSlice::Ints(col) => if col[*index] < bar.to_i32() {keepers.push(*index)},
                                     DbSlice::Floats(col) => if col[*index] < bar.to_f32() {keepers.push(*index)},
-                                    DbSlice::Texts(col) => if col[*index] < *bar {keepers.push(*index)},
+                                    DbSlice::Texts(col) => if col[*index] < bar.to_keystring() {keepers.push(*index)},
+                                    DbSlice::Blobs(col) => if col[*index].as_slice() < bar.to_blob() {keepers.push(*index)},
                                 }
                             },
                             Test::Greater(bar) => {
                                 match column {
                                     DbSlice::Ints(col) => if col[*index] > bar.to_i32() {keepers.push(*index)},
                                     DbSlice::Floats(col) => if col[*index] > bar.to_f32() {keepers.push(*index)},
-                                    DbSlice::Texts(col) => if col[*index] > *bar {keepers.push(*index)},
+                                    DbSlice::Texts(col) => if col[*index] > bar.to_keystring() {keepers.push(*index)},
+                                    DbSlice::Blobs(col) => if col[*index].as_slice() > bar.to_blob() {keepers.push(*index)},
                                 }
                             },
                             Test::Starts(bar) => {
                                 match column {
-                                    DbSlice::Texts(col) => if col[*index].as_str().starts_with(bar.as_str()) {keepers.push(*index)},
+                                    DbSlice::Texts(col) => if col[*index].as_str().starts_with(bar.to_keystring().as_str()) {keepers.push(*index)},
                                     _ => return Err(EzError{tag: ErrorTag::Query, text: "Can only filter by 'starts_with' on text values".to_owned()}),
                                 }
                             },
                             Test::Ends(bar) => {
                                 match column {
-                                    DbSlice::Texts(col) => if col[*index].as_str().ends_with(bar.as_str()) {keepers.push(*index)},
+                                    DbSlice::Texts(col) => if col[*index].as_str().ends_with(bar.to_keystring().as_str()) {keepers.push(*index)},
                                     _ => return Err(EzError{tag: ErrorTag::Query, text: "Can only filter by 'ends_with' on text values".to_owned()}),
                                 }
                             },
                             Test::Contains(bar) => {
                                 match column {
-                                    DbSlice::Texts(col) => if col[*index].as_str().contains(bar.as_str()) {keepers.push(*index)},
+                                    DbSlice::Texts(col) => if col[*index].as_str().contains(bar.to_keystring().as_str()) {keepers.push(*index)},
                                     _ => return Err(EzError{tag: ErrorTag::Query, text: "Can only filter by 'contains' on text values".to_owned()}),
                                 }
                             },
@@ -309,45 +322,49 @@ pub fn filter_keepers_subtable(conditions: &Vec<OpOrCond>, primary_keys: &RangeO
                                 match column {
                                     DbSlice::Ints(col) => if col[*keeper] == bar.to_i32() {losers.push(*keeper)},
                                     DbSlice::Floats(col) => if col[*keeper] == bar.to_f32() {losers.push(*keeper)},
-                                    DbSlice::Texts(col) => if col[*keeper] == *bar {losers.push(*keeper)},
+                                    DbSlice::Texts(col) => if col[*keeper] == bar.to_keystring() {losers.push(*keeper)},
+                                    DbSlice::Blobs(col) => if col[*keeper] == bar.to_blob() {losers.push(*keeper)},
                                 }
                             },
                             Test::NotEquals(bar) => {
                                 match column {
                                     DbSlice::Ints(col) => if col[*keeper] != bar.to_i32() {losers.push(*keeper)},
                                     DbSlice::Floats(col) => if col[*keeper] != bar.to_f32() {losers.push(*keeper)},
-                                    DbSlice::Texts(col) => if col[*keeper] != *bar {losers.push(*keeper)},
+                                    DbSlice::Texts(col) => if col[*keeper] != bar.to_keystring() {losers.push(*keeper)},
+                                    DbSlice::Blobs(col) => if col[*keeper] != bar.to_blob() {losers.push(*keeper)},
                                 }
                             },
                             Test::Less(bar) => {
                                 match column {
                                     DbSlice::Ints(col) => if col[*keeper] < bar.to_i32() {losers.push(*keeper)},
                                     DbSlice::Floats(col) => if col[*keeper] < bar.to_f32() {losers.push(*keeper)},
-                                    DbSlice::Texts(col) => if col[*keeper] < *bar {losers.push(*keeper)},
+                                    DbSlice::Texts(col) => if col[*keeper] < bar.to_keystring() {losers.push(*keeper)},
+                                    DbSlice::Blobs(col) => if col[*keeper].as_slice() < bar.to_blob() {losers.push(*keeper)},
                                 }
                             },
                             Test::Greater(bar) => {
                                 match column {
                                     DbSlice::Ints(col) => if col[*keeper] > bar.to_i32() {losers.push(*keeper)},
                                     DbSlice::Floats(col) => if col[*keeper] > bar.to_f32() {losers.push(*keeper)},
-                                    DbSlice::Texts(col) => if col[*keeper] > *bar {losers.push(*keeper)},
+                                    DbSlice::Texts(col) => if col[*keeper] > bar.to_keystring() {losers.push(*keeper)},
+                                    DbSlice::Blobs(col) => if col[*keeper].as_slice() > bar.to_blob() {losers.push(*keeper)},
                                 }
                             },
                             Test::Starts(bar) => {
                                 match column {
-                                    DbSlice::Texts(col) => if col[*keeper].as_str().starts_with(bar.as_str()) {losers.push(*keeper)},
+                                    DbSlice::Texts(col) => if col[*keeper].as_str().starts_with(bar.to_keystring().as_str()) {losers.push(*keeper)},
                                     _ => return Err(EzError{tag: ErrorTag::Query, text: "Can only filter by 'starts_with' on text values".to_owned()}),
                                 }
                             },
                             Test::Ends(bar) => {
                                 match column {
-                                    DbSlice::Texts(col) => if col[*keeper].as_str().ends_with(bar.as_str()) {losers.push(*keeper)},
+                                    DbSlice::Texts(col) => if col[*keeper].as_str().ends_with(bar.to_keystring().as_str()) {losers.push(*keeper)},
                                     _ => return Err(EzError{tag: ErrorTag::Query, text: "Can only filter by 'ends_with' on text values".to_owned()}),
                                 }
                             },
                             Test::Contains(bar) => {
                                 match column {
-                                    DbSlice::Texts(col) => if col[*keeper].as_str().contains(bar.as_str()) {losers.push(*keeper)},
+                                    DbSlice::Texts(col) => if col[*keeper].as_str().contains(bar.to_keystring().as_str()) {losers.push(*keeper)},
                                     _ => return Err(EzError{tag: ErrorTag::Query, text: "Can only filter by 'contains' on text values".to_owned()}),
                                 }
                             },
