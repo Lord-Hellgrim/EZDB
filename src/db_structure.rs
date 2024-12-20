@@ -1130,6 +1130,19 @@ impl ColumnTable {
 
     }
 
+    pub fn get_column_blob<'a>(&'a self, index: &KeyString) -> Result<&'a Vec<Vec<u8>>, EzError> {
+        
+
+        match self.columns.get(index) {
+            Some(dbcol) => match dbcol {
+                DbColumn::Blobs(column) => Ok(column),
+                _ => Err(EzError{tag: ErrorTag::Structure, text: "Wrong column type".to_owned()}),
+            },
+            None => Err(EzError{tag: ErrorTag::Structure, text: format!("No such column as {}", index)})
+        }
+
+    }
+
     pub fn subtable_from_indexes(&self, indexes: &[usize], new_name: &KeyString) -> ColumnTable {
         
         let mut result_columns = BTreeMap::new();
@@ -1221,87 +1234,6 @@ impl ColumnTable {
         )
     }
 
-    // /// Gets a range of items from the table and returns a csv String containing them
-    // pub fn query_range(&self, range: (&str, &str)) -> Result<String, EzError> {
-        
-
-    //     let mut printer = String::new();
-
-    //     if range.1 < range.0 {
-    //         return Err(EzError{tag: ErrorTag::Query, text: "Table is empty".to_owned())})
-    //     }
-
-    //     if range.0 == range.1 {
-    //         return self.query(range.0);
-    //     }
-
-    //     let primary_index = self.get_primary_key_col_index();
-
-    //     let mut indexes: [usize; 2] = [0, 0];
-    //     match &self.columns[&primary_index] {
-    //         DbColumn::Floats(_) => return Err(EzError{tag: ErrorTag::Structure, text: "There should never be a float primary key".to_owned()}),
-    //         DbColumn::Ints(col) => {
-    //             let key = match range.0.parse::<i32>() {
-    //                 Ok(num) => num,
-    //                 Err(_) => return Err(EzError{tag: ErrorTag::Query, text: "Table is empty".to_owned())})
-    //             };
-    //             let index: usize = col.partition_point(|n| n < &key);
-    //             indexes[0] = index;
-
-    //             if range.1.is_empty() {
-    //                 indexes[1] = col.len();
-    //             } else {
-    //                 let key2 = match range.1.parse::<i32>() {
-    //                     Ok(num) => num,
-    //                     Err(_) => return Err(EzError::WrongKey),
-    //                 };
-    //                 // // println!("key2: {}", key2);
-    //                 let index: usize = col.partition_point(|n| n < &key2);
-    //                 if col[index] == key2 {
-    //                     indexes[1] = index;
-    //                 } else {
-    //                     indexes[1] = index - 1;
-    //                 }
-    //             }
-    //         }
-    //         DbColumn::Texts(col) => {
-    //             let index: usize = col.partition_point(|n| n < &KeyString::from(range.0));
-    //             indexes[0] = index;
-
-    //             if range.1.is_empty() {
-    //                 indexes[1] = col.len();
-    //             }
-
-    //             let index: usize = col.partition_point(|n| n < &KeyString::from(range.1));
-
-    //             if col[index] == KeyString::from(range.1) {
-    //                 indexes[1] = index;
-    //             } else {
-    //                 indexes[1] = index - 1;
-    //             }
-
-    //             indexes[1] = index;
-    //         }
-    //     }
-
-    //     let mut i = indexes[0];
-    //     while i <= indexes[1] {
-    //         for v in self.columns.values() {
-    //             match v {
-    //                 DbColumn::Floats(col) => printer.push_str(&col[i].to_string()),
-    //                 DbColumn::Ints(col) => printer.push_str(&col[i].to_string()),
-    //                 DbColumn::Texts(col) => printer.push_str(col[i].as_str()),
-    //             }
-    //             printer.push(';');
-    //         }
-    //         printer.pop();
-    //         printer.push('\n');
-    //         i += 1;
-    //     }
-    //     printer.pop();
-
-    //     Ok(printer)
-    // }
 
     pub fn copy_lines(&self, target: &mut ColumnTable, line_keys: &DbColumn) -> Result<(), EzError> {
         if target.header != self.header {
@@ -1729,8 +1661,36 @@ impl ColumnTable {
             self.columns.insert(name, column);
 
         }
+        Ok(())
+    }
 
+    pub fn extend_from_table(&mut self, source_table: ColumnTable) -> Result<(), EzError> {
 
+        if self.header != source_table.header {
+            return Err(EzError { tag: ErrorTag::Structure, text: format!("Source table header does not match destination table header\n\nSrc:\n{:?}\n\nDst:\n{:?}", source_table.header, self.header) })
+        }
+
+        for item in &self.header {
+            let name = item.name;
+            match self.columns.get_mut(&name).unwrap() {
+                DbColumn::Ints(vec) => {
+                    let src_col = source_table.get_column_int(&name).unwrap();
+                    vec.extend_from_slice(src_col);
+                },
+                DbColumn::Texts(vec) => {
+                    let src_col = source_table.get_column_text(&name).unwrap();
+                    vec.extend_from_slice(src_col);
+                },
+                DbColumn::Floats(vec) => {
+                    let src_col = source_table.get_column_float(&name).unwrap();
+                    vec.extend_from_slice(src_col);
+                },
+                DbColumn::Blobs(vec) => {
+                    let src_col = source_table.get_column_blob(&name).unwrap();
+                    vec.extend_from_slice(src_col);
+                },
+            }
+        }
 
         Ok(())
     }
@@ -1977,6 +1937,8 @@ impl ColumnTable {
                 DbColumn::Blobs(col) => {
                     for blob in col {
                         binary.extend_from_slice(&blob.len().to_le_bytes());
+                    }
+                    for blob in col {
                         binary.extend_from_slice(blob);
                     }
                 }
@@ -2068,11 +2030,19 @@ impl ColumnTable {
                     columns.insert(item.name, DbColumn::Texts(v));
                 },
                 DbType::Blob => {
-                    for i in 0..column_len {
-                        let len = u64_from_le_slice(&binary[pointer..pointer+8]) as usize;
-                        let col = binary[pointer+8..pointer+8+len].to_vec();
-                        pointer += 8+ len
+                    let mut offsets = Vec::new();
+                    let mut blobs = Vec::new();
+                    for _i in 0..column_len {
+                        offsets.push(u64_from_le_slice(&binary[pointer..pointer+8]) as usize);
+                        pointer += 8;
                     }
+                    for i in 0..column_len {
+                        let len = offsets[i];
+                        let col = binary[pointer+8..pointer+8+len].to_vec();
+                        blobs.push(col);
+                        pointer += len;
+                    }
+                    columns.insert(item.name, DbColumn::Blobs(blobs));
                 }
             }
         }
@@ -2112,7 +2082,7 @@ pub fn write_column_table_binary_header(binary: &mut Vec<u8>, table: &ColumnTabl
             DbType::Int => b'i',
             DbType::Float => b'f',
             DbType::Text => b't',
-            DbType::Blob => b'b',
+            DbType::Blob => b'B',
         };
         let key_type = match &item.key {
             TableKey::Primary => b'P',

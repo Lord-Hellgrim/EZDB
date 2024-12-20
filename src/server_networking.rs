@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, HashMap};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::os::fd::{AsFd, AsRawFd, FromRawFd};
 use std::sync::{Arc, RwLock};
@@ -14,6 +14,7 @@ use crate::auth::{check_kv_permission, check_permission, user_has_permission, Pe
 use crate::disk_utilities::{BufferPool, MAX_BUFFERPOOL_SIZE};
 use crate::ezql::{execute_EZQL_queries, execute_kv_queries, parse_kv_queries_from_binary, parse_queries_from_binary};
 use crate::logging::Logger;
+use crate::query_execution::StreamBuffer;
 use crate::thread_pool::{initialize_thread_pool, Job};
 use crate::utilities::{authenticate_client, KeyString, ksf, kv_query_results_to_binary, read_known_length, u64_from_le_slice, ErrorTag, EzError, Instruction};
 use crate::db_structure::Value;
@@ -140,6 +141,8 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
     let mut unsigned_streams = HashMap::new();
     let mut virgin_connections = HashMap::new();
     let mut stream_statuses = HashMap::new();
+    let mut pending_jobs = HashMap::new();
+    let mut read_buffer = [0u8;4096];
 
     let thread_handler = initialize_thread_pool(8, database.clone());
     
@@ -155,7 +158,7 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
         
         let db_con = database.clone();
 
-        for i in 0..number_of_events {
+        'events: for i in 0..number_of_events {
             if events[i].data() == listener.as_raw_fd() as u64 {
                 let (mut stream, client_address) = match listener.accept() {
                     Ok((n,m)) => (n, m),
@@ -181,6 +184,7 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                             println!("handshake1");
                             let stream = unsigned_streams.remove(&fd).unwrap();
                             let connection = eznoise::ESTABLISH_CONNECTION_STEP_3(stream, handshakestate.unwrap()).unwrap();
+                            connection.stream.set_nonblocking(true)?;
                             if virgin_connections.contains_key(&fd) {
                                 todo!()
                             } else {
@@ -212,17 +216,56 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                                 Some(x) => x,
                                 None => panic!("Unexpectedly dropped authenticated client"),
                             };
-                            match read_known_length(&mut connection.stream) {
-                                Ok(data) => {
-                                    thread_handler.push_job(Job{connection, data});
-                                },
-                                Err(e) => {
-                                    println!("Failed to receive command because: {}", e);
-                                }
+                            let mut expected_length_bytes = [0u8;8];
+                            match connection.stream.read_exact(&mut expected_length_bytes) {
+                                Ok(_) => (),
+                                Err(e) => println!("Failed to receive command because: {}", e),
                             };
+                            let expected_length = u64_from_le_slice(&expected_length_bytes) as usize;
+                            let mut pending_job: Vec<u8> = Vec::new();
+                            let mut total_read = 0;
+                            loop {
+                                let to_read = std::cmp::min(4096, expected_length - total_read);
+                                let bytes_received= match connection.stream.read(&mut read_buffer[..to_read]) {
+                                    Ok(x) => x,
+                                    Err(e) => {
+                                        match e.kind() {
+                                            std::io::ErrorKind::WouldBlock => {
+                                                println!("Insanity check");
+                                                break
+                                            },
+                                            e => {
+                                                println!("Error: {}", e);
+                                                drop(connection);
+                                                continue 'events
+                                            },
+                                        }
+                                    },
+                                };
+                                pending_job.extend_from_slice(&read_buffer[0..bytes_received]);
+                                total_read += bytes_received;
+                            }
+                            
+                            println!("SANITY CHECK!: Expected: {}\t\tTotal_read: {}", expected_length, total_read);
+                            if total_read == expected_length {
+                                thread_handler.push_job(Job{connection, data: pending_job});
+                                status.bump();
+                            } else {
+                                pending_jobs.insert(fd, (expected_length, total_read, pending_job));
+                            }
 
-                            status.bump();
+
+                            // match read_known_length(&mut connection.stream) {
+                            //     Ok(data) => {
+                            //         thread_handler.push_job(Job{connection, data});
+                            //     },
+                            //     Err(e) => {
+                            //         println!("Failed to receive command because: {}", e);
+                            //     }
+                            // };
                             stream_statuses.insert(fd, (status, None));
+
+
 
                         },
                         StreamStatus::Veteran(_rounds) => {
@@ -231,17 +274,50 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                                 Some(x) => x,
                                 None => panic!("Unexpectedly dropped authenticated client"),
                             };
-                            
-                            match read_known_length(&mut connection.stream) {
-                                Ok(data) => {
-                                    thread_handler.push_job(Job{connection, data});
+
+                            let (expected_length, mut total_read, mut pending_job) = match pending_jobs.remove(&fd) {
+                                Some(x) => x,
+                                None => {
+                                    println!("Failed to get pending job");
+                                    drop(connection);
+                                    continue
                                 },
-                                Err(e) => {
-                                    println!("Failed to receive command because: {}", e);
-                                }
                             };
 
-                            status.bump();
+                            loop {
+                                let to_read = std::cmp::min(4096, expected_length - total_read);
+                                let bytes_received= match connection.stream.read(&mut read_buffer[..to_read]) {
+                                    Ok(x) => x,
+                                    Err(e) => {
+                                        match e.kind() {
+                                            std::io::ErrorKind::WouldBlock => break,
+                                            _ => {
+                                                drop(connection);
+                                                continue 'events
+                                            },
+                                        }
+                                    },
+                                };
+                                pending_job.extend_from_slice(&read_buffer[0..bytes_received]);
+                                total_read += bytes_received;
+                            }
+
+                            if total_read == expected_length {
+                                thread_handler.push_job(Job{connection, data: pending_job});
+                                status.bump();
+                            } else {
+                                pending_jobs.insert(fd, (expected_length, total_read, pending_job));
+                            }
+                            
+                            // match read_known_length(&mut connection.stream) {
+                            //     Ok(data) => {
+                            //         thread_handler.push_job(Job{connection, data});
+                            //     },
+                            //     Err(e) => {
+                            //         println!("Failed to receive command because: {}", e);
+                            //     }
+                            // };
+
                             stream_statuses.insert(fd, (status, None));
                         },
                         StreamStatus::Http => todo!(),
@@ -256,6 +332,8 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
 }
 
 pub fn answer_query(binary: &[u8], connection: &mut Connection, db_ref: Arc<Database>) -> Result<Vec<u8>, EzError> {
+
+    let mut streambuffer = StreamBuffer::new(connection);
 
     let queries = parse_queries_from_binary(&binary)?;
 

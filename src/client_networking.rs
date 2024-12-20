@@ -13,6 +13,7 @@ pub enum Response {
     Table(ColumnTable),
 }
 
+
 pub fn make_connection(address: &str, username: &str, password: &str) -> Result<Connection, EzError> {
     let mut connection = initiate_connection(address)?;
     let mut auth_buffer = [0u8;1024];
@@ -38,18 +39,7 @@ pub fn oneshot_query(
 
     let mut connection = make_connection(address, username, password).unwrap();
 
-    let query = query.to_binary();
-    let mut packet = Vec::new();
-    packet.extend_from_slice(KeyString::from("QUERY").raw());
-    packet.extend_from_slice(&query);
-    connection.SEND_C1(&packet)?;
-    
-    let response = connection.RECEIVE_C2()?;
-
-    match ColumnTable::from_binary(Some("RESULT"), &response) {
-        Ok(table) => Ok(table),
-        Err(e) => Err(e),
-    }
+    send_query(&mut connection, query)
 }
 
 pub fn send_query(connection: &mut Connection, query: &Query) -> Result<ColumnTable, EzError> {
@@ -94,7 +84,7 @@ mod tests {
     #![allow(unused, non_snake_case)]
     use std::{fs::remove_file, path::Path, time::Duration};
 
-    use crate::{db_structure::ColumnTable, ezql::RangeOrListOrAll, utilities::ksf};
+    use crate::{db_structure::ColumnTable, ezql::RangeOrListOrAll, testing_tools::random_column_table, utilities::ksf};
 
     use super::*;
 
@@ -108,6 +98,19 @@ mod tests {
             primary_keys: RangeOrListOrAll::All,
             columns: vec![ksf("id"), ksf("name"), ksf("price")],
             conditions: Vec::new() 
+        };
+
+        let response = oneshot_query(address, username, password, &query).unwrap();
+        println!("{}", response);
+    }
+
+    #[test]
+    fn test_send_CREATE() {
+        let address = "127.0.0.1:3004";
+        let username = "admin";
+        let password = "admin";
+        let query = Query::CREATE {
+            table: random_column_table(5, 1000),
         };
 
         let response = oneshot_query(address, username, password, &query).unwrap();

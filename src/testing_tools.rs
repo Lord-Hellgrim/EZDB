@@ -370,8 +370,12 @@ mod tests {
 
     #[test]
     fn test_random_column_table() {
-        let table = random_column_table(10, 10);
-        println!("{}", table);
+        for _ in 0..100 {
+            let table = random_column_table(10, 10);
+            let binary = table.to_binary();
+            let parsed = ColumnTable::from_binary(Some(table.name.as_str()), &binary).unwrap();
+            assert_eq!(table, parsed);
+        }
     }
 
 

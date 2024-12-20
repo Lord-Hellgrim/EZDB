@@ -2,7 +2,7 @@ use std::{collections::{BTreeMap, BTreeSet}, sync::Arc};
 
 use eznoise::Connection;
 
-use crate::{db_structure::{remove_indices, ColumnTable, DbColumn, HeaderItem, TableKey}, ezql::{filter_keepers, OpOrCond, Operator, RangeOrListOrAll, Statistic, Test, Update}, server_networking::Database, utilities::{ErrorTag, EzError, KeyString}};
+use crate::{db_structure::{remove_indices, write_column_table_binary_header, ColumnTable, DbColumn, DbType, HeaderItem, TableKey}, ezql::{filter_keepers, OpOrCond, Operator, RangeOrListOrAll, Statistic, Test, Update}, server_networking::Database, utilities::{ksf, ErrorTag, EzError, KeyString}};
 
 pub const BUFCAP: usize = 65535;
 
@@ -59,6 +59,7 @@ impl <'a> StreamBuffer<'a> {
 
         Ok(())
     }
+
 }
 
 
@@ -88,6 +89,18 @@ pub enum DbSlice<'a> {
     Blobs(&'a [Vec<u8>]),
 }
 
+impl<'a> DbSlice<'a> {
+    pub fn byte_size(&self) -> usize {
+        match self {
+            DbSlice::Ints(col) => col.len()*size_of::<i32>(),
+            DbSlice::Texts(col) => col.len()*size_of::<KeyString>(),
+            DbSlice::Floats(col) => col.len()*size_of::<f32>(),
+            DbSlice::Blobs(col) => col.iter().fold(0, |acc, x| acc + x.len()),
+        }
+    }
+}
+
+
 pub fn db_slice_from_column<'a>(column: &'a DbColumn) -> DbSlice<'a> {
     match column {
         DbColumn::Ints(vec) => DbSlice::Ints(vec.as_slice()),
@@ -99,6 +112,7 @@ pub fn db_slice_from_column<'a>(column: &'a DbColumn) -> DbSlice<'a> {
 
 
 pub struct SubTable<'a> {
+    pub name: KeyString,
     pub header: BTreeSet<HeaderItem>,
     pub columns: BTreeMap<KeyString, DbSlice<'a>>,
 }
@@ -128,6 +142,18 @@ impl SubTable<'_> {
             None => 0,
         }
     }
+
+    pub fn byte_size(&self) -> usize {
+        let header_size = self.header.len() * size_of::<HeaderItem>();
+        let mut table_size = 0;
+        for (key, column) in &self.columns {
+            table_size += column.byte_size();
+        }
+
+        0
+
+
+    }
 }
 
 pub fn make_subtable<'a>(table: &'a ColumnTable, start_row: usize, end_row: usize, column_names: &[KeyString]) -> Result<SubTable<'a>, EzError> {    
@@ -151,6 +177,7 @@ pub fn make_subtable<'a>(table: &'a ColumnTable, start_row: usize, end_row: usiz
 
     Ok(
         SubTable {
+            name: table.name,
             header: subtable_header,
             columns: subtable_columns,
         }
@@ -389,6 +416,11 @@ pub fn execute_queries(queries: Vec<Query>, database: Arc<Database>, streambuffe
                 if database.contains_table(table_name) {
                     let tables = database.buffer_pool.tables.read().unwrap();
                     let table = tables.get(&table_name).unwrap().read().unwrap();
+                    let mut i = 0;
+                    while i < table.len() {
+
+                    }
+
                     let keepers = filter_keepers(&conditions, &primary_keys, &table)?;
                     
                 }

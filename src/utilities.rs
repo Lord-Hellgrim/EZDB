@@ -233,6 +233,7 @@ impl From<eznoise::NoiseError> for EzError {
 }
 
 
+#[repr(align(8))]
 #[derive(Clone, Copy, Hash, PartialEq)]
 pub struct KeyString {
     inner: [u8;64],
