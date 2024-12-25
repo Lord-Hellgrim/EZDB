@@ -152,6 +152,16 @@ impl BufferPool {
         Ok(())
     }
 
+    pub fn remove_table(&self, table_name: KeyString) -> Result<(), EzError> {
+        println!("calling: BufferPool::add_table()");
+
+
+        match self.tables.write().unwrap().remove(&table_name) {
+            Some(_) => Ok(()),
+            None => Err(EzError { tag: ErrorTag::Structure, text: format!("No table named: '{}'", table_name) }),
+        }
+    }
+
     pub fn add_value(&self, value: Value) -> Result<(), EzError> {
         println!("calling: BufferPool::add_value()");
 

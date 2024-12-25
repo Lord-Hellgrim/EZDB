@@ -209,6 +209,7 @@ pub fn parse_kv_queries_from_binary(binary: &[u8]) -> Result<Vec<KvQuery>, EzErr
 #[allow(non_camel_case_types)]
 pub enum Query {
     CREATE{table: ColumnTable},
+    DROP{table_name: KeyString},
     SELECT{table_name: KeyString, primary_keys: RangeOrListOrAll, columns: Vec<KeyString>, conditions: Vec<OpOrCond>},
     LEFT_JOIN{left_table_name: KeyString, right_table_name: KeyString, match_columns: (KeyString, KeyString), primary_keys: RangeOrListOrAll},
     INNER_JOIN,
@@ -288,6 +289,7 @@ impl Display for Query {
                 }
             },
             Query::CREATE { table } => printer.push_str(&format!("CREATE(table_name: {}", table.name)),
+            Query::DROP { table_name } => printer.push_str(&format!("DROP(table_name: {}", table_name)),
             Query::INNER_JOIN => todo!(),
             Query::RIGHT_JOIN => todo!(),
             Query::FULL_JOIN => todo!(),
@@ -359,6 +361,7 @@ impl Query {
             Query::RIGHT_JOIN => todo!(),
             Query::FULL_JOIN => todo!(),
             Query::CREATE { table } => table.name,
+            Query::DROP { table_name } => *table_name,
         }
     }
 
@@ -462,6 +465,14 @@ impl Query {
                 let len = &binary.len().to_le_bytes();
                 binary[24..32].copy_from_slice(len);
             },
+            Query::DROP { table_name } => {
+                let table_name = table_name;
+                binary.extend_from_slice(&handles);
+                binary.extend_from_slice(KeyString::from("DROP").raw());
+                binary.extend_from_slice(table_name.raw());
+                let len = &binary.len().to_le_bytes();
+                binary[24..32].copy_from_slice(len);
+            },
         }
         binary
     }
@@ -540,6 +551,9 @@ impl Query {
                 let table_len = u64_from_le_slice(&handles[0..8]) as usize;
                 let table = ColumnTable::from_binary(None, &body[128..128+table_len])?;
                 Ok( Query::CREATE { table })
+            },
+            "DROP" => {
+                Ok( Query::DROP { table_name })
             }
             _ => return Err(EzError{tag: ErrorTag::Query, text: format!("Query type '{}' is not supported", query_type)}),
         }
@@ -1008,8 +1022,8 @@ pub fn conditions_from_binary(binary: &[u8]) -> Result<Vec<OpOrCond>, EzError> {
         return Ok(Vec::new())
     }
     
-    if binary.len() < 192 {
-        return Err(EzError{tag: ErrorTag::Query, text: format!("Condition is at least 192 bytes. Input binary is {}", binary.len())})
+    if binary.len() < 136 {
+        return Err(EzError{tag: ErrorTag::Query, text: format!("Condition is at least 136 bytes. Input binary is {}", binary.len())})
 
     }
     let mut conditions = Vec::new();
@@ -1374,6 +1388,14 @@ pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Res
             }
             Query::CREATE { table } => {
                 match database.buffer_pool.add_table(table.clone()) {
+                    Ok(_) => {
+                        result_table = None;
+                    },
+                    Err(e) => return Err(e),
+                }
+            },
+            Query::DROP { table_name } => {
+                match database.buffer_pool.remove_table(*table_name) {
                     Ok(_) => {
                         result_table = None;
                     },

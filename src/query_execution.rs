@@ -98,15 +98,16 @@ impl<'a> DbSlice<'a> {
             DbSlice::Blobs(col) => col.iter().fold(0, |acc, x| acc + x.len()),
         }
     }
+
 }
 
 
-pub fn db_slice_from_column<'a>(column: &'a DbColumn) -> DbSlice<'a> {
+pub fn db_slice_from_column<'a>(column: &'a DbColumn, start: usize, end: usize) -> DbSlice<'a> {
     match column {
-        DbColumn::Ints(vec) => DbSlice::Ints(vec.as_slice()),
-        DbColumn::Texts(vec) => DbSlice::Texts(vec.as_slice()),
-        DbColumn::Floats(vec) => DbSlice::Floats(vec.as_slice()),
-        DbColumn::Blobs(vec) => DbSlice::Blobs(vec),
+        DbColumn::Ints(vec) => DbSlice::Ints(&vec[start..end]),
+        DbColumn::Texts(vec) => DbSlice::Texts(&vec[start..end]),
+        DbColumn::Floats(vec) => DbSlice::Floats(&vec[start..end]),
+        DbColumn::Blobs(vec) => DbSlice::Blobs(&vec[start..end]),
     }
 }
 
@@ -150,13 +151,17 @@ impl SubTable<'_> {
             table_size += column.byte_size();
         }
 
-        0
+        64 + header_size + table_size
 
 
     }
 }
 
 pub fn make_subtable<'a>(table: &'a ColumnTable, start_row: usize, end_row: usize, column_names: &[KeyString]) -> Result<SubTable<'a>, EzError> {    
+
+    if start_row > end_row || start_row > table.len() {
+        return Err(EzError { tag: ErrorTag::Structure, text: format!("make_subtable: No values in range") })
+    }
 
     let mut subtable_header = BTreeSet::new();
     let mut subtable_columns = BTreeMap::new();
@@ -169,7 +174,8 @@ pub fn make_subtable<'a>(table: &'a ColumnTable, start_row: usize, end_row: usiz
                     .expect("This should be safe since the header must always have a corresponding entry to the column name")
                     .clone();
                 subtable_header.insert(header_item);
-                subtable_columns.insert(*name, db_slice_from_column(column));
+                let end = std::cmp::min(column.len(), end_row);
+                subtable_columns.insert(*name, db_slice_from_column(column, start_row, end));
             },
             None => return Err(EzError { tag: ErrorTag::Query, text: format!("No column named '{}' in table '{}'", name, table.name) }),
         };
@@ -417,8 +423,10 @@ pub fn execute_queries(queries: Vec<Query>, database: Arc<Database>, streambuffe
                     let tables = database.buffer_pool.tables.read().unwrap();
                     let table = tables.get(&table_name).unwrap().read().unwrap();
                     let mut i = 0;
-                    while i < table.len() {
-
+                    let stride = 1000;
+                    while i + stride < table.len() {
+                        let subtable = make_subtable(&table, i, i + stride, &columns)?;
+                        
                     }
 
                     let keepers = filter_keepers(&conditions, &primary_keys, &table)?;
@@ -439,6 +447,7 @@ pub fn execute_queries(queries: Vec<Query>, database: Arc<Database>, streambuffe
     Ok(())
 
 }
+
 
 #[cfg(test)]
 mod tests {

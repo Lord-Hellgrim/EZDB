@@ -273,7 +273,7 @@ pub fn random_query() -> Query {
     let updates = random_updates(1000);
     let alt_summaries = random_statistics(10, 3);
 
-    let query_type = rng.gen_range(0..7);
+    let query_type = rng.gen_range(0..8);
     match query_type {
         0 => {
             Query::SELECT{ table_name, primary_keys, columns, conditions }
@@ -295,6 +295,9 @@ pub fn random_query() -> Query {
         },
         6 => {
             Query::CREATE { table: random_column_table(10, 100) }
+        }
+        7 => {
+            Query::DROP { table_name: random_keystring() }
         }
         _ => unreachable!("range")
     }
@@ -392,7 +395,13 @@ mod tests {
         for _ in 0..1000 {
             let query = random_query();
             let binary_query = query.to_binary();
-            let parsed_query = Query::from_binary(&binary_query).unwrap();
+            let parsed_query = match Query::from_binary(&binary_query) {
+                Ok(x) => x,
+                Err(e) => {
+                    dbg!(query);
+                    panic!();
+                },
+            };
             assert_eq!(query, parsed_query);
         }
     }
