@@ -10,7 +10,6 @@ use EZDB::compression::miniz_compress;
 use EZDB::compression::miniz_decompress;
 use EZDB::db_structure::*;
 use EZDB::ezql::*;
-use EZDB::ezql::parse_ezql;
 
 use EZDB::testing_tools::create_fixed_table;
 use EZDB::utilities::*;
@@ -44,9 +43,20 @@ fn my_benchmark(c: &mut Criterion) {
     // c.bench_function("concurrent downloads (small csv)", |b| b.iter( || test_concurrent_connections()));
     let mut group = c.benchmark_group("All benchmarks");
 
-    
+    let query = Query::SELECT { 
+        table_name: ksf("good_table"),
+        primary_keys: RangeOrListOrAll::All,
+        columns: vec![ksf("id"), ksf("name"), ksf("price")],
+        conditions: vec![
+            OpOrCond::Cond(Condition{attribute: ksf("id"), test: Test::Equals(DbValue::Int(4))}),
+            OpOrCond::Op(Operator::AND),
+            OpOrCond::Cond(Condition{attribute: ksf("name"), test: Test::Equals(DbValue::Text(ksf("four")))}),
+            
+        ],
+    };
 
-    // group.bench_function("StrictTable::from_csv_string, 1.000.000 random lines", |b| b.iter(|| StrictTable::from_csv_string(&bench_csv, "bench_test")));
+    group.bench_function("Query::to_binary()", |b| b.iter(|| query.to_binary()));
+    group.bench_function("Query::inline_to_binary()", |b| b.iter(|| query.to_binary()));
     
     // let address = "127.0.0.1:3004";
     // let username = "admin";

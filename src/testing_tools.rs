@@ -386,7 +386,7 @@ mod tests {
     fn test_random_query() {
         for _ in 0..100 {
             let query = random_query();
-            let binary_query = query.inline_to_binary();
+            let binary_query = query.to_binary();
             let parsed_query = match Query::from_binary(&binary_query) {
                 Ok(x) => x,
                 Err(e) => {

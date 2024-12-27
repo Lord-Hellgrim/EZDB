@@ -386,108 +386,6 @@ impl Query {
         }
     }
 
-    pub fn inline_to_binary(&self) -> Vec<u8> {
-        let mut binary = Vec::with_capacity(1024);
-        binary.extend_from_slice(&[0u8;32]);
-        match self {
-            Query::SELECT { table_name, primary_keys, columns, conditions } => {
-                binary.extend_from_slice(KeyString::from("SELECT").raw());
-                binary.extend_from_slice(table_name.raw());
-                let pk_len = append_primary_keys(&mut binary, primary_keys);
-                binary[0..8].copy_from_slice(&pk_len.to_le_bytes());
-
-                for col in columns {
-                    binary.extend_from_slice(col.raw());
-                }
-                binary[8..16].copy_from_slice(&(columns.len() * 64).to_le_bytes());
-
-                let cond_len = append_conditions(&mut binary, conditions);
-                binary[16..24].copy_from_slice(&cond_len.to_le_bytes());
-
-                let len = &(binary.len() - 32).to_le_bytes();
-                binary[24..32].copy_from_slice(len);
-            },
-            Query::LEFT_JOIN { left_table_name, right_table_name, match_columns, primary_keys } => {
-                binary.extend_from_slice(KeyString::from("LEFT_JOIN").raw());
-                binary.extend_from_slice(left_table_name.raw());
-                binary.extend_from_slice(right_table_name.raw());
-                binary.extend_from_slice(match_columns.0.raw());
-                binary.extend_from_slice(match_columns.1.raw());
-                let pk_len = append_primary_keys(&mut binary, primary_keys);
-                binary[0..8].copy_from_slice(&pk_len.to_le_bytes());
-                let len = &(binary.len() - 32).to_le_bytes();
-                binary[24..32].copy_from_slice(len);
-
-            },
-            Query::INNER_JOIN => todo!(),
-            Query::RIGHT_JOIN => todo!(),
-            Query::FULL_JOIN => todo!(),
-            Query::UPDATE { table_name, primary_keys, conditions, updates } => {
-                binary.extend_from_slice(KeyString::from("UPDATE").raw());
-                binary.extend_from_slice(table_name.raw());
-                let pk_len = append_primary_keys(&mut binary, primary_keys);
-                binary[0..8].copy_from_slice(&pk_len.to_le_bytes());
-                let cond_len = append_conditions(&mut binary, conditions);
-                binary[8..16].copy_from_slice(&cond_len.to_le_bytes());
-                for update in updates {
-                    binary.extend_from_slice(&update.to_binary());
-                };
-                binary[16..24].copy_from_slice(&(144 * updates.len()).to_le_bytes());
-                let len = &(binary.len() - 32).to_le_bytes();
-                binary[24..32].copy_from_slice(len);
-            },
-            Query::INSERT { table_name, inserts } => {
-                let table = inserts.to_binary();
-                binary[0..8].copy_from_slice(&table.len().to_le_bytes());
-                binary.extend_from_slice(KeyString::from("INSERT").raw());
-                binary.extend_from_slice(table_name.raw());
-                binary.extend_from_slice(&table);
-                let len = &(binary.len() - 32).to_le_bytes();
-                binary[24..32].copy_from_slice(len);
-
-            },
-            Query::DELETE { primary_keys, table_name, conditions } => {
-                binary.extend_from_slice(KeyString::from("DELETE").raw());
-                binary.extend_from_slice(table_name.raw());
-                let pk_len = append_primary_keys(&mut binary, primary_keys);
-                binary[0..8].copy_from_slice(&pk_len.to_le_bytes());
-
-                let cond_len = append_conditions(&mut binary, conditions);
-                binary[8..16].copy_from_slice(&cond_len.to_le_bytes());
-
-                let len = &(binary.len() - 32).to_le_bytes();
-                binary[24..32].copy_from_slice(len);
-
-            },
-            Query::SUMMARY { table_name, columns } => {
-                binary.extend_from_slice(KeyString::from("SUMMARY").raw());
-                binary.extend_from_slice(table_name.raw());
-                let stat_len = append_statistics(&mut binary, columns);
-                binary[0..8].copy_from_slice(&stat_len.to_le_bytes());
-                let len = &(binary.len() - 32).to_le_bytes();
-                binary[24..32].copy_from_slice(len);
-                
-            },
-            Query::CREATE { table } => {
-                let table_name = table.name;
-                let table = table.to_binary();
-                binary[0..8].copy_from_slice(&table.len().to_le_bytes());
-                binary.extend_from_slice(KeyString::from("CREATE").raw());
-                binary.extend_from_slice(table_name.raw());
-                binary.extend_from_slice(&table);
-                let len = &(binary.len() - 32).to_le_bytes();
-                binary[24..32].copy_from_slice(len);
-            },
-            Query::DROP { table_name } => {
-                let table_name = table_name;
-                binary.extend_from_slice(KeyString::from("DROP").raw());
-                binary.extend_from_slice(table_name.raw());
-                let len = &(binary.len() - 32).to_le_bytes();
-                binary[24..32].copy_from_slice(len);
-            },
-        }
-        binary
-    }
 
     pub fn to_binary(&self) -> Vec<u8> {
         let mut binary = Vec::with_capacity(1024);
@@ -2139,7 +2037,7 @@ mod tests {
                 
             ],
         };
-        let binary = query.inline_to_binary();
+        let binary = query.to_binary();
         println!("query len = {}", binary.len());
         println!("{:?}", binary);
         let parsed = Query::from_binary(&binary).unwrap();
