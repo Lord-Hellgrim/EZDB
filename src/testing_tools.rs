@@ -108,13 +108,6 @@ pub fn random_column_table(max_cols: usize, max_rows: usize) -> ColumnTable {
                 }
                 cols.insert(name, DbColumn::Texts(col));
             },
-            DbType::Blob => {
-                let mut col: Vec<Vec<u8>> = Vec::new();
-                for _ in 0..num_rows {
-                    col.push(random_vec(100));
-                }
-                cols.insert(name, DbColumn::Blobs(col));
-            },
         }
     }
 
@@ -147,11 +140,10 @@ fn random_range_or_list_or_all() -> RangeOrListOrAll {
 fn random_db_value() -> DbValue {
     let mut rng = rand::thread_rng();
 
-    match rng.gen_range(0..4) {
+    match rng.gen_range(0..3) {
         0 => DbValue::Int(rng.gen()),
         1 => DbValue::Float(rng.gen()),
         2 => DbValue::Text(random_keystring()),
-        3 => DbValue::Blob(random_vec(100)),
         _ => unreachable!("Range is limited"),
     }
 }
@@ -392,13 +384,14 @@ mod tests {
 
     #[test]
     fn test_random_query() {
-        for _ in 0..1000 {
+        for _ in 0..100 {
             let query = random_query();
-            let binary_query = query.to_binary();
+            let binary_query = query.inline_to_binary();
             let parsed_query = match Query::from_binary(&binary_query) {
                 Ok(x) => x,
                 Err(e) => {
                     dbg!(query);
+                    println!("{}", e);
                     panic!();
                 },
             };

@@ -63,6 +63,27 @@ pub fn statistics_to_binary(statistics: &[Statistic]) -> Vec<u8> {
     stats
 }
 
+pub fn append_statistics(binary: &mut Vec<u8>, statistics: &[Statistic]) -> u64 {
+    let mut i: u64 = 0;
+    for item in statistics {
+        binary.extend_from_slice(item.column.raw());
+        i += 64;
+        binary.push(item.actions.len() as u8);
+        i += 1;
+        for stat in &item.actions {
+            i += 1;
+            match stat {
+                StatOp::SUM => binary.push(0),
+                StatOp::MEAN => binary.push(1),
+                StatOp::MEDIAN => binary.push(2),
+                StatOp::MODE => binary.push(3),
+                StatOp::STDEV => binary.push(4),
+            }
+        }
+    }
+    i
+}
+
 
 pub fn statistics_from_binary(binary: &[u8]) -> Result<Vec<Statistic>, EzError> {
     let mut stats = Vec::new();
@@ -365,6 +386,109 @@ impl Query {
         }
     }
 
+    pub fn inline_to_binary(&self) -> Vec<u8> {
+        let mut binary = Vec::with_capacity(1024);
+        binary.extend_from_slice(&[0u8;32]);
+        match self {
+            Query::SELECT { table_name, primary_keys, columns, conditions } => {
+                binary.extend_from_slice(KeyString::from("SELECT").raw());
+                binary.extend_from_slice(table_name.raw());
+                let pk_len = append_primary_keys(&mut binary, primary_keys);
+                binary[0..8].copy_from_slice(&pk_len.to_le_bytes());
+
+                for col in columns {
+                    binary.extend_from_slice(col.raw());
+                }
+                binary[8..16].copy_from_slice(&(columns.len() * 64).to_le_bytes());
+
+                let cond_len = append_conditions(&mut binary, conditions);
+                binary[16..24].copy_from_slice(&cond_len.to_le_bytes());
+
+                let len = &(binary.len() - 32).to_le_bytes();
+                binary[24..32].copy_from_slice(len);
+            },
+            Query::LEFT_JOIN { left_table_name, right_table_name, match_columns, primary_keys } => {
+                binary.extend_from_slice(KeyString::from("LEFT_JOIN").raw());
+                binary.extend_from_slice(left_table_name.raw());
+                binary.extend_from_slice(right_table_name.raw());
+                binary.extend_from_slice(match_columns.0.raw());
+                binary.extend_from_slice(match_columns.1.raw());
+                let pk_len = append_primary_keys(&mut binary, primary_keys);
+                binary[0..8].copy_from_slice(&pk_len.to_le_bytes());
+                let len = &(binary.len() - 32).to_le_bytes();
+                binary[24..32].copy_from_slice(len);
+
+            },
+            Query::INNER_JOIN => todo!(),
+            Query::RIGHT_JOIN => todo!(),
+            Query::FULL_JOIN => todo!(),
+            Query::UPDATE { table_name, primary_keys, conditions, updates } => {
+                binary.extend_from_slice(KeyString::from("UPDATE").raw());
+                binary.extend_from_slice(table_name.raw());
+                let pk_len = append_primary_keys(&mut binary, primary_keys);
+                binary[0..8].copy_from_slice(&pk_len.to_le_bytes());
+                let cond_len = append_conditions(&mut binary, conditions);
+                binary[8..16].copy_from_slice(&cond_len.to_le_bytes());
+                for update in updates {
+                    binary.extend_from_slice(&update.to_binary());
+                };
+                binary[16..24].copy_from_slice(&(144 * updates.len()).to_le_bytes());
+                let len = &(binary.len() - 32).to_le_bytes();
+                binary[24..32].copy_from_slice(len);
+            },
+            Query::INSERT { table_name, inserts } => {
+                let table = inserts.to_binary();
+                binary[0..8].copy_from_slice(&table.len().to_le_bytes());
+                binary.extend_from_slice(KeyString::from("INSERT").raw());
+                binary.extend_from_slice(table_name.raw());
+                binary.extend_from_slice(&table);
+                let len = &(binary.len() - 32).to_le_bytes();
+                binary[24..32].copy_from_slice(len);
+
+            },
+            Query::DELETE { primary_keys, table_name, conditions } => {
+                binary.extend_from_slice(KeyString::from("DELETE").raw());
+                binary.extend_from_slice(table_name.raw());
+                let pk_len = append_primary_keys(&mut binary, primary_keys);
+                binary[0..8].copy_from_slice(&pk_len.to_le_bytes());
+
+                let cond_len = append_conditions(&mut binary, conditions);
+                binary[8..16].copy_from_slice(&cond_len.to_le_bytes());
+
+                let len = &(binary.len() - 32).to_le_bytes();
+                binary[24..32].copy_from_slice(len);
+
+            },
+            Query::SUMMARY { table_name, columns } => {
+                binary.extend_from_slice(KeyString::from("SUMMARY").raw());
+                binary.extend_from_slice(table_name.raw());
+                let stat_len = append_statistics(&mut binary, columns);
+                binary[0..8].copy_from_slice(&stat_len.to_le_bytes());
+                let len = &(binary.len() - 32).to_le_bytes();
+                binary[24..32].copy_from_slice(len);
+                
+            },
+            Query::CREATE { table } => {
+                let table_name = table.name;
+                let table = table.to_binary();
+                binary[0..8].copy_from_slice(&table.len().to_le_bytes());
+                binary.extend_from_slice(KeyString::from("CREATE").raw());
+                binary.extend_from_slice(table_name.raw());
+                binary.extend_from_slice(&table);
+                let len = &(binary.len() - 32).to_le_bytes();
+                binary[24..32].copy_from_slice(len);
+            },
+            Query::DROP { table_name } => {
+                let table_name = table_name;
+                binary.extend_from_slice(KeyString::from("DROP").raw());
+                binary.extend_from_slice(table_name.raw());
+                let len = &(binary.len() - 32).to_le_bytes();
+                binary[24..32].copy_from_slice(len);
+            },
+        }
+        binary
+    }
+
     pub fn to_binary(&self) -> Vec<u8> {
         let mut binary = Vec::with_capacity(1024);
         let mut handles = [0u8;32];
@@ -372,7 +496,11 @@ impl Query {
             Query::SELECT { table_name, primary_keys, columns, conditions } => {
                 let binary_primary_keys = primary_keys.to_binary();
                 let binary_columns = columns.iter().map(|n| n.raw().to_vec()).flatten().collect::<Vec<u8>>();
-                let binary_conditions = conditions.iter().map(|n| n.to_binary()).flatten().collect::<Vec<u8>>();
+                let mut binary_conditions = Vec::new();
+                for condition in conditions {
+                    binary_conditions.extend_from_slice(&condition.to_binary());
+                }
+                // let binary_conditions = conditions.iter().map(|n| n.to_binary()).flatten().collect::<Vec<u8>>();
                 handles[0..8].copy_from_slice(&binary_primary_keys.len().to_le_bytes());
                 handles[8..16].copy_from_slice(&binary_columns.len().to_le_bytes());
                 handles[16..24].copy_from_slice(&binary_conditions.len().to_le_bytes());
@@ -587,6 +715,53 @@ pub fn queries_to_binary(queries: &[Query]) -> Vec<u8> {
     binary
 }
 
+pub fn append_primary_keys(binary: &mut Vec<u8>, primary_keys: &RangeOrListOrAll) -> u64{
+    let mut i = 0;
+    match primary_keys {
+        RangeOrListOrAll::Range(from, to) => {
+            binary.extend_from_slice(KeyString::from("RANGE").raw());
+            binary.extend_from_slice(from.raw());
+            binary.extend_from_slice(to.raw());
+            i = 192;
+        },
+        RangeOrListOrAll::List(vec) => {
+            binary.extend_from_slice(KeyString::from("LIST").raw());
+            binary.extend_from_slice(&vec.len().to_le_bytes());
+            i += 72;
+            for s in vec {
+                binary.extend_from_slice(s.raw());
+                i += 64;
+            }
+
+        },
+        RangeOrListOrAll::All => {
+            binary.extend_from_slice(KeyString::from("ALL").raw());
+            i = 64
+        },
+    };
+    i
+}
+
+pub fn append_conditions(binary: &mut Vec<u8>, conditions: &Vec<OpOrCond>) -> u64{
+    let mut i: u64 = 0;
+    for condition in conditions {
+        match condition {
+            OpOrCond::Cond(condition) => {
+                i += 200;
+                binary.extend_from_slice(condition.attribute.raw());
+                binary.extend_from_slice(&condition.test.to_binary());
+            },
+            OpOrCond::Op(operator) => {
+                i+= 64;
+                binary.extend_from_slice(operator.to_keystring().raw());
+            },
+        }
+    }
+
+    i
+
+}
+
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub struct Update {
     pub attribute: KeyString,
@@ -680,49 +855,22 @@ impl Update {
         }
     }
 
-    pub fn to_binary(&self) -> Vec<u8> {
-        let mut binary = Vec::new();
-        binary.extend_from_slice(self.attribute.raw());
-        binary.extend_from_slice(self.operator.to_keystring().raw());
-        match &self.value {
-            DbValue::Int(x) => {
-                binary.extend_from_slice(&(b'i' as usize).to_le_bytes());
-                binary.extend_from_slice(ksf(&x.to_string()).raw());
-            }
-            DbValue::Float(x) => {
-                binary.extend_from_slice(&(b'f' as usize).to_le_bytes());
-                binary.extend_from_slice(ksf(&x.to_string()).raw());
-            }
-            DbValue::Text(x) => {
-                binary.extend_from_slice(&(b't' as usize).to_le_bytes());
-                binary.extend_from_slice(ksf(&x.to_string()).raw());
-            }
-            DbValue::Blob(vec) => {
-                binary.extend_from_slice(&(b'B' as usize).to_le_bytes());
-                binary.extend_from_slice(&vec.len().to_le_bytes());
-                binary.extend_from_slice(&vec);
-            },
-        }
+    pub fn to_binary(&self) -> [u8;144] {
+        let mut binary = [0u8;144];
+        binary[0..64].copy_from_slice(self.attribute.raw());
+        binary[64..72].copy_from_slice(&self.operator.to_binary());
+        binary[72..144].copy_from_slice(&self.value.to_binary());
         binary
     }
 
     pub fn from_binary(binary: &[u8]) -> Result<Update, EzError> {
-        if binary.len() < 128+8+64 {
-            return Err(EzError { tag: ErrorTag::Deserialization, text: format!("Update binaries are at least 200 bytes") })
+        if binary.len() != 144 {
+            return Err(EzError { tag: ErrorTag::Deserialization, text: format!("Update binaries are exactly 144 bytes") })
         }
         let attribute = KeyString::try_from(&binary[0..64])?;
-        let operator = UpdateOp::from_binary(&binary[64..128])?;
-        let kind = u64_from_le_slice(&binary[128..128+8]) as u8 as char;
-        match kind {
-            'i' => Ok(Update { attribute, operator, value: DbValue::Int(KeyString::try_from(&binary[128+8..128+8+64])?.to_i32_checked()?)}),
-            'f' => Ok(Update { attribute, operator, value: DbValue::Float(KeyString::try_from(&binary[128+8..128+8+64])?.to_f32_checked()?)}),
-            't' => Ok(Update { attribute, operator, value: DbValue::Text(KeyString::try_from(&binary[128+8..128+8+64])?)}),
-            'B' => {
-                let len = u64_from_le_slice(&binary[128+8..128+16]) as usize;
-                Ok(Update { attribute, operator, value: DbValue::Blob(binary[128+16..128+16+len].to_vec() )})
-            },
-            x => panic!("DbValue '{}'", x),
-        }
+        let operator = UpdateOp::from_binary(&binary[64..72])?;
+        let value = DbValue::from_binary(&binary[72..144])?;
+        Ok(Update { attribute, operator, value })
     }
 }
 
@@ -736,10 +884,11 @@ pub fn updates_to_binary(updates: &[Update]) -> Vec<u8> {
     binary
 }
 
+
 pub fn updates_from_binary(binary: &[u8]) -> Result<Vec<Update>, EzError> {
     let mut updates = Vec::new();
 
-    for chunk in binary.chunks(192) {
+    for chunk in binary.chunks(144) {
 
         updates.push(Update::from_binary(&chunk)?);
 
@@ -786,21 +935,26 @@ impl UpdateOp {
         }
     }
 
-    pub fn from_binary(binary: &[u8]) -> Result<UpdateOp, EzError> {
-        if binary.len() != 64 {
-            return Err(EzError{tag: ErrorTag::Query, text: "UpdateOp binary must be 64 bytes".to_owned()})
+    pub fn to_binary(&self) -> [u8;8] {
+        match self {
+            UpdateOp::Assign => (1 as u64).to_le_bytes(),
+            UpdateOp::PlusEquals => (2 as u64).to_le_bytes(),
+            UpdateOp::MinusEquals => (3 as u64).to_le_bytes(),
+            UpdateOp::TimesEquals => (4 as u64).to_le_bytes(),
+            UpdateOp::Append => (5 as u64).to_le_bytes(),
+            UpdateOp::Prepend => (6 as u64).to_le_bytes(),
         }
-        match KeyString::try_from(binary) {
-            Ok(s) => match s.as_str() {
-                    "Assign" => Ok(UpdateOp::Assign),
-                    "PlusEquals" => Ok(UpdateOp::PlusEquals),
-                    "MinusEquals" => Ok(UpdateOp::MinusEquals),
-                    "TimesEquals" => Ok(UpdateOp::TimesEquals),
-                    "Append" => Ok(UpdateOp::Append),
-                    "Prepend" => Ok(UpdateOp::Prepend),
-                    _ => return Err(EzError{tag: ErrorTag::Query, text: format!("Nu such operator as {}", s)}) 
-                }
-            Err(e) => Err(EzError{tag: ErrorTag::Query, text: e.to_string()})
+    }
+
+    pub fn from_binary(binary: &[u8]) -> Result<UpdateOp, EzError> {
+        match u64_from_le_slice(binary) {
+            1 => Ok(UpdateOp::Assign),
+            2 => Ok(UpdateOp::PlusEquals),
+            3 => Ok(UpdateOp::MinusEquals),
+            4 => Ok(UpdateOp::TimesEquals),
+            5 => Ok(UpdateOp::Append),
+            6 => Ok(UpdateOp::Prepend),
+            other => return Err(EzError { tag: ErrorTag::Deserialization, text: format!("Unknown value: '{other}' encountered as UpdateOp") })
         }
     }
 }
@@ -930,7 +1084,7 @@ impl Condition {
 
         Condition {
             attribute: KeyString::from(""),
-            test: Test::Equals(DbValue::Blob(Vec::new())),
+            test: Test::Equals(DbValue::Int(0)),
         }
     }
 }
@@ -998,18 +1152,8 @@ impl OpOrCond {
                 if binary.len() < 128 {
                     return Err(EzError{tag: ErrorTag::Query, text: format!("Cond is at least 128 bytes. Input binary is {}", binary.len())})
                 }
-                let second = KeyString::try_from(&binary[64..128])?;
-                let third = DbValue::from_binary(&binary[128..])?;
-                match second.as_str() {
-                    "Equals" => Ok(OpOrCond::Cond(Condition {attribute: first, test: Test::Equals(third)})),
-                    "NotEquals" => Ok(OpOrCond::Cond(Condition {attribute: first, test: Test::NotEquals(third)})),
-                    "Less" => Ok(OpOrCond::Cond(Condition {attribute: first, test: Test::Less(third)})),
-                    "Greater" => Ok(OpOrCond::Cond(Condition {attribute: first, test: Test::Greater(third)})),
-                    "Starts" => Ok(OpOrCond::Cond(Condition {attribute: first, test: Test::Starts(third)})),
-                    "Ends" => Ok(OpOrCond::Cond(Condition {attribute: first, test: Test::Ends(third)})),
-                    "Contains" => Ok(OpOrCond::Cond(Condition {attribute: first, test: Test::Contains(third)})),
-                    _ => return Err(EzError{tag: ErrorTag::Query, text: format!("Condition: '{}' is not supported", second)})
-                }
+                let second = Test::from_binary(&binary[64..])?;
+                Ok(OpOrCond::Cond(Condition{attribute: first, test: second}))
             }
         }
 
@@ -1035,8 +1179,8 @@ pub fn conditions_from_binary(binary: &[u8]) -> Result<Vec<OpOrCond>, EzError> {
             conditions.push(OpOrCond::from_binary(&binary[offset..offset+64])?);
             offset += 64;
         } else {
-            conditions.push(OpOrCond::from_binary(&binary[offset..offset+192])?);
-            offset += 192;
+            conditions.push(OpOrCond::from_binary(&binary[offset..offset+200])?);
+            offset += 200;
         }
         i += 1;
     }
@@ -1089,36 +1233,36 @@ impl Test {
         }
     }
 
-    pub fn to_binary(&self) -> Vec<u8> {
-        let mut binary = Vec::new();
+    pub fn to_binary(&self) -> [u8;136] {
+        let mut binary = [0u8;136];
         match self {
             Test::Equals(val) => {
-                binary.extend_from_slice(KeyString::from("Equals").raw());
-                binary.extend_from_slice(&val.to_binary());
+                binary[0..64].copy_from_slice(KeyString::from("EQUALS").raw());
+                binary[64..136].copy_from_slice(&val.to_binary());
             },
             Test::NotEquals(val) => {
-                binary.extend_from_slice(KeyString::from("NotEquals").raw());
-                binary.extend_from_slice(&val.to_binary());    
+                binary[0..64].copy_from_slice(KeyString::from("NOT_EQUALS").raw());
+                binary[64..136].copy_from_slice(&val.to_binary());    
             },
             Test::Less(val) => {
-                binary.extend_from_slice(KeyString::from("Less").raw());
-                binary.extend_from_slice(&val.to_binary());    
+                binary[0..64].copy_from_slice(KeyString::from("LESS").raw());
+                binary[64..136].copy_from_slice(&val.to_binary());    
             },
             Test::Greater(val) => {
-                binary.extend_from_slice(KeyString::from("Greater").raw());
-                binary.extend_from_slice(&val.to_binary());    
+                binary[0..64].copy_from_slice(KeyString::from("GREATER").raw());
+                binary[64..136].copy_from_slice(&val.to_binary());    
             },
             Test::Starts(val) => {
-                binary.extend_from_slice(KeyString::from("Starts").raw());
-                binary.extend_from_slice(&val.to_binary());    
+                binary[0..64].copy_from_slice(KeyString::from("STARTS").raw());
+                binary[64..136].copy_from_slice(&val.to_binary());    
             },
             Test::Ends(val) => {
-                binary.extend_from_slice(KeyString::from("Ends").raw());
-                binary.extend_from_slice(&val.to_binary());    
+                binary[0..64].copy_from_slice(KeyString::from("ENDS").raw());
+                binary[64..136].copy_from_slice(&val.to_binary());    
             },
             Test::Contains(val) => {
-                binary.extend_from_slice(KeyString::from("Contains").raw());
-                binary.extend_from_slice(&val.to_binary());    
+                binary[0..64].copy_from_slice(KeyString::from("CONTAINS").raw());
+                binary[64..136].copy_from_slice(&val.to_binary());    
             },
         }
         binary
@@ -1523,25 +1667,6 @@ pub fn update_f32(keepers: &[usize], column: &mut [f32], op: UpdateOp, value: &D
 }
 
 #[inline]
-pub fn update_blobs(keepers: &[usize], column: &mut [Vec<u8>], op: UpdateOp, value: &DbValue) -> Result<(), EzError> {
-    let new_value = match value {
-        DbValue::Blob(x) => x,
-        _ => return Err(EzError { tag: ErrorTag::Query, text: format!("an int can only be updated by an int") })
-    };
-    match op {
-        UpdateOp::Assign => {
-            for keeper in keepers {
-                column[*keeper] = new_value.clone();
-            }
-        },
-        _ => {
-            return Err(EzError{tag: ErrorTag::Query, text: "Only assign operations can be performed on blob data".to_owned()})
-        },
-    }
-    Ok(())
-}
-
-#[inline]
 pub fn update_keystrings(keepers: &[usize], column: &mut [KeyString], op: UpdateOp, value: &DbValue) -> Result<(), EzError> {
     let new_value = match value {
         DbValue::Text(x) => x,
@@ -1590,12 +1715,9 @@ pub fn execute_update_query(query: Query, table: &mut ColumnTable) -> Result<Opt
                     DbColumn::Ints(vec) => update_i32(&keepers, vec.as_mut_slice(), update.operator, &update.value)?,
                     DbColumn::Texts(vec) => update_keystrings(&keepers, vec.as_mut_slice(), update.operator, &update.value)?,
                     DbColumn::Floats(vec) => update_f32(&keepers, vec.as_mut_slice(), update.operator, &update.value)?,
-                    DbColumn::Blobs(vec) => update_blobs(&keepers, vec.as_mut_slice(), update.operator, &update.value)?,
                 }
-
             }
             
-
             Ok(
                 None    
             )
@@ -1699,19 +1821,6 @@ pub fn execute_summary_query(query: &Query, table: &ColumnTable) -> Result<Optio
                         }
                         result.add_column(stat.column, DbColumn::Floats(temp))?;
                     },
-                    DbColumn::Blobs(vec) => {
-                        let mut temp = [ksf(""); 5].to_vec();
-                        for action in &stat.actions {
-                            match action {
-                                StatOp::SUM => temp[0] = ksf("can't sum blobs"),
-                                StatOp::MEAN => temp[1] = ksf("can't mean blobs"),
-                                StatOp::MEDIAN => temp[2] = ksf("can't median blobs"),
-                                StatOp::MODE => temp[3] = ksf("can't mode blobs"),
-                                StatOp::STDEV => temp[4] = ksf("can't stdev blobs"),
-                            }
-                        }
-                        result.add_column(stat.column, DbColumn::Texts(temp))?;
-                    },
                 }
             }
 
@@ -1785,7 +1894,6 @@ pub fn keys_to_indexes(table: &ColumnTable, keys: &RangeOrListOrAll) -> Result<V
                     indexes = (first..last).collect();
                 },
                 DbColumn::Floats(_n) => unreachable!("There should never be a float primary key"),
-                DbColumn::Blobs(_n) => unreachable!("There should never be a blob primary key"),
             }
         },
         RangeOrListOrAll::List(ref keys) => {
@@ -1819,7 +1927,6 @@ pub fn keys_to_indexes(table: &ColumnTable, keys: &RangeOrListOrAll) -> Result<V
                     }
                 },
                 DbColumn::Floats(_) => unreachable!("There should never be a float primary key"),
-                DbColumn::Blobs(_) => unreachable!("There should never be a blob primary key"),
             }
         },
         RangeOrListOrAll::All => indexes = (0..table.len()).collect(),
@@ -1855,7 +1962,6 @@ pub fn filter_keepers(conditions: &Vec<OpOrCond>, primary_keys: &RangeOrListOrAl
                                     DbColumn::Ints(col) => if col[*index] == bar.to_i32() {keepers.push(*index)},
                                     DbColumn::Floats(col) => if col[*index] == bar.to_f32() {keepers.push(*index)},
                                     DbColumn::Texts(col) => if col[*index] == bar.to_keystring() {keepers.push(*index)},
-                                    DbColumn::Blobs(col) => if col[*index] == bar.to_blob() {keepers.push(*index)},
                                 }
                             },
                             Test::NotEquals(bar) => {
@@ -1863,7 +1969,6 @@ pub fn filter_keepers(conditions: &Vec<OpOrCond>, primary_keys: &RangeOrListOrAl
                                     DbColumn::Ints(col) => if col[*index] != bar.to_i32() {keepers.push(*index)},
                                     DbColumn::Floats(col) => if col[*index] != bar.to_f32() {keepers.push(*index)},
                                     DbColumn::Texts(col) => if col[*index] != bar.to_keystring() {keepers.push(*index)},
-                                    DbColumn::Blobs(col) => if col[*index] != bar.to_blob() {keepers.push(*index)},
                                 }
                             },
                             Test::Less(bar) => {
@@ -1871,7 +1976,6 @@ pub fn filter_keepers(conditions: &Vec<OpOrCond>, primary_keys: &RangeOrListOrAl
                                     DbColumn::Ints(col) => if col[*index] < bar.to_i32() {keepers.push(*index)},
                                     DbColumn::Floats(col) => if col[*index] < bar.to_f32() {keepers.push(*index)},
                                     DbColumn::Texts(col) => if col[*index] < bar.to_keystring() {keepers.push(*index)},
-                                    DbColumn::Blobs(col) => if col[*index].as_slice() < bar.to_blob() {keepers.push(*index)},
                                 }
                             },
                             Test::Greater(bar) => {
@@ -1879,7 +1983,6 @@ pub fn filter_keepers(conditions: &Vec<OpOrCond>, primary_keys: &RangeOrListOrAl
                                     DbColumn::Ints(col) => if col[*index] > bar.to_i32() {keepers.push(*index)},
                                     DbColumn::Floats(col) => if col[*index] > bar.to_f32() {keepers.push(*index)},
                                     DbColumn::Texts(col) => if col[*index] > bar.to_keystring() {keepers.push(*index)},
-                                    DbColumn::Blobs(col) => if col[*index].as_slice() > bar.to_blob() {keepers.push(*index)},
                                 }
                             },
                             Test::Starts(bar) => {
@@ -1911,7 +2014,6 @@ pub fn filter_keepers(conditions: &Vec<OpOrCond>, primary_keys: &RangeOrListOrAl
                                     DbColumn::Ints(col) => if col[*keeper] == bar.to_i32() {losers.push(*keeper)},
                                     DbColumn::Floats(col) => if col[*keeper] == bar.to_f32() {losers.push(*keeper)},
                                     DbColumn::Texts(col) => if col[*keeper] == bar.to_keystring() {losers.push(*keeper)},
-                                    DbColumn::Blobs(col) => if col[*keeper] == bar.to_blob() {losers.push(*keeper)},
                                 }
                             },
                             Test::NotEquals(bar) => {
@@ -1919,7 +2021,6 @@ pub fn filter_keepers(conditions: &Vec<OpOrCond>, primary_keys: &RangeOrListOrAl
                                     DbColumn::Ints(col) => if col[*keeper] != bar.to_i32() {losers.push(*keeper)},
                                     DbColumn::Floats(col) => if col[*keeper] != bar.to_f32() {losers.push(*keeper)},
                                     DbColumn::Texts(col) => if col[*keeper] != bar.to_keystring() {losers.push(*keeper)},
-                                    DbColumn::Blobs(col) => if col[*keeper] != bar.to_blob() {losers.push(*keeper)},
                                 }
                             },
                             Test::Less(bar) => {
@@ -1927,7 +2028,6 @@ pub fn filter_keepers(conditions: &Vec<OpOrCond>, primary_keys: &RangeOrListOrAl
                                     DbColumn::Ints(col) => if col[*keeper] < bar.to_i32() {losers.push(*keeper)},
                                     DbColumn::Floats(col) => if col[*keeper] < bar.to_f32() {losers.push(*keeper)},
                                     DbColumn::Texts(col) => if col[*keeper] < bar.to_keystring() {losers.push(*keeper)},
-                                    DbColumn::Blobs(col) => if col[*keeper].as_slice() < bar.to_blob() {losers.push(*keeper)},
                                 }
                             },
                             Test::Greater(bar) => {
@@ -1935,7 +2035,6 @@ pub fn filter_keepers(conditions: &Vec<OpOrCond>, primary_keys: &RangeOrListOrAl
                                     DbColumn::Ints(col) => if col[*keeper] > bar.to_i32() {losers.push(*keeper)},
                                     DbColumn::Floats(col) => if col[*keeper] > bar.to_f32() {losers.push(*keeper)},
                                     DbColumn::Texts(col) => if col[*keeper] > bar.to_keystring() {losers.push(*keeper)},
-                                    DbColumn::Blobs(col) => if col[*keeper].as_slice() > bar.to_blob() {losers.push(*keeper)},
                                 }
                             },
                             Test::Starts(bar) => {
@@ -2033,9 +2132,14 @@ mod tests {
             table_name: ksf("good_table"),
             primary_keys: RangeOrListOrAll::All,
             columns: vec![ksf("id"), ksf("name"), ksf("price")],
-            conditions: Vec::new() 
+            conditions: vec![
+                OpOrCond::Cond(Condition{attribute: ksf("id"), test: Test::Equals(DbValue::Int(4))}),
+                OpOrCond::Op(Operator::AND),
+                OpOrCond::Cond(Condition{attribute: ksf("name"), test: Test::Equals(DbValue::Text(ksf("four")))}),
+                
+            ],
         };
-        let binary = query.to_binary();
+        let binary = query.inline_to_binary();
         println!("query len = {}", binary.len());
         println!("{:?}", binary);
         let parsed = Query::from_binary(&binary).unwrap();

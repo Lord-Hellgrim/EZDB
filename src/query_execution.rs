@@ -7,6 +7,7 @@ use crate::{db_structure::{remove_indices, write_column_table_binary_header, Col
 pub const BUFCAP: usize = 65535;
 
 
+
 pub fn zero_slice(slice: &mut [u8]) {
     for i in slice {
         *i = 0;
@@ -86,7 +87,6 @@ pub enum DbSlice<'a> {
     Ints(&'a [i32]),
     Texts(&'a [KeyString]),
     Floats(&'a [f32]),
-    Blobs(&'a [Vec<u8>]),
 }
 
 impl<'a> DbSlice<'a> {
@@ -95,7 +95,6 @@ impl<'a> DbSlice<'a> {
             DbSlice::Ints(col) => col.len()*size_of::<i32>(),
             DbSlice::Texts(col) => col.len()*size_of::<KeyString>(),
             DbSlice::Floats(col) => col.len()*size_of::<f32>(),
-            DbSlice::Blobs(col) => col.iter().fold(0, |acc, x| acc + x.len()),
         }
     }
 
@@ -107,7 +106,6 @@ pub fn db_slice_from_column<'a>(column: &'a DbColumn, start: usize, end: usize) 
         DbColumn::Ints(vec) => DbSlice::Ints(&vec[start..end]),
         DbColumn::Texts(vec) => DbSlice::Texts(&vec[start..end]),
         DbColumn::Floats(vec) => DbSlice::Floats(&vec[start..end]),
-        DbColumn::Blobs(vec) => DbSlice::Blobs(&vec[start..end]),
     }
 }
 
@@ -138,7 +136,6 @@ impl SubTable<'_> {
                 DbSlice::Floats(col) => col.len(),
                 DbSlice::Ints(col) => col.len(),
                 DbSlice::Texts(col) => col.len(),
-                DbSlice::Blobs(col) => col.len(),
             },
             None => 0,
         }
@@ -224,9 +221,6 @@ pub fn keys_to_indexes_subtable(table: &SubTable, keys: &RangeOrListOrAll) -> Re
                 DbSlice::Floats(_n) => {
                     unreachable!("There should never be a float primary key")
                 },
-                DbSlice::Blobs(_n) => {
-                    unreachable!("There should never be a blob primary key")
-                },
             }
         },
         RangeOrListOrAll::List(ref keys) => {
@@ -247,9 +241,6 @@ pub fn keys_to_indexes_subtable(table: &SubTable, keys: &RangeOrListOrAll) -> Re
                 },
                 DbSlice::Floats(_) => {
                     unreachable!("There should never be a float primary key")
-                },
-                DbSlice::Blobs(_) => {
-                    unreachable!("There should never be a blob primary key")
                 },
                 DbSlice::Texts(column) => {
                     if keys.len() > column.len() {
@@ -300,7 +291,6 @@ pub fn filter_keepers_subtable(conditions: &Vec<OpOrCond>, primary_keys: &RangeO
                                     DbSlice::Ints(col) => if col[*index] == bar.to_i32() {keepers.push(*index)},
                                     DbSlice::Floats(col) => if col[*index] == bar.to_f32() {keepers.push(*index)},
                                     DbSlice::Texts(col) => if col[*index] == bar.to_keystring() {keepers.push(*index)},
-                                    DbSlice::Blobs(col) => if col[*index] == bar.to_blob() {keepers.push(*index)},
                                 }
                             },
                             Test::NotEquals(bar) => {
@@ -308,7 +298,6 @@ pub fn filter_keepers_subtable(conditions: &Vec<OpOrCond>, primary_keys: &RangeO
                                     DbSlice::Ints(col) => if col[*index] != bar.to_i32() {keepers.push(*index)},
                                     DbSlice::Floats(col) => if col[*index] != bar.to_f32() {keepers.push(*index)},
                                     DbSlice::Texts(col) => if col[*index] != bar.to_keystring() {keepers.push(*index)},
-                                    DbSlice::Blobs(col) => if col[*index] != bar.to_blob() {keepers.push(*index)},
                                 }
                             },
                             Test::Less(bar) => {
@@ -316,7 +305,6 @@ pub fn filter_keepers_subtable(conditions: &Vec<OpOrCond>, primary_keys: &RangeO
                                     DbSlice::Ints(col) => if col[*index] < bar.to_i32() {keepers.push(*index)},
                                     DbSlice::Floats(col) => if col[*index] < bar.to_f32() {keepers.push(*index)},
                                     DbSlice::Texts(col) => if col[*index] < bar.to_keystring() {keepers.push(*index)},
-                                    DbSlice::Blobs(col) => if col[*index].as_slice() < bar.to_blob() {keepers.push(*index)},
                                 }
                             },
                             Test::Greater(bar) => {
@@ -324,7 +312,6 @@ pub fn filter_keepers_subtable(conditions: &Vec<OpOrCond>, primary_keys: &RangeO
                                     DbSlice::Ints(col) => if col[*index] > bar.to_i32() {keepers.push(*index)},
                                     DbSlice::Floats(col) => if col[*index] > bar.to_f32() {keepers.push(*index)},
                                     DbSlice::Texts(col) => if col[*index] > bar.to_keystring() {keepers.push(*index)},
-                                    DbSlice::Blobs(col) => if col[*index].as_slice() > bar.to_blob() {keepers.push(*index)},
                                 }
                             },
                             Test::Starts(bar) => {
@@ -356,7 +343,6 @@ pub fn filter_keepers_subtable(conditions: &Vec<OpOrCond>, primary_keys: &RangeO
                                     DbSlice::Ints(col) => if col[*keeper] == bar.to_i32() {losers.push(*keeper)},
                                     DbSlice::Floats(col) => if col[*keeper] == bar.to_f32() {losers.push(*keeper)},
                                     DbSlice::Texts(col) => if col[*keeper] == bar.to_keystring() {losers.push(*keeper)},
-                                    DbSlice::Blobs(col) => if col[*keeper] == bar.to_blob() {losers.push(*keeper)},
                                 }
                             },
                             Test::NotEquals(bar) => {
@@ -364,7 +350,6 @@ pub fn filter_keepers_subtable(conditions: &Vec<OpOrCond>, primary_keys: &RangeO
                                     DbSlice::Ints(col) => if col[*keeper] != bar.to_i32() {losers.push(*keeper)},
                                     DbSlice::Floats(col) => if col[*keeper] != bar.to_f32() {losers.push(*keeper)},
                                     DbSlice::Texts(col) => if col[*keeper] != bar.to_keystring() {losers.push(*keeper)},
-                                    DbSlice::Blobs(col) => if col[*keeper] != bar.to_blob() {losers.push(*keeper)},
                                 }
                             },
                             Test::Less(bar) => {
@@ -372,7 +357,6 @@ pub fn filter_keepers_subtable(conditions: &Vec<OpOrCond>, primary_keys: &RangeO
                                     DbSlice::Ints(col) => if col[*keeper] < bar.to_i32() {losers.push(*keeper)},
                                     DbSlice::Floats(col) => if col[*keeper] < bar.to_f32() {losers.push(*keeper)},
                                     DbSlice::Texts(col) => if col[*keeper] < bar.to_keystring() {losers.push(*keeper)},
-                                    DbSlice::Blobs(col) => if col[*keeper].as_slice() < bar.to_blob() {losers.push(*keeper)},
                                 }
                             },
                             Test::Greater(bar) => {
@@ -380,7 +364,6 @@ pub fn filter_keepers_subtable(conditions: &Vec<OpOrCond>, primary_keys: &RangeO
                                     DbSlice::Ints(col) => if col[*keeper] > bar.to_i32() {losers.push(*keeper)},
                                     DbSlice::Floats(col) => if col[*keeper] > bar.to_f32() {losers.push(*keeper)},
                                     DbSlice::Texts(col) => if col[*keeper] > bar.to_keystring() {losers.push(*keeper)},
-                                    DbSlice::Blobs(col) => if col[*keeper].as_slice() > bar.to_blob() {losers.push(*keeper)},
                                 }
                             },
                             Test::Starts(bar) => {

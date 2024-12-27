@@ -91,7 +91,6 @@ pub enum DbValue {
     Int(i32),
     Float(f32),
     Text(KeyString),
-    Blob(Vec<u8>),
 }
 
 impl Display for DbValue {
@@ -100,7 +99,6 @@ impl Display for DbValue {
             DbValue::Int(x) => write!(f,"Value: '{}'", x),
             DbValue::Float(x) => write!(f,"Value: '{}'", x),
             DbValue::Text(x) => write!(f,"Value: '{}'", x),
-            DbValue::Blob(x) => write!(f,"Value: '{:x?}'", x),
         }
     }
 }
@@ -128,35 +126,25 @@ impl DbValue {
         }
     }
 
-    pub fn to_blob(&self) -> &[u8] {
-        match self {
-            DbValue::Blob(blob) => blob,
-            x => panic!("A call to DbValue.to_blob() failed. Actual value: '{}'", x)
-        }
-    }
 
-    pub fn to_binary(&self) -> Vec<u8> {
-        let mut binary = Vec::new();
+    pub fn to_binary(&self) -> [u8;72] {
+        let mut binary = [0u8;72];
         match self {
             DbValue::Int(i) => {
-                binary.push(b'i');
-                binary.extend_from_slice(&[0,0,0]);
-                binary.extend_from_slice(&i.to_le_bytes());
+                binary[0] = b'i';
+                binary[1..4].copy_from_slice(&[0,0,0]);
+                binary[4..8].copy_from_slice(&i.to_le_bytes());
             }
             DbValue::Float(i) => {
-                binary.push(b'f');
-                binary.extend_from_slice(&[0,0,0]);
-                binary.extend_from_slice(&i.to_le_bytes());
+                binary[0] = b'f';
+                binary[1..4].copy_from_slice(&[0,0,0]);
+                binary[4..8].copy_from_slice(&i.to_le_bytes());
+
             }
             DbValue::Text(key_string) => {
-                binary.push(b't');
-                binary.extend_from_slice(&[0u8;7]);
-                binary.extend_from_slice(key_string.raw());
-            }
-            DbValue::Blob(vec) => {
-                binary.push(b'B');
-                binary.extend_from_slice(&vec.len().to_le_bytes()[1..]);
-                binary.extend_from_slice(vec);
+                binary[0] = b't';
+                binary[1..8].copy_from_slice(&[0u8;7]);
+                binary[8..72].copy_from_slice(key_string.raw());
             }
         };
 
@@ -182,10 +170,6 @@ impl DbValue {
                 let ks = KeyString::try_from(&binary[8..72])?;
                 Ok(DbValue::Text(ks))
             }
-            b'B' => {
-                let len = u64_from_le_slice(&[0,binary[1], binary[2], binary[3], binary[4], binary[5], binary[6], binary[7]]) as usize;
-                Ok(DbValue::Blob(binary[8..8+len].to_vec()))
-            }
             other => return Err(EzError { tag: ErrorTag::Deserialization, text: format!("Unsupported data type: '{}'", other) })
         }
     }
@@ -197,7 +181,6 @@ pub enum DbType {
     Int,
     Float,
     Text,
-    Blob,
 }
 
 impl Cbor for DbType {
@@ -209,7 +192,6 @@ impl Cbor for DbType {
             DbType::Int => bytes.push(0xc6),
             DbType::Float => bytes.push(0xc6+1),
             DbType::Text => bytes.push(0xc6+2),
-            DbType::Blob => bytes.push(0xc6+3),
         };
         bytes
     }
@@ -239,7 +221,6 @@ pub enum DbColumn {
     Ints(Vec<i32>),
     Texts(Vec<KeyString>),
     Floats(Vec<f32>),
-    Blobs(Vec<Vec<u8>>),
 }
 
 impl Display for DbColumn {
@@ -250,7 +231,6 @@ impl Display for DbColumn {
             DbColumn::Ints(v) => write!(f, "{:?}", v),
             DbColumn::Floats(v) => write!(f, "{:?}", v),
             DbColumn::Texts(v) => write!(f, "{:?}", v),
-            DbColumn::Blobs(v) => write!(f, "{:x?}", v),
         }
     }
 }
@@ -275,10 +255,6 @@ impl Cbor for DbColumn {
                 bytes.extend_from_slice(&col.to_cbor_bytes());
 
             },
-            DbColumn::Blobs(col) => {
-                bytes.push(0xc6+3);
-                bytes.extend_from_slice(&col.to_cbor_bytes());
-            }
         }
         bytes
     }
@@ -316,7 +292,6 @@ impl DbColumn {
             DbColumn::Floats(v) => v.len(),
             DbColumn::Ints(v) => v.len(),
             DbColumn::Texts(v) => v.len(),
-            DbColumn::Blobs(v) => v.len(),
         }
     }
 
@@ -362,7 +337,6 @@ impl Display for HeaderItem {
             DbType::Float => printer.push('f'),
             DbType::Int => printer.push('i'),
             DbType::Text => printer.push('t'),
-            DbType::Blob => printer.push('B'),
         }
         match &self.key {
             TableKey::Primary => printer.push_str("-P"),
@@ -557,7 +531,6 @@ impl Display for ColumnTable {
                         printer.push_str(col[i].as_str());
                         printer.push(';');
                     },
-                    DbColumn::Blobs(_) => unreachable!("Cannot put blobs in a csv"),
                 }
             }
             printer.pop();
@@ -589,7 +562,6 @@ impl ColumnTable {
                 DbType::Int => columns.insert(head.name, DbColumn::Ints(Vec::new())),
                 DbType::Float => columns.insert(head.name, DbColumn::Floats(Vec::new())),
                 DbType::Text => columns.insert(head.name, DbColumn::Texts(Vec::new())),
-                DbType::Blob => columns.insert(head.name, DbColumn::Texts(Vec::new())),
             };
         }
 
@@ -753,9 +725,6 @@ impl ColumnTable {
                     }
                     DbColumn::Texts(outvec)
                 }
-                DbType::Blob => {
-                    return Err(EzError { tag: ErrorTag::Deserialization, text: format!("There cannot be Blob values in a csv") })
-                },
             };
 
             result.insert(header.iter().nth(i).unwrap().name, db_vec);
@@ -793,7 +762,6 @@ impl ColumnTable {
                 }
             }
             DbColumn::Floats(_) => unreachable!("Should never have a float primary key. Something went wrong in the parsing csv code near column {} line{}. Abort and crash.", column!(), line!()),
-            DbColumn::Blobs(_) => unreachable!("Should never have a blob primary key. Something went wrong in the parsing csv code near column {} line{}. Abort and crash.", column!(), line!()),
         }
 
         let header: BTreeSet<HeaderItem> = header.iter().cloned().collect();
@@ -842,7 +810,6 @@ impl ColumnTable {
                 }
             },
             DbColumn::Floats(_column) => unreachable!("There should never be a float primary key"),
-            DbColumn::Blobs(_column) => unreachable!("There should never be a blob primary key"),
         }
 
         input_table.delete_by_indexes(&losers);
@@ -895,7 +862,6 @@ impl ColumnTable {
                 DbColumn::Ints(c) => total += c.len() * 4,
                 DbColumn::Floats(c) => total += c.len() * 4,
                 DbColumn::Texts(c) => total += c.len() * 64,
-                DbColumn::Blobs(c) => total += c.iter().fold(0, |acc, x| acc + x.len()),
             }
         }
         total
@@ -922,7 +888,6 @@ impl ColumnTable {
             DbColumn::Ints(_) => DbType::Int,
             DbColumn::Texts(_) => DbType::Text,
             DbColumn::Floats(_) => unreachable!("There should never be a float primary key"),
-            DbColumn::Blobs(_) => unreachable!("There should never be a blob primary key"),
         }
     }
 
@@ -956,7 +921,6 @@ impl ColumnTable {
                 _ => unreachable!("Should always have the same primary key column"),
             },
             DbColumn::Floats(_) => unreachable!("Should never have a float primary key column"),
-            DbColumn::Blobs(_) => unreachable!("Should never have a Blob primary key column"),
         }
 
         let pk = self.get_primary_key_col_index();
@@ -979,12 +943,6 @@ impl ColumnTable {
                 },
                 DbColumn::Floats(col) => match &other_table.columns[key] {
                     DbColumn::Floats(other_col) => {
-                        *col = merge_in_order(col, other_col, &record_vec);
-                    }
-                    _ => unreachable!("Should always have the same type column"),
-                },
-                DbColumn::Blobs(col) => match &other_table.columns[key] {
-                    DbColumn::Blobs(other_col) => {
                         *col = merge_in_order(col, other_col, &record_vec);
                     }
                     _ => unreachable!("Should always have the same type column"),
@@ -1012,7 +970,6 @@ impl ColumnTable {
                 }
             },
             DbColumn::Floats(_) => unreachable!("There should never be a float primary key"),
-            DbColumn::Blobs(_) => unreachable!("There should never be a blob primary key"),
         }
     }
 
@@ -1024,7 +981,6 @@ impl ColumnTable {
                 DbColumn::Floats(col) => col.len(),
                 DbColumn::Ints(col) => col.len(),
                 DbColumn::Texts(col) => col.len(),
-                DbColumn::Blobs(col) => col.len(),
             },
             None => 0,
         }
@@ -1049,7 +1005,6 @@ impl ColumnTable {
                 indexer.sort_unstable_by_key(|&i| &col[i]);
             }
             DbColumn::Floats(_) => unreachable!("There should never be a float primary key"),
-            DbColumn::Blobs(_) => unreachable!("There should never be a blob primary key"),
         }
 
         for column in self.columns.iter_mut() {
@@ -1057,7 +1012,6 @@ impl ColumnTable {
                 DbColumn::Floats(col) => rearrange_by_index(col, &indexer),
                 DbColumn::Ints(col) => rearrange_by_index(col, &indexer),
                 DbColumn::Texts(col) => rearrange_by_index(col, &indexer),
-                DbColumn::Blobs(col) => rearrange_by_index(col, &indexer),
             }
         };
     }
@@ -1085,7 +1039,6 @@ impl ColumnTable {
                     let item = &col[index];
                     output.push_str(item.as_str());
                 }
-                DbColumn::Blobs(_) => return Err(EzError { tag: ErrorTag::Serialization, text: format!("cannot push a blob to a csv string") })
             }
 
             output.push(';');
@@ -1130,19 +1083,6 @@ impl ColumnTable {
 
     }
 
-    pub fn get_column_blob<'a>(&'a self, index: &KeyString) -> Result<&'a Vec<Vec<u8>>, EzError> {
-        
-
-        match self.columns.get(index) {
-            Some(dbcol) => match dbcol {
-                DbColumn::Blobs(column) => Ok(column),
-                _ => Err(EzError{tag: ErrorTag::Structure, text: "Wrong column type".to_owned()}),
-            },
-            None => Err(EzError{tag: ErrorTag::Structure, text: format!("No such column as {}", index)})
-        }
-
-    }
-
     pub fn subtable_from_indexes(&self, indexes: &[usize], new_name: &KeyString) -> ColumnTable {
         
         let mut result_columns = BTreeMap::new();
@@ -1171,13 +1111,6 @@ impl ColumnTable {
                             temp.push(column[*index]);
                         }
                         result_columns.insert(*key, DbColumn::Texts(temp));
-                    },
-                    DbColumn::Blobs(column) => {
-                        let mut temp = Vec::with_capacity(indexes.len());
-                        for index in indexes {
-                            temp.push(column[*index].clone());
-                        }
-                        result_columns.insert(*key, DbColumn::Blobs(temp));
                     },
                 }
             }
@@ -1252,7 +1185,6 @@ impl ColumnTable {
                 DbType::Int => temp_tree.insert(item.name, DbColumn::Ints(Vec::with_capacity(line_keys.len()))),
                 DbType::Float => temp_tree.insert(item.name, DbColumn::Floats(Vec::with_capacity(line_keys.len()))),
                 DbType::Text => temp_tree.insert(item.name, DbColumn::Texts(Vec::with_capacity(line_keys.len()))),
-                DbType::Blob => temp_tree.insert(item.name, DbColumn::Blobs(Vec::with_capacity(line_keys.len()))),
             };
         }
 
@@ -1316,14 +1248,6 @@ impl ColumnTable {
                         }
                     }
                 },
-                DbColumn::Blobs(col) => {
-                    for index in &indexes {
-                        match temp_table.columns.get_mut(key).unwrap() {
-                            DbColumn::Blobs(temp) => temp.push(col[*index].clone()),
-                            _ => unreachable!("Source and target column should always have the same type"),
-                        }
-                    }
-                },
             }
         }
 
@@ -1350,9 +1274,6 @@ impl ColumnTable {
                 },
                 DbColumn::Floats(column) => {
                     subtable.insert(*key, DbColumn::Floats(column[start..stop].to_vec()));
-                },
-                DbColumn::Blobs(column) => {
-                    subtable.insert(*key, DbColumn::Blobs(column[start..stop].to_vec()));
                 },
                 DbColumn::Texts(column) => {
                     subtable.insert(*key, DbColumn::Texts(column[start..stop].to_vec()));
@@ -1427,7 +1348,6 @@ impl ColumnTable {
                 indexes[1] = index;
             },
             DbColumn::Floats(_) => return Err(EzError{tag: ErrorTag::Structure, text: "There should never be a float primary key".to_owned()}),
-            DbColumn::Blobs(_) => return Err(EzError{tag: ErrorTag::Structure, text: "There should never be a blob primary key".to_owned()}),
         }
 
         for col in self.columns.values_mut() {
@@ -1439,9 +1359,6 @@ impl ColumnTable {
                     v.drain(indexes[0]..indexes[1]);
                 }
                 DbColumn::Texts(v) => {
-                    v.drain(indexes[0]..indexes[1]);
-                }
-                DbColumn::Blobs(v) => {
                     v.drain(indexes[0]..indexes[1]);
                 }
             };
@@ -1481,7 +1398,6 @@ impl ColumnTable {
                     indexes.push(index);
                 },
                 DbColumn::Floats(_) => return Err(EzError{tag: ErrorTag::Structure, text: "There should never be a float primary key".to_owned()}),
-                DbColumn::Blobs(_) => return Err(EzError{tag: ErrorTag::Structure, text: "There should never be a blob primary key".to_owned()}),
             }
         }
 
@@ -1495,9 +1411,6 @@ impl ColumnTable {
                     remove_indices(v, &indexes);
                 }
                 DbColumn::Texts(v) => {
-                    remove_indices(v, &indexes);
-                }
-                DbColumn::Blobs(v) => {
                     remove_indices(v, &indexes);
                 }
             };
@@ -1555,10 +1468,6 @@ impl ColumnTable {
                 "If we ever get here then the table is invalid. Crash immediately.\n###################\nTable name: {}\n##########################"
                 , self.name
             ),
-            DbColumn::Blobs(_) => unreachable!(
-                "If we ever get here then the table is invalid. Crash immediately.\n###################\nTable name: {}\n##########################"
-                , self.name
-            ),
         }
 
         let imut = self.columns.values_mut();
@@ -1571,9 +1480,6 @@ impl ColumnTable {
                     remove_indices(v, &indexes);
                 }
                 DbColumn::Texts(v) => {
-                    remove_indices(v, &indexes);
-                }
-                DbColumn::Blobs(v) => {
                     remove_indices(v, &indexes);
                 }
             };
@@ -1595,9 +1501,6 @@ impl ColumnTable {
                     remove_indices(v, indexes);
                 }
                 DbColumn::Texts(v) => {
-                    remove_indices(v, indexes);
-                }
-                DbColumn::Blobs(v) => {
                     remove_indices(v, indexes);
                 }
             };
@@ -1625,9 +1528,6 @@ impl ColumnTable {
                 DbColumn::Texts(col) => {
                     *col = Vec::with_capacity(0);
                 },
-                DbColumn::Blobs(col) => {
-                    *col = Vec::with_capacity(0);
-                },
             }
         }
     }
@@ -1638,7 +1538,6 @@ impl ColumnTable {
             DbColumn::Ints(_) => DbType::Int,
             DbColumn::Texts(_) => DbType::Text,
             DbColumn::Floats(_) => DbType::Float,
-            DbColumn::Blobs(_) => DbType::Blob,
         };
 
         if self.columns.is_empty() {
@@ -1683,10 +1582,6 @@ impl ColumnTable {
                 },
                 DbColumn::Floats(vec) => {
                     let src_col = source_table.get_column_float(&name).unwrap();
-                    vec.extend_from_slice(src_col);
-                },
-                DbColumn::Blobs(vec) => {
-                    let src_col = source_table.get_column_blob(&name).unwrap();
                     vec.extend_from_slice(src_col);
                 },
             }
@@ -1734,7 +1629,6 @@ impl ColumnTable {
                 }
             },
             DbColumn::Floats(_column) => unreachable!("Can never have a float key column"),
-            DbColumn::Blobs(_column) => unreachable!("Can never have a blob key column"),
         }
         
         for (name, column) in right_table.columns.iter() {
@@ -1764,13 +1658,6 @@ impl ColumnTable {
                     }
                     self.add_column(*name, DbColumn::Floats(new_column))?;
                 },
-                DbColumn::Blobs(col) => {
-                    let mut new_column = Vec::with_capacity(indexes.len());
-                    for index in &indexes {
-                        new_column.push(col[*index].clone());
-                    }
-                    self.add_column(*name, DbColumn::Blobs(new_column))?;
-                },
             }
         }
 
@@ -1780,8 +1667,6 @@ impl ColumnTable {
 
     pub fn left_join(&mut self, right_table: &ColumnTable, predicate_column: &KeyString) -> Result<(), EzError> {
         
-
-
         match self.columns.keys().find(|x| **x == *predicate_column) {
             Some(_) => (),
             None => return Err(EzError{tag: ErrorTag::Query, text: "Predicate column is not common".to_owned()})
@@ -1791,7 +1676,6 @@ impl ColumnTable {
             Some(_) => (),
             None => return Err(EzError{tag: ErrorTag::Query, text: "Predicate column is not common".to_owned()})
         };
-
         
         let mut indexes: Vec<usize> = Vec::with_capacity(self.len());
         match &self.columns[predicate_column] {
@@ -1830,7 +1714,6 @@ impl ColumnTable {
                 }
             },
             DbColumn::Floats(_column) => unreachable!("Can never have a float key column"),
-            DbColumn::Blobs(_column) => unreachable!("Can never have a blob key column"),
 
         }
         
@@ -1861,13 +1744,6 @@ impl ColumnTable {
                     }
                     self.add_column(*name, DbColumn::Floats(new_column))?;
                 },
-                DbColumn::Blobs(col) => {
-                    let mut new_column = Vec::with_capacity(indexes.len());
-                    for index in &indexes {
-                        new_column.push(col[*index].clone());
-                    }
-                    self.add_column(*name, DbColumn::Blobs(new_column))?;
-                },
             }
         }
 
@@ -1885,7 +1761,6 @@ impl ColumnTable {
                 DbColumn::Ints(vec) => acc += vec.len() * 4,
                 DbColumn::Texts(vec) => acc += vec.len() * 64,
                 DbColumn::Floats(vec) => acc += vec.len() * 4,
-                DbColumn::Blobs(vec) => acc += vec.iter().fold(0, |acc, x| acc + x.len()),
             }
         }
 
@@ -1901,7 +1776,6 @@ impl ColumnTable {
                 DbColumn::Ints(_) => acc += 4,
                 DbColumn::Texts(_) => acc += 64,
                 DbColumn::Floats(_) => acc += 4,
-                DbColumn::Blobs(vec) => return Err(EzError{tag: ErrorTag::Structure, text: format!("Cannot size a table row that contains blobs")}),
             }
         }
 
@@ -1932,14 +1806,6 @@ impl ColumnTable {
                 DbColumn::Texts(col) => {
                     for item in col {
                         binary.extend_from_slice(item.raw());
-                    }
-                }
-                DbColumn::Blobs(col) => {
-                    for blob in col {
-                        binary.extend_from_slice(&blob.len().to_le_bytes());
-                    }
-                    for blob in col {
-                        binary.extend_from_slice(blob);
                     }
                 }
             };
@@ -1976,7 +1842,6 @@ impl ColumnTable {
                 b'i' => DbType::Int,
                 b'f' => DbType::Float,
                 b't' => DbType::Text,
-                b'B' => DbType::Text,
                 _ => panic!("TODO: Make this a proper error"),
             };
             let key = match chunk[7] {
@@ -2029,21 +1894,6 @@ impl ColumnTable {
                     pointer += column_len * 64;
                     columns.insert(item.name, DbColumn::Texts(v));
                 },
-                DbType::Blob => {
-                    let mut offsets = Vec::new();
-                    let mut blobs = Vec::new();
-                    for _i in 0..column_len {
-                        offsets.push(u64_from_le_slice(&binary[pointer..pointer+8]) as usize);
-                        pointer += 8;
-                    }
-                    for i in 0..column_len {
-                        let len = offsets[i];
-                        let col = binary[pointer+8..pointer+8+len].to_vec();
-                        blobs.push(col);
-                        pointer += len;
-                    }
-                    columns.insert(item.name, DbColumn::Blobs(blobs));
-                }
             }
         }
 
@@ -2082,7 +1932,6 @@ pub fn write_column_table_binary_header(binary: &mut Vec<u8>, table: &ColumnTabl
             DbType::Int => b'i',
             DbType::Float => b'f',
             DbType::Text => b't',
-            DbType::Blob => b'B',
         };
         let key_type = match &item.key {
             TableKey::Primary => b'P',
@@ -2142,7 +1991,6 @@ pub fn subtable_from_keys(table: &ColumnTable, mut keys: Vec<KeyString>) -> Resu
             }
         },
         DbType::Float => unreachable!("There should never be a float primary key"),
-        DbType::Blob => unreachable!("The should never be a blob primary key"),
     };
 
     Ok(
