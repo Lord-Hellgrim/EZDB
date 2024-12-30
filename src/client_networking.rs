@@ -75,7 +75,6 @@ pub fn send_kv_queries(connection: &mut Connection, queries: &[KvQuery]) -> Resu
     
 
     Ok(results)
-
 }
 
 

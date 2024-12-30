@@ -408,7 +408,6 @@ pub enum TableKey {
 
 impl Cbor for TableKey {
     fn to_cbor_bytes(&self) -> Vec<u8> {
-        
 
         let mut bytes = Vec::new();
         match self {
@@ -424,7 +423,6 @@ impl Cbor for TableKey {
             Self: Sized 
     {
         
-
         match expected_data_item(bytes[0]) {
             DataItem::Tag(byte) => match byte {
                 0 => Ok((TableKey::Primary, 1)),

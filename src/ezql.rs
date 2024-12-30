@@ -585,6 +585,81 @@ impl Query {
         }
 
     }
+
+    pub fn new_select(table_name: &str) -> Query {
+        Query::SELECT {
+            table_name: ksf(table_name),
+            primary_keys: RangeOrListOrAll::All,
+            columns: Vec::new(),
+            conditions: Vec::new(),
+        }
+    }
+
+    pub fn and_condition(mut self, condition: Condition) -> Query {
+        match &mut self {
+            Query::SELECT { table_name, primary_keys, columns, conditions } => {
+                if conditions.is_empty() {
+                    ()
+                } else {
+                    conditions.push(OpOrCond::Op(Operator:: AND));
+                }
+                conditions.push(OpOrCond::Cond(condition));
+
+            },
+            Query::UPDATE { table_name, primary_keys, conditions, updates } => {
+                if conditions.is_empty() {
+                    ()
+                } else {
+                    conditions.push(OpOrCond::Op(Operator:: AND));
+                }
+                conditions.push(OpOrCond::Cond(condition));
+            },
+            Query::DELETE { primary_keys, table_name, conditions } => {
+                if conditions.is_empty() {
+                    ()
+                } else {
+                    conditions.push(OpOrCond::Op(Operator:: AND));
+                }
+                conditions.push(OpOrCond::Cond(condition));
+            },
+            _ => ()
+        };
+
+        self
+    }
+
+    pub fn or_condition(mut self, condition: Condition) -> Query {
+        match &mut self {
+            Query::SELECT { table_name, primary_keys, columns, conditions } => {
+                if conditions.is_empty() {
+                    ()
+                } else {
+                    conditions.push(OpOrCond::Op(Operator::OR));
+                }
+                conditions.push(OpOrCond::Cond(condition));
+
+            },
+            Query::UPDATE { table_name, primary_keys, conditions, updates } => {
+                if conditions.is_empty() {
+                    ()
+                } else {
+                    conditions.push(OpOrCond::Op(Operator::OR));
+                }
+                conditions.push(OpOrCond::Cond(condition));
+            },
+            Query::DELETE { primary_keys, table_name, conditions } => {
+                if conditions.is_empty() {
+                    ()
+                } else {
+                    conditions.push(OpOrCond::Op(Operator::OR));
+                }
+                conditions.push(OpOrCond::Cond(condition));
+            },
+            _ => ()
+        };
+
+        self
+    }
 }
 
 pub fn parse_queries_from_binary(binary: &[u8]) -> Result<Vec<Query>, EzError> {
