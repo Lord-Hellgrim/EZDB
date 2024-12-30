@@ -9,6 +9,11 @@ import "core:slice"
 
 import "core:simd"
 
+import "core:fmt"
+
+import "core:bytes"
+import "core:net"
+
 import "core:unicode/utf8"
 
 /// A constant specifying the size in bytes of public keys and DH outputs. For security reasons, DHLEN must be 32 or greater.
@@ -23,7 +28,7 @@ BLOCKLEN: uintptr : 128;
 IPAD: [BLOCKLEN]u8 : 0x36
 OPAD: [BLOCKLEN]u8 : 0x5c
 
-MAX_PACKET_SIZE: uintptr : 65535;
+MAX_PACKET_SIZE: u64 : 65535;
 
 PROTOCOL_NAME :: "Noise_NK_25519_AESGCM_SHA512";
 
@@ -225,7 +230,8 @@ HandshakeState :: struct {
     rs: [HASHLEN]u8,
     re: [HASHLEN]u8,
     initiator: bool,
-    message_patterns: [][]Token
+    message_patterns: [][]Token,
+    current_pattern: int,
 }
 
 
@@ -337,7 +343,7 @@ symmetricstate_MixKey :: proc(self: ^SymmetricState, input_key_material: [HASHLE
 /// Calls MixHash(temp_h).
 /// If HASHLEN is 64, then truncates temp_k to 32 bytes.
 /// Calls InitializeKey(temp_k).
-MixKeyAndHash :: proc(self: ^SymmetricState, input_key_material: [HASHLEN]u8) {
+symmetricstate_MixKeyAndHash :: proc(self: ^SymmetricState, input_key_material: [HASHLEN]u8) {
     input_key_material := input_key_material
     ck, temp_h, temp_k := HKDF(self.ck, input_key_material[:])
     self.ck = ck
@@ -353,7 +359,7 @@ symmetricstate_GetHandshakeHash :: proc(self: ^SymmetricState) -> [HASHLEN]u8 {
 
 /// Sets ciphertext = EncryptWithAd(h, plaintext), calls MixHash(ciphertext), and returns ciphertext. 
 /// Note that if k is empty, the EncryptWithAd() call will set ciphertext equal to plaintext.
-EncryptAndHash :: proc(self:  ^SymmetricState, plaintext: []u8) -> []u8{
+symmetricstate_EncryptAndHash :: proc(self:  ^SymmetricState, plaintext: []u8) -> []u8{
     ciphertext := cipherstate_EncryptWithAd(&self.cipherstate, self.h[:], plaintext)
     symmetricstate_MixHash(self, ciphertext)
     return ciphertext
@@ -361,7 +367,7 @@ EncryptAndHash :: proc(self:  ^SymmetricState, plaintext: []u8) -> []u8{
 
 /// Sets plaintext = DecryptWithAd(h, ciphertext), calls MixHash(ciphertext), and returns plaintext. 
 /// Note that if k is empty, the DecryptWithAd() call will set plaintext equal to ciphertext.
-DecryptAndHash :: proc(self:  ^SymmetricState, ciphertext: []u8) -> ([]u8, NoiseError) {
+symmetricstate_DecryptAndHash :: proc(self:  ^SymmetricState, ciphertext: []u8) -> ([]u8, NoiseError) {
     result, decrypt_error := cipherstate_DecryptWithAd(&self.cipherstate, self.h[:], ciphertext)
     symmetricstate_MixHash(self, ciphertext)
     return result, .NoError
@@ -373,7 +379,7 @@ DecryptAndHash :: proc(self:  ^SymmetricState, ciphertext: []u8) -> ([]u8, Noise
 /// Creates two new CipherState objects c1 and c2.
 /// Calls c1.InitializeKey(temp_k1) and c2.InitializeKey(temp_k2).
 /// Returns the pair (c1, c2).
-Split :: proc(self: ^SymmetricState) -> (CipherState, CipherState) {
+symmetricstate_Split :: proc(self: ^SymmetricState) -> (CipherState, CipherState) {
     temp_k1, temp_k2, _ := HKDF(self.ck, nil)
     c1 := cipherstate_InitializeKey(temp_k1)
     c2 := cipherstate_InitializeKey(temp_k2)
@@ -414,7 +420,7 @@ handshakestate_Initialize :: proc(
     rs: [HASHLEN]u8,
     re: [HASHLEN]u8,
 ) -> HandshakeState {
-    handshake_pattern_NK : [][]Token= {
+    handshake_pattern_NK : [][]Token = {
         {.e},
         {.e, .ee, .s, .es},
         {.s, .se}
@@ -430,319 +436,353 @@ handshakestate_Initialize :: proc(
         re = re,
         initiator = initiator,
         message_patterns = handshake_pattern_NK,
+        current_pattern = 0,
     };
 
     return output
 }
 
-//     /// Takes a payload byte sequence which may be zero-length, and a message_buffer to write the output into. 
-//     /// Performs the following steps, aborting if any EncryptAndHash() call returns an error:
-    
-//     /// Fetches and deletes the next message pattern from message_patterns, then sequentially processes each token from the message pattern:
-    
-//     /// For "e": Sets e (which must be empty) to GENERATE_KEYPAIR(). Appends e.public_key to the buffer. Calls MixHash(e.public_key).
-    
-//     /// For "s": Appends EncryptAndHash(s.public_key) to the buffer.
-    
-//     /// For "ee": Calls MixKey(DH(e, re)).
-    
-//     /// For "es": Calls MixKey(DH(e, rs)) if initiator, MixKey(DH(s, re)) if responder.
-    
-//     /// For "se": Calls MixKey(DH(s, re)) if initiator, MixKey(DH(e, rs)) if responder.
-    
-//     /// For "ss": Calls MixKey(DH(s, rs)).
-    
-//     /// Appends EncryptAndHash(payload) to the buffer.
-    
-//     /// If there are no more message patterns returns two new CipherState objects by calling Split().
-//     pub fn WriteMessage(&mut self, mut message_buffer: impl Write) -> Result<Option<(CipherState, CipherState)>, NoiseError> {
-//         let pattern = self.message_patterns.pop_front().expect(&format!("Should never be empty: Line: {}, Column: {}", line!(), column!()));
-//         for token in pattern {
-//             match token {
-//                 Token::e => {
-//                     self.e = GENERATE_KEYPAIR();
-//                     message_buffer.write_all(&self.e.public_key.unwrap())?;
-//                     self.symmetricstate.MixHash(&self.e.public_key.unwrap());
-//                 },
-//                 Token::s => {
-//                     let temp = self.symmetricstate.EncryptAndHash(&self.s.public_key.unwrap());
-//                     message_buffer.write_all(&temp)?;
-//                 },
-                
-//                 Token::ee => self.symmetricstate.MixKey(DH(self.e.clone(), self.re.unwrap())),
+/// Takes a payload byte sequence which may be zero-length, and a message_buffer to write the output into. 
+/// Performs the following steps, aborting if any EncryptAndHash() call returns an error:
 
-//                 Token::es => {
-//                     if self.initiator {
-//                         self.symmetricstate.MixKey(DH(self.e.clone(), self.rs.unwrap()));
-//                     } else {
-//                         self.symmetricstate.MixKey(DH(self.s.clone(), self.re.unwrap()));
-//                     }
-//                 },
-                
-//                 Token::se => {
-//                     if self.initiator {
-//                         self.symmetricstate.MixKey(DH(self.s.clone(), self.re.unwrap()));
-//                     } else {
-//                         self.symmetricstate.MixKey(DH(self.e.clone(), self.rs.unwrap()));
-                        
-//                     }
-//                 },
-                
-//                 Token::ss => self.symmetricstate.MixKey(DH(self.s.clone(), self.rs.unwrap())),
-//             };
-//         }
+/// Fetches and deletes the next message pattern from message_patterns, then sequentially processes each token from the message pattern:
+
+/// For "e": Sets e (which must be empty) to GENERATE_KEYPAIR(). Appends e.public_key to the buffer. Calls MixHash(e.public_key).
+
+/// For "s": Appends EncryptAndHash(s.public_key) to the buffer.
+
+/// For "ee": Calls MixKey(DH(e, re)).
+
+/// For "es": Calls MixKey(DH(e, rs)) if initiator, MixKey(DH(s, re)) if responder.
+
+/// For "se": Calls MixKey(DH(s, re)) if initiator, MixKey(DH(e, rs)) if responder.
+
+/// For "ss": Calls MixKey(DH(s, rs)).
+
+/// Appends EncryptAndHash(payload) to the buffer.
+
+/// If there are no more message patterns returns two new CipherState objects by calling Split().
+handshakestate_WriteMessage :: proc(self: ^HandshakeState, message_buffer: net.TCP_Socket) -> (Maybe(CipherState), Maybe(CipherState), NoiseError) {
+    pattern := self.message_patterns[self.current_pattern]
+    self.current_pattern += 1;
+    for token in pattern {
+        switch token {
+            case .e: {
+                self.e = GENERATE_KEYPAIR()
+                net.send_tcp(message_buffer, self.e.public_key[:])
+                symmetricstate_MixHash(&self.symmetricstate, self.e.public_key[:])
+            }
+            case .s: {
+                temp := symmetricstate_EncryptAndHash(&self.symmetricstate, self.s.public_key[:])
+                net.send_tcp(message_buffer, temp)
+            }
+            case .ee: {
+                symmetricstate_MixKey(&self.symmetricstate, DH(self.e, self.re))
+            }
+
+            case .es: {
+                if self.initiator {
+                    symmetricstate_MixKey(&self.symmetricstate, DH(self.e, self.rs))
+                } else {
+                    symmetricstate_MixKey(&self.symmetricstate, DH(self.s, self.re))
+                }
+            }
+            
+            case .se: {
+                if self.initiator {
+                    symmetricstate_MixKey(&self.symmetricstate, DH(self.s, self.re))
+                } else {
+                    symmetricstate_MixKey(&self.symmetricstate, DH(self.e, self.rs))
+                    
+                }
+            }
+            
+            case .ss: {
+                symmetricstate_MixKey(&self.symmetricstate, DH(self.s, self.rs))
+            }
+        };
+    }
+    
+    if self.current_pattern > len(self.message_patterns) {
+        sender, receiver := symmetricstate_Split(&self.symmetricstate)
+        return sender, receiver, .NoError
+    } else {
+        return nil, nil, .NoError
+    }
+}
+
+/// Takes a byte sequence containing a Noise handshake message, and a payload_buffer to write the message's plaintext payload into. 
+/// Performs the following steps, aborting if any DecryptAndHash() call returns an error:
+
+/// Fetches and deletes the next message pattern from message_patterns, then sequentially processes each token from the message pattern:
+
+/// For "e": Sets re (which must be empty) to the next DHLEN bytes from the message. Calls MixHash(re.public_key).
+
+/// For "s": Sets temp to the next DHLEN + 16 bytes of the message if HasKey() == True, or to the next DHLEN bytes otherwise. 
+/// Sets rs (which must be empty) to DecryptAndHash(temp).
+
+/// For "ee": Calls MixKey(DH(e, re)).
+
+/// For "es": Calls MixKey(DH(e, rs)) if initiator, MixKey(DH(s, re)) if responder.
+
+/// For "se": Calls MixKey(DH(s, re)) if initiator, MixKey(DH(e, rs)) if responder.
+
+/// For "ss": Calls MixKey(DH(s, rs)).
+
+/// Calls DecryptAndHash() on the remaining bytes of the message and stores the output into payload_buffer.
+
+/// If there are no more message patterns returns two new CipherState objects by calling Split().
+handshakestate_ReadMessage :: proc(self: ^HandshakeState, message: net.TCP_Socket)  -> (Maybe(CipherState), Maybe(CipherState), NoiseError) {
+    zeroslice: [HASHLEN]u8
+    pattern := self.message_patterns[self.current_pattern]
+    self.current_pattern += 1
+    for token in pattern {
+        switch token {
+            case .e: {
+                e : [DHLEN]u8
+                net.recv_tcp(message, e[:])
+                if self.re != zeroslice {
+                    return nil, nil, .WrongState
+                } else {
+                    self.re = e
+                    symmetricstate_MixHash(&self.symmetricstate, self.re[:])
+                }
+            }
+            case .s: {
+                if cipherstate_HasKey(&self.symmetricstate.cipherstate) {
+                    rs : [DHLEN+16]u8
+                    net.recv_tcp(message, rs[:])
+                    temp, temp_err := symmetricstate_DecryptAndHash(&self.symmetricstate, rs[:])
+                    new_rs := array32_from_slice(temp[:])
+                    if self.rs == zeroslice {
+                        self.rs = new_rs
+                    } else {
+                        return nil, nil, .WrongState
+                    }
+                }
+            }
+            
+            case .ee: {
+                symmetricstate_MixKey(&self.symmetricstate, DH(self.e, self.re))
+            }
+
+            case .es: {
+                if self.initiator {
+                    symmetricstate_MixKey(&self.symmetricstate, DH(self.e, self.rs));  
+                } else {
+                    symmetricstate_MixKey(&self.symmetricstate, DH(self.s, self.re));
+                }
+            }
+            
+            case .se: {
+                if self.initiator {
+                    symmetricstate_MixKey(&self.symmetricstate, DH(self.s, self.re));  
+                } else {
+                    symmetricstate_MixKey(&self.symmetricstate, DH(self.e, self.rs));
+                }
+            }
+            
+            case .ss: {
+                symmetricstate_MixKey(&self.symmetricstate, DH(self.s, self.rs))
+            }
+        };
+    }
+    if self.current_pattern > len(self.message_patterns) {
+        sender, receiver := symmetricstate_Split(&self.symmetricstate)
+        return sender, receiver, .NoError
+    } else {
+        return nil, nil, .NoError
+    }
+}
+
+array32_from_slice :: proc(slice: []u8) -> [32]u8 {
+    buf : [32]u8
+    copy(buf[:], slice[0 : min(len(slice), 32)])
+    return buf
+}
+
+Connection :: struct {
+    c1: CipherState,
+    c2: CipherState,
+    stream: net.TCP_Socket,
+    peer: string,
+}
+
+Cstate :: enum {
+    C1,
+    C2
+}
+
+__connection_send :: proc(self: ^Connection, message: []u8, state: Cstate) -> NoiseError {
+        buffer := make_dynamic_array([dynamic]u8)
+        defer delete_dynamic_array(buffer)
+        ciphertext : []u8
+        switch state {
+            case .C1: {
+                ciphertext = cipherstate_EncryptWithAd(&self.c1, nil, message)
+            }
+            case .C2: {
+                ciphertext = cipherstate_EncryptWithAd(&self.c2, nil, message)
+            }
+        }
+        ciphertext_len := to_le_bytes(u64(len(ciphertext)))
+        extend_from_slice(&buffer, ciphertext_len[:])
+        extend_from_slice(&buffer, ciphertext[:])
+        net.send_tcp(self.stream, buffer[:])
+        return .NoError
+    }
+
+__connection_receive :: proc(self: ^Connection, state: Cstate) -> ([]u8, NoiseError) {
+        size_buffer : [8]u8
+        net.recv_tcp(self.stream, size_buffer[:])
+    
+        data_len := u64_from_le_slice(size_buffer[:])
+        if data_len >  MAX_PACKET_SIZE {
+            return nil, .Io
+        }
+        data := make_dynamic_array([dynamic]u8)
+        defer delete(data)
+        buffer : [4096]u8
+        total_read: u64 = 0
         
-//         if self.message_patterns.is_empty() {
-//             let (sender, receiver) = self.symmetricstate.Split();
-//             Ok(Some((sender, receiver)))
-//         } else {
-//             Ok(None)
-//         }
-//     }
+        for total_read < data_len {
+            to_read := min(4096, data_len - total_read)
+            bytes_received, _ := net.recv_tcp(self.stream, buffer[:to_read])
+            if bytes_received == 0 {
+                return nil, .Io
+            }
+            extend_from_slice(&data, buffer[:bytes_received])
+            total_read += u64(bytes_received)
+        }
 
-//     /// Takes a byte sequence containing a Noise handshake message, and a payload_buffer to write the message's plaintext payload into. 
-//     /// Performs the following steps, aborting if any DecryptAndHash() call returns an error:
+        decrypted_data: []u8
+        switch state {
+            case .C1: {
+                decrypted_data, _ = cipherstate_DecryptWithAd(&self.c1, nil, data[:])
+            }
+            case .C2: {
+                decrypted_data, _ = cipherstate_DecryptWithAd(&self.c2, nil, data[:])
+            }
+
+        };
+
+        return decrypted_data, .NoError
+    }
+
+    connection_SEND_C1 :: proc(self: ^Connection, message: []u8) -> NoiseError {
+        return __connection_send(self, message, Cstate.C1)
+    }
+
+    connection_SEND_C2 :: proc(self: ^Connection, message: []u8) -> NoiseError {
+        return __connection_send(self, message, Cstate.C2)
+    }
+
+    connection_RECEIVE_C1 :: proc(self: ^Connection) -> ([]u8, NoiseError) {
+        return __connection_receive(self, Cstate.C1)
+    }
+
+    connection_RECEIVE_C2 :: proc(self: ^Connection) -> ([]u8, NoiseError) {
+        return __connection_receive(self, Cstate.C2)
+    }
+
+
+initiate_connection :: proc(address: string) -> (Connection, NoiseError) {
+    zeroslice : [HASHLEN]u8
+    stream, _ := net.dial_tcp_from_hostname_and_port_string(address)
+    s := keypair_random()
+    handshake_state := handshakestate_Initialize(
+        true,
+        nil,
+        s,
+        keypair_empty(),
+        zeroslice,
+        zeroslice
+    )
     
-//     /// Fetches and deletes the next message pattern from message_patterns, then sequentially processes each token from the message pattern:
+    // -> e
+    handshakestate_WriteMessage(&handshake_state, stream)
+
+    // <- e, ee, s, es
+    handshakestate_ReadMessage(&handshake_state, stream)
+
+    // -> s, se
+    res1, res2, connection_error := handshakestate_WriteMessage(&handshake_state, stream)
+
+    switch res1 {
+        case res1.?: {
+            return Connection {
+                    c1 = res1.?,
+                    c2 = res2.?,
+                    stream = stream,
+                    peer = ""
+                }, .NoError
+            }
+        case nil: {
+            return Connection{c1 = cipherstate_InitializeKey(zeroslice), c2 = cipherstate_InitializeKey(zeroslice), stream = net.TCP_Socket(0), peer = ""}, .Io
+        } 
+    }
+
+    return Connection{c1 = cipherstate_InitializeKey(zeroslice), c2 = cipherstate_InitializeKey(zeroslice), stream = net.TCP_Socket(0), peer = ""}, .WrongState
+}
+
+ESTABLISH_CONNECTION :: proc(stream: net.TCP_Socket, s: KeyPair) -> (Connection, NoiseError) {
+    handshakestate, _ := ESTABLISH_CONNECTION_STEP_1(stream, s)
+
+    ESTABLISH_CONNECTION_STEP_2(stream, &handshakestate)
+
+    connection, _ := ESTABLISH_CONNECTION_STEP_3(stream, &handshakestate)
+
+    return connection, .NoError
+}
+
+ESTABLISH_CONNECTION_STEP_1 :: proc(stream: net.TCP_Socket, s: KeyPair) -> (HandshakeState, NoiseError) {
+    zeroslice : [HASHLEN]u8
+    handshakestate := handshakestate_Initialize(false, nil, s, keypair_empty(), zeroslice, zeroslice);
+
+    // <- e
+    handshakestate_ReadMessage(&handshakestate, stream)
+
+    return handshakestate, .NoError
+}
+
+ESTABLISH_CONNECTION_STEP_2 :: proc(stream: net.TCP_Socket, handshakestate: ^HandshakeState) -> NoiseError {
     
-//     /// For "e": Sets re (which must be empty) to the next DHLEN bytes from the message. Calls MixHash(re.public_key).
-    
-//     /// For "s": Sets temp to the next DHLEN + 16 bytes of the message if HasKey() == True, or to the next DHLEN bytes otherwise. 
-//     /// Sets rs (which must be empty) to DecryptAndHash(temp).
-    
-//     /// For "ee": Calls MixKey(DH(e, re)).
-    
-//     /// For "es": Calls MixKey(DH(e, rs)) if initiator, MixKey(DH(s, re)) if responder.
-    
-//     /// For "se": Calls MixKey(DH(s, re)) if initiator, MixKey(DH(e, rs)) if responder.
-    
-//     /// For "ss": Calls MixKey(DH(s, rs)).
-    
-//     /// Calls DecryptAndHash() on the remaining bytes of the message and stores the output into payload_buffer.
-    
-//     /// If there are no more message patterns returns two new CipherState objects by calling Split().
-//     pub fn ReadMessage(&mut self, mut message: impl Read)  -> Result<Option<(CipherState, CipherState)>, NoiseError> {
-//         let pattern = self.message_patterns.pop_front().expect(&format!("Should never be empty: Line: {}, Column: {}", line!(), column!()));
-//         for token in pattern {
-//             match token {
-//                 Token::e => {
-//                     let mut e = [0u8;DHLEN];
-//                     message.read_exact(&mut e)?;
-//                     if self.re.is_some() {
-//                         return Err(NoiseError::WrongState);
-//                     } else {
-//                         self.re = Some(PublicKey::from(e));
-//                         self.symmetricstate.MixHash(self.re.unwrap().as_bytes());
-//                     }
-//                 },
-//                 Token::s => {
-//                     if self.symmetricstate.cipherstate.HasKey() {
-//                         let mut rs = [0u8;DHLEN+16];
-//                         message.read_exact(&mut rs)?;
-//                         let rs = array32_from_slice(&self.symmetricstate.DecryptAndHash(&rs).unwrap());
-//                         if self.rs.is_none() {
-//                             self.rs = Some(PublicKey::from(rs));
-//                         } else {
-//                             return Err(NoiseError::WrongState)
-//                         }
-//                     }
-//                 },
-                
-//                 Token::ee => self.symmetricstate.MixKey(DH(self.e.clone(), self.re.unwrap())),
+    handshakestate_WriteMessage(handshakestate, stream)
 
-//                 Token::es => {
-//                     if self.initiator {
-//                         self.symmetricstate.MixKey(DH(self.e.clone(), self.rs.unwrap()));  
-//                     } else {
-//                         self.symmetricstate.MixKey(DH(self.s.clone(), self.re.unwrap()));
-//                     }
-//                 },
-                
-//                 Token::se => {
-//                     if self.initiator {
-//                         self.symmetricstate.MixKey(DH(self.s.clone(), self.re.unwrap()));  
-//                     } else {
-//                         self.symmetricstate.MixKey(DH(self.e.clone(), self.rs.unwrap()));
-//                     }
-//                 },
-                
-//                 Token::ss => self.symmetricstate.MixKey(DH(self.s.clone(), self.rs.unwrap())),
-//             };
-//         }
-//         if self.message_patterns.is_empty() {
-//             let (sender, receiver) = self.symmetricstate.Split();
-//             Ok(Some((sender, receiver)))
-//         } else {
-//             Ok(None)
-//         }
-//     }
-// }
+    return .NoError
+}
 
-// pub fn array32_from_slice(slice: &[u8]) -> [u8;32] {
-//     let mut buf = [0u8;32];
-//     buf.copy_from_slice(&slice[0..std::cmp::min(slice.len(), 32)]);
-//     buf
-// }
+ESTABLISH_CONNECTION_STEP_3 :: proc(stream: net.TCP_Socket, handshakestate: ^HandshakeState) -> (Connection, NoiseError) {
+    // <- s, se
+    res1, res2, _ := handshakestate_ReadMessage(handshakestate, stream)
 
-// pub struct Connection {
-//     pub c1: CipherState,
-//     pub c2: CipherState,
-//     pub stream: TcpStream,
-//     pub peer: String,
-// }
+    fmt.println("returning Connection!!")
+    switch res1 {
+        case res1.?:  {
+            return Connection {
+                c1 = res1.?,
+                c2 = res2.?,
+                stream = stream,
+                peer = ""
+            }, .NoError
+        }
+        case nil: {
+            return connection_nullcon(), .Io
+        }
+    }
+    return connection_nullcon(), .WrongState
+}
 
-// enum Cstate {
-//     C1,
-//     C2
-// }
+extend_from_slice :: proc(array: ^[dynamic]u8, slice: []u8) {
+    for byte in slice {
+        append(array, byte)
+    }
+}
 
-// impl Connection {
-//     fn __send(&mut self, message: &[u8], state: Cstate) -> Result<(), NoiseError> {
-//         let mut buffer = Vec::with_capacity(message.len() + 16);
-//         let ciphertext = match state {
-//             Cstate::C1 => self.c1.EncryptWithAd(&[], message),
-//             Cstate::C2 => self.c2.EncryptWithAd(&[], message),
-//         } ;
-//         buffer.extend_from_slice(&ciphertext.len().to_le_bytes());
-//         buffer.extend_from_slice(&ciphertext);
-//         self.stream.write_all(&buffer)?;
-//         self.stream.flush()?;
-//         Ok(())
-//     }
-
-//     fn __receive(&mut self, state: Cstate) -> Result<Vec<u8>, NoiseError> {
-//         let mut size_buffer: [u8; 8] = [0; 8];
-//         self.stream.read_exact(&mut size_buffer)?;
-    
-//         let data_len = uintprt::from_le_bytes(size_buffer);
-//         if data_len >  MAX_PACKET_SIZE {
-//             return Err(NoiseError::Io)
-//         }
-//         let mut data = Vec::with_capacity(data_len);
-//         let mut buffer = [0; 4096];
-//         let mut total_read: uintprt = 0;
-        
-//         while total_read < data_len {
-//             let to_read = std::cmp::min(4096, data_len - total_read);
-//             let bytes_received = self.stream.read(&mut buffer[..to_read])?;
-//             if bytes_received == 0 {
-//                 return Err(NoiseError::Io);
-//             }
-//             data.extend_from_slice(&buffer[..bytes_received]);
-//             total_read += bytes_received;
-//         }
-
-//         let data = match state {
-//             Cstate::C1 => self.c1.DecryptWithAd(&[], &data)?,
-//             Cstate::C2 => self.c2.DecryptWithAd(&[], &data)?,
-
-//         };
-
-//         Ok(data)
-//     }
-
-//     pub fn SEND_C1(&mut self, message: &[u8]) -> Result<(), NoiseError> {
-//         self.__send(message, Cstate::C1)
-//     }
-
-//     pub fn SEND_C2(&mut self, message: &[u8]) -> Result<(), NoiseError> {
-//         self.__send(message, Cstate::C2)
-//     }
-
-//     pub fn RECEIVE_C1(&mut self) -> Result<Vec<u8>, NoiseError> {
-//         self.__receive(Cstate::C1)
-//     }
-
-//     pub fn RECEIVE_C2(&mut self) -> Result<Vec<u8>, NoiseError> {
-//         self.__receive(Cstate::C2)
-//     }
-
-// }
-
-// pub fn initiate_connection(address: &str) -> Result<Connection, NoiseError> {
-//     let mut stream = TcpStream::connect(address)?;
-//     let s = KeyPair::random();
-//     let mut handshake_state = HandshakeState::Initialize(
-//         true,
-//         &[],
-//         s,
-//         KeyPair::empty(),
-//         None,
-//         None
-//     );
-    
-//     // -> e
-//     handshake_state.WriteMessage(&mut stream)?;
-
-//     // <- e, ee, s, es
-//     handshake_state.ReadMessage(&mut stream)?;
-
-//     // -> s, se
-//     let res = handshake_state.WriteMessage(&mut stream)?;
-
-//     match res {
-//         Some((c1, c2)) => {
-//             Ok(
-//                 Connection {
-//                     c1,
-//                     c2,
-//                     stream,
-//                     peer: String::new()
-//                 }
-//             )
-//         },
-//         None => Err(NoiseError::Io),
-//     }
-// }
-
-// pub fn ESTABLISH_CONNECTION(mut stream: TcpStream, s: KeyPair) -> Result<Connection, NoiseError> {
-//     let handshakestate = ESTABLISH_CONNECTION_STEP_1(&mut stream, s)?;
-
-//     let handshakestate = ESTABLISH_CONNECTION_STEP_2(&mut stream, handshakestate)?;
-
-//     let connection = ESTABLISH_CONNECTION_STEP_3(stream, handshakestate)?;
-
-//     Ok(connection)
-
-// }
-
-// pub fn ESTABLISH_CONNECTION_STEP_1(stream: &mut TcpStream, s: KeyPair) -> Result<HandshakeState, NoiseError> {
-//     let mut handshakestate = HandshakeState::Initialize(false, &[], s, KeyPair::empty(), None, None);
-
-//     // <- e
-//     handshakestate.ReadMessage(stream)?;
-
-//     Ok(handshakestate)
-// }
-
-// pub fn ESTABLISH_CONNECTION_STEP_2(stream: &mut TcpStream, mut handshakestate: HandshakeState) -> Result<HandshakeState, NoiseError> {
-    
-//     handshakestate.WriteMessage(stream)?;
-
-//     Ok(handshakestate)
-// }
-
-// pub fn ESTABLISH_CONNECTION_STEP_3(mut stream: TcpStream, mut handshakestate: HandshakeState) -> Result<Connection, NoiseError> {
-//     // <- s, se
-//     let res = handshakestate.ReadMessage(&mut stream)?;
-
-//     println!("returning Connection!!");
-//     match res {
-//         Some((c1, c2)) => {
-//             Ok(
-//                 Connection {
-//                     c1,
-//                     c2,
-//                     stream,
-//                     peer: String::new()
-//                 }
-//             )
-//         },
-//         None => Err(NoiseError::Io),
-//     }
-// }
-
-
+connection_nullcon :: proc() -> Connection {
+    zeroslice : [HASHLEN]u8
+    return Connection{c1 = cipherstate_InitializeKey(zeroslice), c2 = cipherstate_InitializeKey(zeroslice), stream = net.TCP_Socket(0), peer = ""}
+}
 
 /// Creates a uintptr from a &[u8] of length 8. Panics if len is different than 8.
 u64_from_le_slice :: proc(slice: []u8) -> u64 {
@@ -784,6 +824,7 @@ to_be_bytes :: proc(n: u64) -> [8]u8 {
     n7 := u8(n >> 56)
     return {n7, n6, n5, n4, n3, n2, n1, n0}
 }
+
 
 to_le_bytes :: proc(n: u64) -> [8]u8 {
     n0 := u8(n >> 0)

@@ -16,7 +16,6 @@ KeyString_from_string :: proc(s: string) -> KeyString {
     return output
 }
 
-
 KeyStringAlert :: enum {
     InvalidUtf8,
     Ok,
@@ -24,13 +23,31 @@ KeyStringAlert :: enum {
     Empty
 }
 
+
 string_from_keystring :: proc(ks: KeyString, allocator := context.temp_allocator) -> (string, EzError) {
     temp_ks := ks
     s: string = str.clone_from(string(temp_ks[:]), allocator)
-
+    
     return s, .no_error
 }
 
+DbType :: enum {
+    Int,
+    Float,
+    Text,
+}
+
+TableKey :: enum {
+    None,
+    Primary,
+    Foreign
+}
+
+HeaderItem :: struct {
+    name: KeyString,
+    kind: DbType,
+    key: TableKey,
+}
 
 EzTable :: struct {
     name: KeyString,
@@ -43,7 +60,7 @@ DbColumn :: union {
     [dynamic]KeyString,
 }
 
-destroy_dbcolumn :: proc(column: DbColumn) {
+dbcolumn_destroy :: proc(column: DbColumn) {
     switch t in column {
         case [dynamic]i32: 
             delete(t)
@@ -59,16 +76,16 @@ Metadata :: struct {
     times_accessed: u32,
 }
 
-create_eztable :: proc(name: KeyString) -> EzTable {
+eztable_create :: proc(name: KeyString) -> EzTable {
     table := EzTable {
         name = name,
     }
     return table
 }
 
-destroy_eztable :: proc(table: EzTable) {
+eztable_destroy :: proc(table: EzTable) {
     for name, column in table.columns {
-        destroy_dbcolumn(column)
+        dbcolumn_destroy(column)
     }
     delete(table.columns)
 }

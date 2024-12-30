@@ -130,46 +130,8 @@ main :: proc() {
 // scalarmut(shared_sekrit, your_private_key, their_public_key)
 // basepoint is the canonical generator of the group
 // in theory this only needs scalarmult since scalarmult(your_public, your_private, basepoint) is equivalent
-
-
 }
 
-/// Uploads a given csv string to the EZDB server at the given address.
-/// Will return an error if the string is not strictly formatted
-upload_csv :: proc(address: [4]u8, port: int, username: string, password: string, table_name: string, csv: string) -> EzError {
-    fmt.println("calling: upload_csv()")
-
-    connection := make_connection(address, port, username, password) or_return
-
-
-    // instruction = Instruction::Upload(KeyString::from(table_name));
-    // send_instruction_with_associated_data(instruction, username, csv.as_bytes(), &mut connection)?;
-
-    // let response = receive_decrypt(&mut connection)?;
-    // let response = String::from_utf8(response)?;
-
-    // parse_response(&response, username, table_name)
-    return .no_error
-
-}
-
-// send_instruction_with_associated_data :: proc(instruction: string, username: &str, associated_data: &[u8], connection: &mut Connection) -> Result<(), EzError> {
-//     let instruction = encrypt_aes256_nonce_prefixed(&instruction.to_bytes(username), &connection.aes_key);
-//     println!("instruction lnght: {} bytes", instruction.len());
-    
-//     let associated_data = miniz_compress(associated_data)?;
-//     let associated_data = encrypt_aes256_nonce_prefixed(&associated_data, &connection.aes_key);
-//     println!("associated_data.len(): {}", associated_data.len());
-//     let mut package = Vec::new();
-//     package.extend_from_slice(&instruction);
-//     package.extend_from_slice(&(associated_data.len()).to_le_bytes());
-//     package.extend_from_slice(&associated_data);
-//     println!("package len: {}", package.len()-284);
-
-//     connection.stream.write_all(&package)?;
-
-//     Ok(())
-// }
 
 simple_hash :: proc(plaintext: []u8) -> [32]u8 {
     ctx : sha2.Context_256;
@@ -219,11 +181,3 @@ aes256gcm_decrypt :: proc(ciphertext: []u8, key: []u8) -> ( []byte, EzError ) {
         return plaintext_buffer, EzError.crypto
     }
 }
-
-
-
-Response :: struct {
-    response_code: int,
-    data: EzTable,
-}
-
