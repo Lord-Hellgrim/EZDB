@@ -2,7 +2,7 @@ use std::{collections::{BTreeMap, BTreeSet}, sync::atomic::AtomicU64};
 
 use rand::{distributions::Standard, prelude::Distribution, Rng};
 
-use crate::{db_structure::{ColumnTable, DbColumn, DbType, DbValue, HeaderItem, Metadata, TableKey}, ezql::{Condition, KvQuery, OpOrCond, Operator, Query, RangeOrListOrAll, StatOp, Statistic, Test, Update, UpdateOp}, utilities::{get_current_time, ksf, ErrorTag, EzError, KeyString}};
+use crate::{db_structure::{ColumnTable, DbColumn, DbType, DbValue, HeaderItem, Metadata, TableKey}, ezql::{AltTest, Condition, KvQuery, OpOrCond, Operator, Query, RangeOrListOrAll, StatOp, Statistic, Test, TestOp, Update, UpdateOp}, utilities::{get_current_time, ksf, ErrorTag, EzError, KeyString}};
 
 
 fn random_vec<T>(max_length: usize) -> Vec<T>  where Standard: Distribution<T> {
@@ -165,6 +165,40 @@ fn random_test() -> Test {
     
 }
 
+fn random_alt_test() -> AltTest {
+
+    let mut rng = rand::thread_rng();
+
+    match rng.gen_range(0..5) {
+        0 => AltTest{op: TestOp::Contains, value: random_db_value()},
+        1 => AltTest{op: TestOp::Equals, value: random_db_value()},
+        2 => AltTest{op: TestOp::NotEquals, value: random_db_value()},
+        3 => AltTest{op: TestOp::Starts, value: random_db_value()},
+        4 => AltTest{op: TestOp::Ends, value: random_db_value()},
+        5 => AltTest{op: TestOp::Greater, value: random_db_value()},
+        6 => AltTest{op: TestOp::Less, value: random_db_value()},
+        _ => unreachable!("Range")
+    }
+    
+}
+
+fn random_test_op() -> TestOp {
+
+    let mut rng = rand::thread_rng();
+
+    match rng.gen_range(0..7) {
+        0 => TestOp::Contains,
+        1 => TestOp::Equals,
+        2 => TestOp::NotEquals,
+        3 => TestOp::Starts,
+        4 => TestOp::Ends,
+        5 => TestOp::Greater,
+        6 => TestOp::Less,
+        _ => unreachable!("Range")
+    }
+    
+}
+
 fn random_conditions() -> Vec<OpOrCond> {
     let mut rng = rand::thread_rng();
 
@@ -172,7 +206,7 @@ fn random_conditions() -> Vec<OpOrCond> {
 
     for i in 0..rng.gen_range(0..10)*2 + 1 {
         if i % 2 == 0 {
-            output.push(OpOrCond::Cond(Condition{ attribute: random_keystring(), test: random_test() }));
+            output.push(OpOrCond::Cond(Condition{ attribute: random_keystring(), op: random_test_op(), value: random_db_value() }));
         } else {
             match rng.gen::<bool>() {
                 true => output.push(OpOrCond::Op(Operator::AND)),
@@ -359,9 +393,30 @@ pub fn random_ez_error() -> EzError {
 #[cfg(test)]
 mod tests {
 
-    use crate::utilities::u64_from_le_slice;
+    use crate::{ezql::{append_conditions, conditions_from_binary}, utilities::u64_from_le_slice};
 
     use super::*;
+
+    #[test]
+    fn test_conditions() {
+        for _ in 0..1000 {
+            let conditions = random_conditions();
+            let mut binary = Vec::new();
+            append_conditions(&mut binary, &conditions);
+            let parsed = conditions_from_binary(&binary).unwrap();
+            assert_eq!(conditions, parsed);
+        }
+    }
+
+    #[test]
+    fn test_alt_test() {
+        for _ in 0..1000 {
+            let test = random_alt_test();
+            let binary = test.to_binary();
+            let parsed = AltTest::from_binary(&binary).unwrap();
+            assert_eq!(test, parsed);
+        }
+    }
 
     #[test]
     fn test_random_column_table() {
@@ -384,7 +439,7 @@ mod tests {
 
     #[test]
     fn test_random_query() {
-        for _ in 0..100 {
+        for _ in 0..1000 {
             let query = random_query();
             let binary_query = query.to_binary();
             let parsed_query = match Query::from_binary(&binary_query) {

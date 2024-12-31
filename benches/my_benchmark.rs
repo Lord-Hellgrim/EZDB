@@ -48,9 +48,9 @@ fn my_benchmark(c: &mut Criterion) {
         primary_keys: RangeOrListOrAll::All,
         columns: vec![ksf("id"), ksf("name"), ksf("price")],
         conditions: vec![
-            OpOrCond::Cond(Condition{attribute: ksf("id"), test: Test::Equals(DbValue::Int(4))}),
+            OpOrCond::Cond(Condition{attribute: ksf("id"), op: TestOp::Equals, value: DbValue::Int(4)}),
             OpOrCond::Op(Operator::AND),
-            OpOrCond::Cond(Condition{attribute: ksf("name"), test: Test::Equals(DbValue::Text(ksf("four")))}),
+            OpOrCond::Cond(Condition{attribute: ksf("name"), op: TestOp::Equals, value: DbValue::Text(ksf("four"))}),
             
         ],
     };

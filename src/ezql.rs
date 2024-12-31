@@ -595,7 +595,8 @@ impl Query {
         }
     }
 
-    pub fn and_condition(mut self, condition: Condition) -> Query {
+    pub fn and_condition(mut self, attribute: impl Into<KeyString>, op: TestOp, value: impl Into<DbValue>) -> Query {
+        let condition = Condition{attribute: attribute.into(), op, value: value.into()};
         match &mut self {
             Query::SELECT { table_name, primary_keys, columns, conditions } => {
                 if conditions.is_empty() {
@@ -628,7 +629,8 @@ impl Query {
         self
     }
 
-    pub fn or_condition(mut self, condition: Condition) -> Query {
+    pub fn or_condition(mut self, attribute: impl Into<KeyString>, op: TestOp, value: impl Into<DbValue>) -> Query {
+        let condition = Condition{attribute: attribute.into(), op, value: value.into()};
         match &mut self {
             Query::SELECT { table_name, primary_keys, columns, conditions } => {
                 if conditions.is_empty() {
@@ -657,7 +659,7 @@ impl Query {
             },
             _ => ()
         };
-
+        
         self
     }
 }
@@ -720,9 +722,8 @@ pub fn append_conditions(binary: &mut Vec<u8>, conditions: &Vec<OpOrCond>) -> u6
     for condition in conditions {
         match condition {
             OpOrCond::Cond(condition) => {
-                i += 200;
-                binary.extend_from_slice(condition.attribute.raw());
-                binary.extend_from_slice(&condition.test.to_binary());
+                i += 144;
+                binary.extend_from_slice(&condition.to_binary());
             },
             OpOrCond::Op(operator) => {
                 i+= 64;
@@ -1019,37 +1020,51 @@ impl RangeOrListOrAll {
     }
 }
 
+
 /// Represents the condition a item must pass to be included in the result
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub struct Condition {
     pub attribute: KeyString,
-    pub test: Test,
+    pub op: TestOp,
+    pub value: DbValue,
 }
 
 impl Display for Condition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // println!("calling: Condition::fmt()");
 
-        write!(f, "{} - {}", self.attribute, self.test)
+        write!(f, "{} - {} - {}", self.attribute, "OP", self.value)
     }
 }
 
 impl Condition {
 
-    pub fn new(attribute: &str, test: Test) -> Result<Self, EzError> {
+    pub fn new(attribute: &str, op: TestOp, value: impl Into<DbValue>) -> Result<Self, EzError> {
         // println!("calling: Condition::new()");
 
         Ok(Condition {
             attribute: KeyString::from(attribute),
-            test,
+            op,
+            value: value.into(),
         })
+    }
+
+    pub fn to_binary(&self) -> [u8;144] {
+        let mut binary = [0u8;144];
+
+        binary[0..64].copy_from_slice(self.attribute.raw());
+        binary[64..72].copy_from_slice(&self.op.to_binary());
+        binary[72..144].copy_from_slice(&self.value.to_binary());
+
+        binary
     }
 
 
     pub fn from_binary(binary: &[u8]) -> Result<Self, EzError> {
         let attribute = KeyString::try_from(&binary[0..64])?;
-        let test = Test::from_binary(&binary[64..192])?;
-        Ok( Condition {attribute, test} )
+        let op = TestOp::from_binary(&binary[64..72])?;
+        let value = DbValue::from_binary(&binary[72..144])?;
+        Ok( Condition {attribute, op, value} )
     }
 
     pub fn blank() -> Self {
@@ -1057,7 +1072,8 @@ impl Condition {
 
         Condition {
             attribute: KeyString::from(""),
-            test: Test::Equals(DbValue::Int(0)),
+            op: TestOp::Equals,
+            value: 0.into(),
         }
     }
 }
@@ -1090,7 +1106,7 @@ impl Display for OpOrCond {
         // println!("calling: OpOrCond::fmt()");
 
         match self {
-            OpOrCond::Cond(cond) => write!(f, "({} {})", cond.attribute, cond.test),
+            OpOrCond::Cond(cond) => write!(f, "({} {} {})", cond.attribute, "OP", cond.value),
             OpOrCond::Op(op) => match op {
                 Operator::AND => write!(f, "AND"),
                 Operator::OR => write!(f, "OR"),
@@ -1104,8 +1120,7 @@ impl OpOrCond {
         let mut binary = Vec::new();
         match self {
             OpOrCond::Cond(condition) => {
-                binary.extend_from_slice(condition.attribute.raw());
-                binary.extend_from_slice(&condition.test.to_binary());
+                binary.extend_from_slice(&condition.to_binary());
             },
             OpOrCond::Op(operator) => binary.extend_from_slice(operator.to_keystring().raw()),
         }
@@ -1122,11 +1137,11 @@ impl OpOrCond {
             "AND" => Ok(OpOrCond::Op(Operator::AND)),
             "OR" => Ok(OpOrCond::Op(Operator::OR)),
             _ => {
-                if binary.len() < 128 {
-                    return Err(EzError{tag: ErrorTag::Query, text: format!("Cond is at least 128 bytes. Input binary is {}", binary.len())})
+                if binary.len() != 144 {
+                    return Err(EzError{tag: ErrorTag::Query, text: format!("Cond is exactly 144 bytes. Input binary is {}", binary.len())})
                 }
-                let second = Test::from_binary(&binary[64..])?;
-                Ok(OpOrCond::Cond(Condition{attribute: first, test: second}))
+                let condition = Condition::from_binary(binary)?;
+                Ok(OpOrCond::Cond(condition))
             }
         }
 
@@ -1139,9 +1154,8 @@ pub fn conditions_from_binary(binary: &[u8]) -> Result<Vec<OpOrCond>, EzError> {
         return Ok(Vec::new())
     }
     
-    if binary.len() < 136 {
-        return Err(EzError{tag: ErrorTag::Query, text: format!("Condition is at least 136 bytes. Input binary is {}", binary.len())})
-
+    if binary.len() < 144 {
+        return Err(EzError{tag: ErrorTag::Query, text: format!("Condition is exactly 144 bytes. Input binary is '{}'", binary.len())})
     }
     let mut conditions = Vec::new();
 
@@ -1152,13 +1166,138 @@ pub fn conditions_from_binary(binary: &[u8]) -> Result<Vec<OpOrCond>, EzError> {
             conditions.push(OpOrCond::from_binary(&binary[offset..offset+64])?);
             offset += 64;
         } else {
-            conditions.push(OpOrCond::from_binary(&binary[offset..offset+200])?);
-            offset += 200;
+            conditions.push(OpOrCond::from_binary(&binary[offset..offset+144])?);
+            offset += 144;
         }
         i += 1;
     }
 
     Ok(conditions)
+}
+
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub enum TestOp {
+    Equals,
+    NotEquals,
+    Less,
+    Greater,
+    Starts,
+    Ends,
+    Contains,
+}
+
+impl TestOp {
+    pub fn to_binary(&self) -> [u8;8] {
+        match self {
+            TestOp::Equals => 0u64.to_le_bytes(),
+            TestOp::NotEquals => 1u64.to_le_bytes(),
+            TestOp::Less => 2u64.to_le_bytes(),
+            TestOp::Greater => 3u64.to_le_bytes(),
+            TestOp::Starts => 4u64.to_le_bytes(),
+            TestOp::Ends => 5u64.to_le_bytes(),
+            TestOp::Contains => 6u64.to_le_bytes(),
+        }
+    }
+
+    pub fn from_binary(binary: &[u8]) -> Result<TestOp, EzError> {
+        if binary.len() != 8 {
+            return Err(EzError { tag: ErrorTag::Deserialization, text: format!("Binary is wrong length for a TestOp: '{}'", binary.len()) })
+        }
+        let number = u64_from_le_slice(binary);
+        match number {
+            0 => Ok(TestOp::Equals),
+            1 => Ok(TestOp::NotEquals),
+            2 => Ok(TestOp::Less),
+            3 => Ok(TestOp::Greater),
+            4 => Ok(TestOp::Starts),
+            5 => Ok(TestOp::Ends),
+            6 => Ok(TestOp::Contains),
+            other => Err(EzError { tag: ErrorTag::Deserialization, text: format!("No Testop maps to '{}'", other) })
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub struct AltTest {
+    pub op: TestOp,
+    pub value: DbValue,
+}
+
+impl Display for AltTest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // println!("calling: Test::fmt()");
+
+        match self.op {
+            TestOp::Equals => write!(f, "equals {}", self.value),
+            TestOp::NotEquals => write!(f, "not_equals {}", self.value),
+            TestOp::Less => write!(f, "less_than {}", self.value),
+            TestOp::Greater => write!(f, "greater_than {}", self.value),
+            TestOp::Starts => write!(f, "starts_with {}", self.value),
+            TestOp::Ends => write!(f, "ends_with {}", self.value),
+            TestOp::Contains => write!(f, "contains {}", self.value),
+        }
+    }
+}
+
+impl AltTest {
+    pub fn new(input: &str, bar: DbValue) -> Self {
+
+        match input.to_lowercase().as_str() {
+            "Equals" | "equals"  => AltTest{op: TestOp::Equals, value: bar},
+            "NotEquals" | "not_equals" => AltTest{op: TestOp::NotEquals, value: bar},
+            "Less" | "less_than" => AltTest{op: TestOp::Less, value: bar},
+            "Greater" | "greater_than" => AltTest{op: TestOp::Greater, value: bar},
+            "Starts" | "starts_with" => AltTest{op: TestOp::Starts, value: bar},
+            "Ends" | "ends_with" => AltTest{op: TestOp::Ends, value: bar},
+            "Contains" | "contains"=> AltTest{op: TestOp::Contains, value: bar},
+            _ => todo!(),
+        }
+    }
+
+    pub fn to_binary(&self) -> [u8;136] {
+        let mut binary = [0u8;136];
+        match self.op {
+            TestOp::Equals => {
+                binary[0..64].copy_from_slice(KeyString::from("EQUALS").raw());
+            },
+            TestOp::NotEquals => {
+                binary[0..64].copy_from_slice(KeyString::from("NOT_EQUALS").raw());
+            },
+            TestOp::Less => {
+                binary[0..64].copy_from_slice(KeyString::from("LESS").raw());
+            },
+            TestOp::Greater => {
+                binary[0..64].copy_from_slice(KeyString::from("GREATER").raw());
+            },
+            TestOp::Starts => {
+                binary[0..64].copy_from_slice(KeyString::from("STARTS").raw());
+            },
+            TestOp::Ends => {
+                binary[0..64].copy_from_slice(KeyString::from("ENDS").raw());
+            },
+            TestOp::Contains => {
+                binary[0..64].copy_from_slice(KeyString::from("CONTAINS").raw());
+            },
+        }
+        binary[64..136].copy_from_slice(&self.value.to_binary());
+        binary
+    }
+
+    pub fn from_binary(binary: &[u8]) -> Result<Self, EzError> {
+        let t = KeyString::try_from(&binary[0..64])?;
+        let v = DbValue::from_binary(&binary[64..])?;
+        let x = match t.as_str() {
+            "EQUALS" => AltTest{op: TestOp::Equals, value: v},
+            "NOT_EQUALS" => AltTest{op: TestOp::NotEquals, value: v},
+            "LESS" => AltTest{op: TestOp::Less, value: v},
+            "GREATER" => AltTest{op: TestOp::Greater, value: v},
+            "STARTS" => AltTest{op: TestOp::Starts, value: v},
+            "ENDS" => AltTest{op: TestOp::Ends, value: v},
+            "CONTAINS" => AltTest{op: TestOp::Contains, value: v},
+            _ => return Err(EzError{tag: ErrorTag::Query, text: format!("Test: '{}' is not supported", t)})
+        };
+        Ok(x)
+    }
 }
 
 /// Represents the currenlty implemented tests
@@ -1929,50 +2068,50 @@ pub fn filter_keepers(conditions: &Vec<OpOrCond>, primary_keys: &RangeOrListOrAl
                 let column = &table.columns[&cond.attribute];
                 if current_op == Operator::OR {
                     for index in &indexes {
-                        match &cond.test {
-                            Test::Equals(bar) => {
+                        match &cond.op {
+                            TestOp::Equals => {
                                 match column {
-                                    DbColumn::Ints(col) => if col[*index] == bar.to_i32() {keepers.push(*index)},
-                                    DbColumn::Floats(col) => if col[*index] == bar.to_f32() {keepers.push(*index)},
-                                    DbColumn::Texts(col) => if col[*index] == bar.to_keystring() {keepers.push(*index)},
+                                    DbColumn::Ints(col) => if col[*index] == cond.value.to_i32() {keepers.push(*index)},
+                                    DbColumn::Floats(col) => if col[*index] == cond.value.to_f32() {keepers.push(*index)},
+                                    DbColumn::Texts(col) => if col[*index] == cond.value.to_keystring() {keepers.push(*index)},
                                 }
                             },
-                            Test::NotEquals(bar) => {
+                            TestOp::NotEquals => {
                                 match column {
-                                    DbColumn::Ints(col) => if col[*index] != bar.to_i32() {keepers.push(*index)},
-                                    DbColumn::Floats(col) => if col[*index] != bar.to_f32() {keepers.push(*index)},
-                                    DbColumn::Texts(col) => if col[*index] != bar.to_keystring() {keepers.push(*index)},
+                                    DbColumn::Ints(col) => if col[*index] != cond.value.to_i32() {keepers.push(*index)},
+                                    DbColumn::Floats(col) => if col[*index] != cond.value.to_f32() {keepers.push(*index)},
+                                    DbColumn::Texts(col) => if col[*index] != cond.value.to_keystring() {keepers.push(*index)},
                                 }
                             },
-                            Test::Less(bar) => {
+                            TestOp::Less => {
                                 match column {
-                                    DbColumn::Ints(col) => if col[*index] < bar.to_i32() {keepers.push(*index)},
-                                    DbColumn::Floats(col) => if col[*index] < bar.to_f32() {keepers.push(*index)},
-                                    DbColumn::Texts(col) => if col[*index] < bar.to_keystring() {keepers.push(*index)},
+                                    DbColumn::Ints(col) => if col[*index] < cond.value.to_i32() {keepers.push(*index)},
+                                    DbColumn::Floats(col) => if col[*index] < cond.value.to_f32() {keepers.push(*index)},
+                                    DbColumn::Texts(col) => if col[*index] < cond.value.to_keystring() {keepers.push(*index)},
                                 }
                             },
-                            Test::Greater(bar) => {
+                            TestOp::Greater => {
                                 match column {
-                                    DbColumn::Ints(col) => if col[*index] > bar.to_i32() {keepers.push(*index)},
-                                    DbColumn::Floats(col) => if col[*index] > bar.to_f32() {keepers.push(*index)},
-                                    DbColumn::Texts(col) => if col[*index] > bar.to_keystring() {keepers.push(*index)},
+                                    DbColumn::Ints(col) => if col[*index] > cond.value.to_i32() {keepers.push(*index)},
+                                    DbColumn::Floats(col) => if col[*index] > cond.value.to_f32() {keepers.push(*index)},
+                                    DbColumn::Texts(col) => if col[*index] > cond.value.to_keystring() {keepers.push(*index)},
                                 }
                             },
-                            Test::Starts(bar) => {
+                            TestOp::Starts => {
                                 match column {
-                                    DbColumn::Texts(col) => if col[*index].as_str().starts_with(bar.to_keystring().as_str()) {keepers.push(*index)},
+                                    DbColumn::Texts(col) => if col[*index].as_str().starts_with(cond.value.to_keystring().as_str()) {keepers.push(*index)},
                                     _ => return Err(EzError{tag: ErrorTag::Query, text: "Can only filter by 'starts_with' on text values".to_owned()}),
                                 }
                             },
-                            Test::Ends(bar) => {
+                            TestOp::Ends => {
                                 match column {
-                                    DbColumn::Texts(col) => if col[*index].as_str().ends_with(bar.to_keystring().as_str()) {keepers.push(*index)},
+                                    DbColumn::Texts(col) => if col[*index].as_str().ends_with(cond.value.to_keystring().as_str()) {keepers.push(*index)},
                                     _ => return Err(EzError{tag: ErrorTag::Query, text: "Can only filter by 'ends_with' on text values".to_owned()}),
                                 }
                             },
-                            Test::Contains(bar) => {
+                            TestOp::Contains => {
                                 match column {
-                                    DbColumn::Texts(col) => if col[*index].as_str().contains(bar.to_keystring().as_str()) {keepers.push(*index)},
+                                    DbColumn::Texts(col) => if col[*index].as_str().contains(cond.value.to_keystring().as_str()) {keepers.push(*index)},
                                     _ => return Err(EzError{tag: ErrorTag::Query, text: "Can only filter by 'contains' on text values".to_owned()}),
                                 }
                             },
@@ -1981,50 +2120,50 @@ pub fn filter_keepers(conditions: &Vec<OpOrCond>, primary_keys: &RangeOrListOrAl
                 } else {
                     let mut losers = Vec::new();
                     for keeper in &keepers {
-                        match &cond.test {
-                            Test::Equals(bar) => {
+                        match &cond.op {
+                            TestOp::Equals => {
                                 match column {
-                                    DbColumn::Ints(col) => if col[*keeper] == bar.to_i32() {losers.push(*keeper)},
-                                    DbColumn::Floats(col) => if col[*keeper] == bar.to_f32() {losers.push(*keeper)},
-                                    DbColumn::Texts(col) => if col[*keeper] == bar.to_keystring() {losers.push(*keeper)},
+                                    DbColumn::Ints(col) => if col[*keeper] == cond.value.to_i32() {losers.push(*keeper)},
+                                    DbColumn::Floats(col) => if col[*keeper] == cond.value.to_f32() {losers.push(*keeper)},
+                                    DbColumn::Texts(col) => if col[*keeper] == cond.value.to_keystring() {losers.push(*keeper)},
                                 }
                             },
-                            Test::NotEquals(bar) => {
+                            TestOp::NotEquals => {
                                 match column {
-                                    DbColumn::Ints(col) => if col[*keeper] != bar.to_i32() {losers.push(*keeper)},
-                                    DbColumn::Floats(col) => if col[*keeper] != bar.to_f32() {losers.push(*keeper)},
-                                    DbColumn::Texts(col) => if col[*keeper] != bar.to_keystring() {losers.push(*keeper)},
+                                    DbColumn::Ints(col) => if col[*keeper] != cond.value.to_i32() {losers.push(*keeper)},
+                                    DbColumn::Floats(col) => if col[*keeper] != cond.value.to_f32() {losers.push(*keeper)},
+                                    DbColumn::Texts(col) => if col[*keeper] != cond.value.to_keystring() {losers.push(*keeper)},
                                 }
                             },
-                            Test::Less(bar) => {
+                            TestOp::Less => {
                                 match column {
-                                    DbColumn::Ints(col) => if col[*keeper] < bar.to_i32() {losers.push(*keeper)},
-                                    DbColumn::Floats(col) => if col[*keeper] < bar.to_f32() {losers.push(*keeper)},
-                                    DbColumn::Texts(col) => if col[*keeper] < bar.to_keystring() {losers.push(*keeper)},
+                                    DbColumn::Ints(col) => if col[*keeper] < cond.value.to_i32() {losers.push(*keeper)},
+                                    DbColumn::Floats(col) => if col[*keeper] < cond.value.to_f32() {losers.push(*keeper)},
+                                    DbColumn::Texts(col) => if col[*keeper] < cond.value.to_keystring() {losers.push(*keeper)},
                                 }
                             },
-                            Test::Greater(bar) => {
+                            TestOp::Greater => {
                                 match column {
-                                    DbColumn::Ints(col) => if col[*keeper] > bar.to_i32() {losers.push(*keeper)},
-                                    DbColumn::Floats(col) => if col[*keeper] > bar.to_f32() {losers.push(*keeper)},
-                                    DbColumn::Texts(col) => if col[*keeper] > bar.to_keystring() {losers.push(*keeper)},
+                                    DbColumn::Ints(col) => if col[*keeper] > cond.value.to_i32() {losers.push(*keeper)},
+                                    DbColumn::Floats(col) => if col[*keeper] > cond.value.to_f32() {losers.push(*keeper)},
+                                    DbColumn::Texts(col) => if col[*keeper] > cond.value.to_keystring() {losers.push(*keeper)},
                                 }
                             },
-                            Test::Starts(bar) => {
+                            TestOp::Starts => {
                                 match column {
-                                    DbColumn::Texts(col) => if col[*keeper].as_str().starts_with(bar.to_keystring().as_str()) {losers.push(*keeper)},
+                                    DbColumn::Texts(col) => if col[*keeper].as_str().starts_with(cond.value.to_keystring().as_str()) {losers.push(*keeper)},
                                     _ => return Err(EzError{tag: ErrorTag::Query, text: "Can only filter by 'starts_with' on text values".to_owned()}),
                                 }
                             },
-                            Test::Ends(bar) => {
+                            TestOp::Ends => {
                                 match column {
-                                    DbColumn::Texts(col) => if col[*keeper].as_str().ends_with(bar.to_keystring().as_str()) {losers.push(*keeper)},
+                                    DbColumn::Texts(col) => if col[*keeper].as_str().ends_with(cond.value.to_keystring().as_str()) {losers.push(*keeper)},
                                     _ => return Err(EzError{tag: ErrorTag::Query, text: "Can only filter by 'ends_with' on text values".to_owned()}),
                                 }
                             },
-                            Test::Contains(bar) => {
+                            TestOp::Contains => {
                                 match column {
-                                    DbColumn::Texts(col) => if col[*keeper].as_str().contains(bar.to_keystring().as_str()) {losers.push(*keeper)},
+                                    DbColumn::Texts(col) => if col[*keeper].as_str().contains(cond.value.to_keystring().as_str()) {losers.push(*keeper)},
                                     _ => return Err(EzError{tag: ErrorTag::Query, text: "Can only filter by 'contains' on text values".to_owned()}),
                                 }
                             },
@@ -2106,9 +2245,9 @@ mod tests {
             primary_keys: RangeOrListOrAll::All,
             columns: vec![ksf("id"), ksf("name"), ksf("price")],
             conditions: vec![
-                OpOrCond::Cond(Condition{attribute: ksf("id"), test: Test::Equals(DbValue::Int(4))}),
+                OpOrCond::Cond(Condition{attribute: ksf("id"), op: TestOp::Equals, value: DbValue::Int(4)}),
                 OpOrCond::Op(Operator::AND),
-                OpOrCond::Cond(Condition{attribute: ksf("name"), test: Test::Equals(DbValue::Text(ksf("four")))}),
+                OpOrCond::Cond(Condition{attribute: ksf("name"), op: TestOp::Equals, value: DbValue::Text(ksf("four"))}),
                 
             ],
         };

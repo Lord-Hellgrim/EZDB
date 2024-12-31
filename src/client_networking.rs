@@ -83,9 +83,22 @@ mod tests {
     #![allow(unused, non_snake_case)]
     use std::{fs::remove_file, path::Path, time::Duration};
 
-    use crate::{db_structure::ColumnTable, ezql::RangeOrListOrAll, testing_tools::random_column_table, utilities::ksf};
+    use crate::{db_structure::{ColumnTable, DbValue}, ezql::{Condition, RangeOrListOrAll, Test, TestOp}, testing_tools::random_column_table, utilities::ksf};
 
     use super::*;
+
+    #[test]
+    fn test_api() {
+        let address = "127.0.0.1:3004";
+        let username = "admin";
+        let password = "admin";
+
+        let mut connection = make_connection(address, username, password).unwrap();
+
+        let mut query = Query::new_select("good_table")
+            .and_condition(ksf("id"), TestOp::Equals, 1);
+
+    }
 
     #[test]
     fn test_send_SELECT() {

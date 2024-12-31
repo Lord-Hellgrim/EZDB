@@ -103,6 +103,24 @@ impl Display for DbValue {
     }
 }
 
+impl From<i32> for DbValue {
+    fn from(value: i32) -> Self {
+        DbValue::Int(value)
+    }
+}
+
+impl From<f32> for DbValue {
+    fn from(value: f32) -> Self {
+        DbValue::Float(value)
+    }
+}
+
+impl From<KeyString> for DbValue {
+    fn from(value: KeyString) -> Self {
+        DbValue::Text(value)
+    }
+}
+
 impl DbValue {
 
     pub fn to_i32(&self) -> i32 {
@@ -232,6 +250,24 @@ impl Display for DbColumn {
             DbColumn::Floats(v) => write!(f, "{:?}", v),
             DbColumn::Texts(v) => write!(f, "{:?}", v),
         }
+    }
+}
+
+impl From<Vec<i32>> for DbColumn {
+    fn from(value: Vec<i32>) -> Self {
+        DbColumn::Ints(value)
+    }
+}
+
+impl From<Vec<f32>> for DbColumn {
+    fn from(value: Vec<f32>) -> Self {
+        DbColumn::Floats(value)
+    }
+}
+
+impl From<Vec<KeyString>> for DbColumn {
+    fn from(value: Vec<KeyString>) -> Self {
+        DbColumn::Texts(value)
     }
 }
 
