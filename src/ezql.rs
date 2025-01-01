@@ -1,4 +1,4 @@
-use std::{collections::{BTreeSet, HashMap, HashSet}, fmt::Display, str::FromStr, sync::Arc};
+use std::{collections::{BTreeMap, BTreeSet, HashMap, HashSet}, fmt::Display, str::FromStr, sync::Arc};
 
 use crate::{db_structure::{remove_indices, table_from_inserts, ColumnTable, DbColumn, DbValue, Metadata, Value}, server_networking::Database, utilities::{i32_from_le_slice, ksf, mean_f32_slice, mean_i32_slice, median_f32_slice, median_i32_slice, mode_i32_slice, mode_string_slice, print_sep_list, stdev_f32_slice, stdev_i32_slice, sum_f32_slice, sum_i32_slice, u64_from_le_slice, usize_from_le_slice, ErrorTag, EzError, KeyString}};
 
@@ -1873,6 +1873,100 @@ pub fn execute_select_query(query: Query, table: &ColumnTable) -> Result<Option<
     }
 }
 
+pub fn alt_execute_select_query(query: Query, table: &ColumnTable) -> Result<Option<ColumnTable>, EzError> {
+    // println!("calling: execute_select_query()");
+
+    match query {
+        Query::SELECT { table_name: _, primary_keys, columns, conditions } => {
+            match primary_keys {
+                RangeOrListOrAll::Range(key_string, key_string1) => execute_select_query_with_pk_range(table, start, stop, columns, conditions),
+                RangeOrListOrAll::List(vec) => execute_select_query_with_pk_list(table, vec, columns, conditions),
+                RangeOrListOrAll::All => execute_select_query_with_pk_all(table, columns, conditions),
+            }
+        },
+        other_query => return Err(EzError{tag: ErrorTag::Query, text: format!("Wrong type of query passed to execute_select_query() function.\nReceived query: {}", other_query)}),
+    }
+}
+
+pub fn execute_select_query_with_pk_range(table: &ColumnTable, start: KeyString, stop: KeyString, columns: Vec<KeyString>, conditions: Vec<OpOrCond>) -> Result<Option<ColumnTable>, EzError> {
+    let pk_index = table.get_primary_key_col_index();
+    let mut first = 0;
+    let mut last = table.len();
+    match &table.columns[&pk_index] {
+        DbColumn::Ints(vec) => {
+            first = match vec.binary_search(&start.to_i32()) {
+                Ok(x) => x,
+                Err(x) => x,
+            };
+            last = match vec.binary_search(&stop.to_i32()) {
+                Ok(x) => x,
+                Err(x) => x,
+            };
+        },
+        DbColumn::Texts(vec) => {
+            first = match vec.binary_search(&start) {
+                Ok(x) => x,
+                Err(x) => x,
+            };
+            last = match vec.binary_search(&stop) {
+                Ok(x) => x,
+                Err(x) => x,
+            };
+        },
+        DbColumn::Floats(vec) => return Err(EzError { tag: ErrorTag::Query, text: "There should neve be a float primary key".to_owned() }),
+    };
+
+    let mut result_table_columns = BTreeMap::new();
+    for name in columns {
+        let current_column = &table.columns[&name];
+        match current_column {
+            DbColumn::Ints(vec) => {
+                let new_column = Vec::new();
+                for index in first..last {
+                    let value = vec[index];
+                    let mut current_op = Operator::OR;
+                    for condition in conditions {
+                        match condition {
+                            OpOrCond::Op(operator) => current_op = operator,
+                            OpOrCond::Cond(condition) =>  {
+                                let test_value = match condition.value {
+                                    DbValue::Int(v) => v,
+                                    DbValue::Float(_) => return Err(EzError { tag: ErrorTag::Query, text: format!("cannot compare int to float") }),
+                                    DbValue::Text(_) => return Err(EzError { tag: ErrorTag::Query, text: format!("cannot compare text to float") }),
+                                };
+                                let pass: bool = match condition.op {
+                                    TestOp::Equals => value == test_value,
+                                    TestOp::NotEquals => todo!(),
+                                    TestOp::Less => todo!(),
+                                    TestOp::Greater => todo!(),
+                                    TestOp::Starts => todo!(),
+                                    TestOp::Ends => todo!(),
+                                    TestOp::Contains => todo!(),
+                                };
+                                if current_op == Operator::OR {
+
+                                }
+                            },
+                        }
+                    }
+                }
+            },
+            DbColumn::Texts(vec) => todo!(),
+            DbColumn::Floats(vec) => todo!(),
+        };
+    }
+    
+
+    todo!()
+}
+
+pub fn execute_select_query_with_pk_list(table: &ColumnTable, start: KeyString, stop: KeyString, columns: Vec<KeyString>, conditions: Vec<OpOrCond>) -> Result<Option<ColumnTable>, EzError> {
+    todo!()
+}
+
+pub fn execute_select_query_with_pk_all(table: &ColumnTable, start: KeyString, stop: KeyString, columns: Vec<KeyString>, conditions: Vec<OpOrCond>) -> Result<Option<ColumnTable>, EzError> {
+    todo!()
+}
 
 pub fn execute_summary_query(query: &Query, table: &ColumnTable) -> Result<Option<ColumnTable>, EzError> {
     match query {
