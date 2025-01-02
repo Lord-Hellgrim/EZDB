@@ -1560,12 +1560,12 @@ pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Res
             },
             Query::SELECT{ table_name, primary_keys: _, columns: _, conditions: _ } => {
                 match result_table {
-                    Some(mut table) => result_table = execute_select_query(query, &mut table)?,
+                    Some(mut table) => result_table = execute_select_query(&query, &mut table)?,
                     None => {
                         println!("table name: {}", table_name);
                         let tables = database.buffer_pool.tables.read().unwrap();
                         let table = tables.get(table_name).unwrap().read().unwrap();
-                        result_table = execute_select_query(query, &table)?;
+                        result_table = execute_select_query(&query, &table)?;
                     },
                 }
             },
@@ -1854,18 +1854,18 @@ pub fn execute_insert_query(query: Query, table: &mut ColumnTable) -> Result<Opt
     }
 }
 
-pub fn execute_select_query(query: Query, table: &ColumnTable) -> Result<Option<ColumnTable>, EzError> {
+pub fn execute_select_query(query: &Query, table: &ColumnTable) -> Result<Option<ColumnTable>, EzError> {
     // println!("calling: execute_select_query()");
 
     match query {
         Query::SELECT { table_name: _, primary_keys, columns, conditions } => {
-            let keepers = filter_keepers(&conditions, &primary_keys, table)?;
+            let table = table.subtable_from_columns(columns, "RESULT")?;
+            let keepers = filter_keepers(&conditions, &primary_keys, &table)?;
         
             Ok(
                 Some(
                     table
                         .subtable_from_indexes(&keepers, &KeyString::from("RESULT"))
-                        .subtable_from_columns(&columns, "RESULT")?
                     )
             )
         },
@@ -1873,92 +1873,95 @@ pub fn execute_select_query(query: Query, table: &ColumnTable) -> Result<Option<
     }
 }
 
-pub fn alt_execute_select_query(query: Query, table: &ColumnTable) -> Result<Option<ColumnTable>, EzError> {
-    // println!("calling: execute_select_query()");
+// pub fn alt_execute_select_query(query: Query, table: &ColumnTable) -> Result<Option<ColumnTable>, EzError> {
+//     // println!("calling: execute_select_query()");
 
-    match query {
-        Query::SELECT { table_name: _, primary_keys, columns, conditions } => {
-            match primary_keys {
-                RangeOrListOrAll::Range(key_string, key_string1) => execute_select_query_with_pk_range(table, start, stop, columns, conditions),
-                RangeOrListOrAll::List(vec) => execute_select_query_with_pk_list(table, vec, columns, conditions),
-                RangeOrListOrAll::All => execute_select_query_with_pk_all(table, columns, conditions),
-            }
-        },
-        other_query => return Err(EzError{tag: ErrorTag::Query, text: format!("Wrong type of query passed to execute_select_query() function.\nReceived query: {}", other_query)}),
-    }
-}
+//     match query {
+//         Query::SELECT { table_name: _, primary_keys, columns, conditions } => {
+//             match primary_keys {
+//                 RangeOrListOrAll::Range(key_string, key_string1) => execute_select_query_with_pk_range(table, start, stop, columns, conditions),
+//                 RangeOrListOrAll::List(vec) => execute_select_query_with_pk_list(table, vec, columns, conditions),
+//                 RangeOrListOrAll::All => execute_select_query_with_pk_all(table, columns, conditions),
+//             }
+//         },
+//         other_query => return Err(EzError{tag: ErrorTag::Query, text: format!("Wrong type of query passed to execute_select_query() function.\nReceived query: {}", other_query)}),
+//     }
+// }
 
-pub fn execute_select_query_with_pk_range(table: &ColumnTable, start: KeyString, stop: KeyString, columns: Vec<KeyString>, conditions: Vec<OpOrCond>) -> Result<Option<ColumnTable>, EzError> {
-    let pk_index = table.get_primary_key_col_index();
-    let mut first = 0;
-    let mut last = table.len();
-    match &table.columns[&pk_index] {
-        DbColumn::Ints(vec) => {
-            first = match vec.binary_search(&start.to_i32()) {
-                Ok(x) => x,
-                Err(x) => x,
-            };
-            last = match vec.binary_search(&stop.to_i32()) {
-                Ok(x) => x,
-                Err(x) => x,
-            };
-        },
-        DbColumn::Texts(vec) => {
-            first = match vec.binary_search(&start) {
-                Ok(x) => x,
-                Err(x) => x,
-            };
-            last = match vec.binary_search(&stop) {
-                Ok(x) => x,
-                Err(x) => x,
-            };
-        },
-        DbColumn::Floats(vec) => return Err(EzError { tag: ErrorTag::Query, text: "There should neve be a float primary key".to_owned() }),
-    };
+// pub fn execute_select_query_with_pk_range(table: &ColumnTable, start: KeyString, stop: KeyString, columns: Vec<KeyString>, conditions: Vec<OpOrCond>) -> Result<Option<ColumnTable>, EzError> {
+//     let pk_index = table.get_primary_key_col_index();
+//     let mut first = 0;
+//     let mut last = table.len();
+//     match &table.columns[&pk_index] {
+//         DbColumn::Ints(vec) => {
+//             first = match vec.binary_search(&start.to_i32()) {
+//                 Ok(x) => x,
+//                 Err(x) => x,
+//             };
+//             last = match vec.binary_search(&stop.to_i32()) {
+//                 Ok(x) => x,
+//                 Err(x) => x,
+//             };
+//         },
+//         DbColumn::Texts(vec) => {
+//             first = match vec.binary_search(&start) {
+//                 Ok(x) => x,
+//                 Err(x) => x,
+//             };
+//             last = match vec.binary_search(&stop) {
+//                 Ok(x) => x,
+//                 Err(x) => x,
+//             };
+//         },
+//         DbColumn::Floats(vec) => return Err(EzError { tag: ErrorTag::Query, text: "There should neve be a float primary key".to_owned() }),
+//     };
 
-    let mut result_table_columns = BTreeMap::new();
-    for name in columns {
-        let current_column = &table.columns[&name];
-        match current_column {
-            DbColumn::Ints(vec) => {
-                let new_column = Vec::new();
-                for index in first..last {
-                    let value = vec[index];
-                    let mut current_op = Operator::OR;
-                    for condition in conditions {
-                        match condition {
-                            OpOrCond::Op(operator) => current_op = operator,
-                            OpOrCond::Cond(condition) =>  {
-                                let test_value = match condition.value {
-                                    DbValue::Int(v) => v,
-                                    DbValue::Float(_) => return Err(EzError { tag: ErrorTag::Query, text: format!("cannot compare int to float") }),
-                                    DbValue::Text(_) => return Err(EzError { tag: ErrorTag::Query, text: format!("cannot compare text to float") }),
-                                };
-                                let pass: bool = match condition.op {
-                                    TestOp::Equals => value == test_value,
-                                    TestOp::NotEquals => todo!(),
-                                    TestOp::Less => todo!(),
-                                    TestOp::Greater => todo!(),
-                                    TestOp::Starts => todo!(),
-                                    TestOp::Ends => todo!(),
-                                    TestOp::Contains => todo!(),
-                                };
-                                if current_op == Operator::OR {
+//     let mut result_table_columns = BTreeMap::new();
+//     for name in columns {
+//         let current_column = &table.columns[&name];
+//         match current_column {
+//             DbColumn::Ints(vec) => {
+//                 let new_column = Vec::new();
+//                 for index in first..last {
+//                     let value = vec[index];
+//                     let mut current_op = Operator::OR;
+//                     for condition in conditions {
+//                         match condition {
+//                             OpOrCond::Op(operator) => current_op = operator,
+//                             OpOrCond::Cond(condition) =>  {
+//                                 if condition.attribute != name {
+//                                     continue
+//                                 }
+//                                 let test_value = match condition.value {
+//                                     DbValue::Int(v) => v,
+//                                     DbValue::Float(_) => return Err(EzError { tag: ErrorTag::Query, text: format!("cannot compare int to float") }),
+//                                     DbValue::Text(_) => return Err(EzError { tag: ErrorTag::Query, text: format!("cannot compare text to float") }),
+//                                 };
+//                                 let pass: bool = match condition.op {
+//                                     TestOp::Equals => value == test_value,
+//                                     TestOp::NotEquals => todo!(),
+//                                     TestOp::Less => todo!(),
+//                                     TestOp::Greater => todo!(),
+//                                     TestOp::Starts => todo!(),
+//                                     TestOp::Ends => todo!(),
+//                                     TestOp::Contains => todo!(),
+//                                 };
+//                                 if current_op == Operator::OR {
 
-                                }
-                            },
-                        }
-                    }
-                }
-            },
-            DbColumn::Texts(vec) => todo!(),
-            DbColumn::Floats(vec) => todo!(),
-        };
-    }
+//                                 }
+//                             },
+//                         }
+//                     }
+//                 }
+//             },
+//             DbColumn::Texts(vec) => todo!(),
+//             DbColumn::Floats(vec) => todo!(),
+//         };
+//     }
     
 
-    todo!()
-}
+//     todo!()
+// }
 
 pub fn execute_select_query_with_pk_list(table: &ColumnTable, start: KeyString, stop: KeyString, columns: Vec<KeyString>, conditions: Vec<OpOrCond>) -> Result<Option<ColumnTable>, EzError> {
     todo!()
@@ -2286,7 +2289,7 @@ mod tests {
     // SUMMARY(table_name: products, columns: ((SUM stock), (MEAN price)))
 
 
-    use std::default;
+    use std::{default, io::Write};
 
     use rand::Rng;
 
@@ -2390,6 +2393,36 @@ mod tests {
         assert_eq!(kv_queries, parsed_queries);
 
     }
+
+    // #[test]
+    // fn test_make_massive_table() {
+    //     let massive_table_binary = std::fs::read("test_files/massive_table.eztable").unwrap();
+    //     println!("HERE!");
+    //     let massive_table = ColumnTable::from_binary("massive_table".into(), &massive_table_binary).unwrap();
+    //     println!("HERE!");
+
+    //     let query = Query::SELECT {
+    //         table_name: "massive_table".into(),
+    //         primary_keys: RangeOrListOrAll::All,
+    //         columns: vec![
+    //             "tqn[SNsonEhmBAbkTphVntSTPTqwyN]^EVnt".into(), 
+    //             r"qlsCKiYAd_tko\PLNkoHwB`bUNlcTf_AryKdRKGmyo]ZixfsVNaELouL".into(),
+    //             "oRMWqCfGSVjYydfSJeQnNgbPtqjQTaOTscYsxyy`NeeJVmU".into(),
+    //         ],
+    //         conditions: vec![
+    //             OpOrCond::Cond(Condition{attribute: "tqn[SNsonEhmBAbkTphVntSTPTqwyN]^EVnt".into(), op: TestOp::Greater, value: DbValue::Float(0.0)}),
+    //             OpOrCond::Cond(Condition{attribute: r"qlsCKiYAd_tko\PLNkoHwB`bUNlcTf_AryKdRKGmyo]ZixfsVNaELouL".into(), op: TestOp::Equals, value: DbValue::Text("Hella".into())}),
+    //             OpOrCond::Cond(Condition{attribute: "oRMWqCfGSVjYydfSJeQnNgbPtqjQTaOTscYsxyy`NeeJVmU".into(), op: TestOp::Greater, value: DbValue::Int(0)}),
+    //         ],
+    //     };
+    //     println!("HERE!");
+
+    //     let start = std::time::Instant::now();
+    //     execute_select_query(&query, &massive_table).unwrap().unwrap();
+    //     let stop = start.elapsed().as_millis();
+    //     println!("Time: {}ms", stop);
+
+    // }
 
 
 }

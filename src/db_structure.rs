@@ -1900,8 +1900,6 @@ impl ColumnTable {
             header.insert(HeaderItem{name: names[i], kind: acc_kk[i].0, key: acc_kk[i].1 });
         }
 
-        println!("HEADER: {:?}", header);
-
         let mut columns = BTreeMap::new();
 
         let mut pointer = 144+header_len*8 + header_len*64;

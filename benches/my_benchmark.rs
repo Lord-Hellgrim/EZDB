@@ -43,20 +43,20 @@ fn my_benchmark(c: &mut Criterion) {
     // c.bench_function("concurrent downloads (small csv)", |b| b.iter( || test_concurrent_connections()));
     let mut group = c.benchmark_group("All benchmarks");
 
-    let query = Query::SELECT { 
-        table_name: ksf("good_table"),
-        primary_keys: RangeOrListOrAll::All,
-        columns: vec![ksf("id"), ksf("name"), ksf("price")],
-        conditions: vec![
-            OpOrCond::Cond(Condition{attribute: ksf("id"), op: TestOp::Equals, value: DbValue::Int(4)}),
-            OpOrCond::Op(Operator::AND),
-            OpOrCond::Cond(Condition{attribute: ksf("name"), op: TestOp::Equals, value: DbValue::Text(ksf("four"))}),
+    // let query = Query::SELECT { 
+    //     table_name: ksf("good_table"),
+    //     primary_keys: RangeOrListOrAll::All,
+    //     columns: vec![ksf("id"), ksf("name"), ksf("price")],
+    //     conditions: vec![
+    //         OpOrCond::Cond(Condition{attribute: ksf("id"), op: TestOp::Equals, value: DbValue::Int(4)}),
+    //         OpOrCond::Op(Operator::AND),
+    //         OpOrCond::Cond(Condition{attribute: ksf("name"), op: TestOp::Equals, value: DbValue::Text(ksf("four"))}),
             
-        ],
-    };
+    //     ],
+    // };
 
-    group.bench_function("Query::to_binary()", |b| b.iter(|| query.to_binary()));
-    group.bench_function("Query::inline_to_binary()", |b| b.iter(|| query.to_binary()));
+    // group.bench_function("Query::to_binary()", |b| b.iter(|| query.to_binary()));
+    // group.bench_function("Query::inline_to_binary()", |b| b.iter(|| query.to_binary()));
     
     // let address = "127.0.0.1:3004";
     // let username = "admin";
@@ -261,8 +261,6 @@ fn my_benchmark(c: &mut Criterion) {
     //         new_vec.push(n);
     //     }
     // }));
-
-
 
 }
 
