@@ -1703,7 +1703,7 @@ pub fn execute_left_join_query(query: Query, left_table: &ColumnTable, right_tab
 
 
 #[inline]
-pub fn update_i32(keepers: &[usize], column: &mut [i32], op: UpdateOp, value: &DbValue) -> Result<(), EzError> {
+pub fn update_i32(keepers: &HashSet<usize>, column: &mut [i32], op: UpdateOp, value: &DbValue) -> Result<(), EzError> {
     let new_value = match value {
         DbValue::Int(x) => x,
         _ => return Err(EzError { tag: ErrorTag::Query, text: format!("an int can only be updated by an int") })
@@ -1741,7 +1741,7 @@ pub fn update_i32(keepers: &[usize], column: &mut [i32], op: UpdateOp, value: &D
 }
 
 #[inline]
-pub fn update_f32(keepers: &[usize], column: &mut [f32], op: UpdateOp, value: &DbValue) -> Result<(), EzError> {
+pub fn update_f32(keepers: &HashSet<usize>, column: &mut [f32], op: UpdateOp, value: &DbValue) -> Result<(), EzError> {
     let new_value = match value {
         DbValue::Float(x) => x,
         _ => return Err(EzError { tag: ErrorTag::Query, text: format!("a float can only be updated by a float") })
@@ -1779,7 +1779,7 @@ pub fn update_f32(keepers: &[usize], column: &mut [f32], op: UpdateOp, value: &D
 }
 
 #[inline]
-pub fn update_keystrings(keepers: &[usize], column: &mut [KeyString], op: UpdateOp, value: &DbValue) -> Result<(), EzError> {
+pub fn update_keystrings(keepers: &HashSet<usize>, column: &mut [KeyString], op: UpdateOp, value: &DbValue) -> Result<(), EzError> {
     let new_value = match value {
         DbValue::Text(x) => x,
         _ => return Err(EzError { tag: ErrorTag::Query, text: format!("an int can only be updated by an int") })
@@ -1873,101 +1873,96 @@ pub fn execute_select_query(query: &Query, table: &ColumnTable) -> Result<Option
     }
 }
 
-// pub fn alt_execute_select_query(query: Query, table: &ColumnTable) -> Result<Option<ColumnTable>, EzError> {
-//     // println!("calling: execute_select_query()");
+pub fn alt_execute_select_query(query: Query, table: &ColumnTable) -> Result<Option<ColumnTable>, EzError> {
+    // println!("calling: execute_select_query()");
 
-//     match query {
-//         Query::SELECT { table_name: _, primary_keys, columns, conditions } => {
-//             match primary_keys {
-//                 RangeOrListOrAll::Range(key_string, key_string1) => execute_select_query_with_pk_range(table, start, stop, columns, conditions),
-//                 RangeOrListOrAll::List(vec) => execute_select_query_with_pk_list(table, vec, columns, conditions),
-//                 RangeOrListOrAll::All => execute_select_query_with_pk_all(table, columns, conditions),
-//             }
-//         },
-//         other_query => return Err(EzError{tag: ErrorTag::Query, text: format!("Wrong type of query passed to execute_select_query() function.\nReceived query: {}", other_query)}),
-//     }
-// }
+    match query {
+        Query::SELECT { table_name: _, primary_keys, columns, conditions } => {
+            match primary_keys {
+                RangeOrListOrAll::Range(key_string, key_string1) => execute_select_query_with_pk_range(table, key_string, key_string1, columns, conditions),
+                RangeOrListOrAll::List(vec) => execute_select_query_with_pk_list(table, vec, columns, conditions),
+                RangeOrListOrAll::All => execute_select_query_with_pk_all(table, columns, conditions),
+            }
+        },
+        other_query => return Err(EzError{tag: ErrorTag::Query, text: format!("Wrong type of query passed to execute_select_query() function.\nReceived query: {}", other_query)}),
+    }
+}
 
-// pub fn execute_select_query_with_pk_range(table: &ColumnTable, start: KeyString, stop: KeyString, columns: Vec<KeyString>, conditions: Vec<OpOrCond>) -> Result<Option<ColumnTable>, EzError> {
-//     let pk_index = table.get_primary_key_col_index();
-//     let mut first = 0;
-//     let mut last = table.len();
-//     match &table.columns[&pk_index] {
-//         DbColumn::Ints(vec) => {
-//             first = match vec.binary_search(&start.to_i32()) {
-//                 Ok(x) => x,
-//                 Err(x) => x,
-//             };
-//             last = match vec.binary_search(&stop.to_i32()) {
-//                 Ok(x) => x,
-//                 Err(x) => x,
-//             };
-//         },
-//         DbColumn::Texts(vec) => {
-//             first = match vec.binary_search(&start) {
-//                 Ok(x) => x,
-//                 Err(x) => x,
-//             };
-//             last = match vec.binary_search(&stop) {
-//                 Ok(x) => x,
-//                 Err(x) => x,
-//             };
-//         },
-//         DbColumn::Floats(vec) => return Err(EzError { tag: ErrorTag::Query, text: "There should neve be a float primary key".to_owned() }),
-//     };
+pub fn execute_select_query_with_pk_range(table: &ColumnTable, start: KeyString, stop: KeyString, columns: Vec<KeyString>, conditions: Vec<OpOrCond>) -> Result<Option<ColumnTable>, EzError> {
+    let pk_index = table.get_primary_key_col_index();
+    let mut first = 0;
+    let mut last = table.len();
+    match &table.columns[&pk_index] {
+        DbColumn::Ints(vec) => {
+            first = match vec.binary_search(&start.to_i32()) {
+                Ok(x) => x,
+                Err(x) => x,
+            };
+            last = match vec.binary_search(&stop.to_i32()) {
+                Ok(x) => x,
+                Err(x) => x,
+            };
+        },
+        DbColumn::Texts(vec) => {
+            first = match vec.binary_search(&start) {
+                Ok(x) => x,
+                Err(x) => x,
+            };
+            last = match vec.binary_search(&stop) {
+                Ok(x) => x,
+                Err(x) => x,
+            };
+        },
+        DbColumn::Floats(vec) => return Err(EzError { tag: ErrorTag::Query, text: "There should neve be a float primary key".to_owned() }),
+    };
 
-//     let mut result_table_columns = BTreeMap::new();
-//     for name in columns {
-//         let current_column = &table.columns[&name];
-//         match current_column {
-//             DbColumn::Ints(vec) => {
-//                 let new_column = Vec::new();
-//                 for index in first..last {
-//                     let value = vec[index];
-//                     let mut current_op = Operator::OR;
-//                     for condition in conditions {
-//                         match condition {
-//                             OpOrCond::Op(operator) => current_op = operator,
-//                             OpOrCond::Cond(condition) =>  {
-//                                 if condition.attribute != name {
-//                                     continue
-//                                 }
-//                                 let test_value = match condition.value {
-//                                     DbValue::Int(v) => v,
-//                                     DbValue::Float(_) => return Err(EzError { tag: ErrorTag::Query, text: format!("cannot compare int to float") }),
-//                                     DbValue::Text(_) => return Err(EzError { tag: ErrorTag::Query, text: format!("cannot compare text to float") }),
-//                                 };
-//                                 let pass: bool = match condition.op {
-//                                     TestOp::Equals => value == test_value,
-//                                     TestOp::NotEquals => todo!(),
-//                                     TestOp::Less => todo!(),
-//                                     TestOp::Greater => todo!(),
-//                                     TestOp::Starts => todo!(),
-//                                     TestOp::Ends => todo!(),
-//                                     TestOp::Contains => todo!(),
-//                                 };
-//                                 if current_op == Operator::OR {
+    // let mut keepers = Vec::new();
+    for condition in conditions {
+        let mut current_op = Operator::OR;
+        match condition {
+            OpOrCond::Op(operator) => current_op = operator,
+            OpOrCond::Cond(condition) => {
+                let column = match table.columns.get(&condition.attribute) {
+                    Some(c) => c,
+                    None => continue
+                };
+                match condition.value {
+                    DbValue::Int(_) => match column {
+                        DbColumn::Ints(_) => (),
+                        _ => return Err(EzError { tag: ErrorTag::Query, text: format!("Can't compare Int and not int") })
+                    },
+                    DbValue::Float(_) => match column {
+                        DbColumn::Floats(_) => (),
+                        _ => return Err(EzError { tag: ErrorTag::Query, text: format!("Can't compare Float and not float") })
+                    },
+                    DbValue::Text(_) => match column {
+                        DbColumn::Texts(_) => (),
+                        _ => return Err(EzError { tag: ErrorTag::Query, text: format!("Can't compare Text and not text") })
+                    },
+                };
+                for index in first..last {
+                    match condition.op {
+                        TestOp::Equals => todo!(),
+                        TestOp::NotEquals => todo!(),
+                        TestOp::Less => todo!(),
+                        TestOp::Greater => todo!(),
+                        TestOp::Starts => todo!(),
+                        TestOp::Ends => todo!(),
+                        TestOp::Contains => todo!(),
+                    }
+                }
+            },
+        };
+    }
 
-//                                 }
-//                             },
-//                         }
-//                     }
-//                 }
-//             },
-//             DbColumn::Texts(vec) => todo!(),
-//             DbColumn::Floats(vec) => todo!(),
-//         };
-//     }
-    
-
-//     todo!()
-// }
-
-pub fn execute_select_query_with_pk_list(table: &ColumnTable, start: KeyString, stop: KeyString, columns: Vec<KeyString>, conditions: Vec<OpOrCond>) -> Result<Option<ColumnTable>, EzError> {
     todo!()
 }
 
-pub fn execute_select_query_with_pk_all(table: &ColumnTable, start: KeyString, stop: KeyString, columns: Vec<KeyString>, conditions: Vec<OpOrCond>) -> Result<Option<ColumnTable>, EzError> {
+pub fn execute_select_query_with_pk_list(table: &ColumnTable, list: Vec<KeyString>, columns: Vec<KeyString>, conditions: Vec<OpOrCond>) -> Result<Option<ColumnTable>, EzError> {
+    todo!()
+}
+
+pub fn execute_select_query_with_pk_all(table: &ColumnTable, columns: Vec<KeyString>, conditions: Vec<OpOrCond>) -> Result<Option<ColumnTable>, EzError> {
     todo!()
 }
 
@@ -2072,10 +2067,10 @@ pub fn execute_full_join_query(query: Query, database: Arc<Database>) -> Result<
     Err(EzError{tag: ErrorTag::Unimplemented, text: "full joins are not yet implemented".to_owned()})
 }
 
-pub fn keys_to_indexes(table: &ColumnTable, keys: &RangeOrListOrAll) -> Result<Vec<usize>, EzError> {
+pub fn keys_to_indexes(table: &ColumnTable, keys: &RangeOrListOrAll) -> Result<HashSet<usize>, EzError> {
     // println!("calling: keys_to_indexes()");
 
-    let mut indexes = Vec::new();
+    let mut indexes = HashSet::new();
 
     match keys {
         RangeOrListOrAll::Range(ref start, ref stop) => {
@@ -2116,7 +2111,7 @@ pub fn keys_to_indexes(table: &ColumnTable, keys: &RangeOrListOrAll) -> Result<V
                     let mut key_index: usize = 0;
                     for index in 0..keys.len() {
                         if column[index] == keys[key_index].to_i32() {
-                            indexes.push(index);
+                            indexes.insert(index);
                             key_index += 1;
                         }
                     }
@@ -2130,7 +2125,7 @@ pub fn keys_to_indexes(table: &ColumnTable, keys: &RangeOrListOrAll) -> Result<V
                     let mut key_index = 0;
                     for index in 0..column.len() {
                         if column[index] == keys[key_index] {
-                            indexes.push(index);
+                            indexes.insert(index);
                             key_index += 1;
                         }
                     }
@@ -2145,7 +2140,7 @@ pub fn keys_to_indexes(table: &ColumnTable, keys: &RangeOrListOrAll) -> Result<V
 }
 
 
-pub fn filter_keepers(conditions: &Vec<OpOrCond>, primary_keys: &RangeOrListOrAll, table: &ColumnTable) -> Result<Vec<usize>, EzError> {
+pub fn filter_keepers(conditions: &Vec<OpOrCond>, primary_keys: &RangeOrListOrAll, table: &ColumnTable) -> Result<HashSet<usize>, EzError> {
     // println!("calling: filter_keepers()");
 
     let indexes = keys_to_indexes(table, primary_keys)?;
@@ -2153,7 +2148,7 @@ pub fn filter_keepers(conditions: &Vec<OpOrCond>, primary_keys: &RangeOrListOrAl
     if conditions.is_empty() {
         return Ok(indexes);
     }
-    let mut keepers = Vec::<usize>::new();
+    let mut keepers = HashSet::new();
     let mut current_op = Operator::OR;
     for condition in conditions.iter() {
         match condition {
@@ -2168,105 +2163,107 @@ pub fn filter_keepers(conditions: &Vec<OpOrCond>, primary_keys: &RangeOrListOrAl
                         match &cond.op {
                             TestOp::Equals => {
                                 match column {
-                                    DbColumn::Ints(col) => if col[*index] == cond.value.to_i32() {keepers.push(*index)},
-                                    DbColumn::Floats(col) => if col[*index] == cond.value.to_f32() {keepers.push(*index)},
-                                    DbColumn::Texts(col) => if col[*index] == cond.value.to_keystring() {keepers.push(*index)},
+                                    DbColumn::Ints(col) => if col[*index] == cond.value.to_i32() {keepers.insert(*index);},
+                                    DbColumn::Floats(col) => if col[*index] == cond.value.to_f32() {keepers.insert(*index);},
+                                    DbColumn::Texts(col) => if col[*index] == cond.value.to_keystring() {keepers.insert(*index);},
                                 }
                             },
                             TestOp::NotEquals => {
                                 match column {
-                                    DbColumn::Ints(col) => if col[*index] != cond.value.to_i32() {keepers.push(*index)},
-                                    DbColumn::Floats(col) => if col[*index] != cond.value.to_f32() {keepers.push(*index)},
-                                    DbColumn::Texts(col) => if col[*index] != cond.value.to_keystring() {keepers.push(*index)},
+                                    DbColumn::Ints(col) => if col[*index] != cond.value.to_i32() {keepers.insert(*index);},
+                                    DbColumn::Floats(col) => if col[*index] != cond.value.to_f32() {keepers.insert(*index);},
+                                    DbColumn::Texts(col) => if col[*index] != cond.value.to_keystring() {keepers.insert(*index);},
                                 }
                             },
                             TestOp::Less => {
                                 match column {
-                                    DbColumn::Ints(col) => if col[*index] < cond.value.to_i32() {keepers.push(*index)},
-                                    DbColumn::Floats(col) => if col[*index] < cond.value.to_f32() {keepers.push(*index)},
-                                    DbColumn::Texts(col) => if col[*index] < cond.value.to_keystring() {keepers.push(*index)},
+                                    DbColumn::Ints(col) => if col[*index] < cond.value.to_i32() {keepers.insert(*index);},
+                                    DbColumn::Floats(col) => if col[*index] < cond.value.to_f32() {keepers.insert(*index);},
+                                    DbColumn::Texts(col) => if col[*index] < cond.value.to_keystring() {keepers.insert(*index);},
                                 }
                             },
                             TestOp::Greater => {
                                 match column {
-                                    DbColumn::Ints(col) => if col[*index] > cond.value.to_i32() {keepers.push(*index)},
-                                    DbColumn::Floats(col) => if col[*index] > cond.value.to_f32() {keepers.push(*index)},
-                                    DbColumn::Texts(col) => if col[*index] > cond.value.to_keystring() {keepers.push(*index)},
+                                    DbColumn::Ints(col) => if col[*index] > cond.value.to_i32() {keepers.insert(*index);},
+                                    DbColumn::Floats(col) => if col[*index] > cond.value.to_f32() {keepers.insert(*index);},
+                                    DbColumn::Texts(col) => if col[*index] > cond.value.to_keystring() {keepers.insert(*index);},
                                 }
                             },
                             TestOp::Starts => {
                                 match column {
-                                    DbColumn::Texts(col) => if col[*index].as_str().starts_with(cond.value.to_keystring().as_str()) {keepers.push(*index)},
+                                    DbColumn::Texts(col) => if col[*index].as_str().starts_with(cond.value.to_keystring().as_str()) {keepers.insert(*index);},
                                     _ => return Err(EzError{tag: ErrorTag::Query, text: "Can only filter by 'starts_with' on text values".to_owned()}),
                                 }
                             },
                             TestOp::Ends => {
                                 match column {
-                                    DbColumn::Texts(col) => if col[*index].as_str().ends_with(cond.value.to_keystring().as_str()) {keepers.push(*index)},
+                                    DbColumn::Texts(col) => if col[*index].as_str().ends_with(cond.value.to_keystring().as_str()) {keepers.insert(*index);},
                                     _ => return Err(EzError{tag: ErrorTag::Query, text: "Can only filter by 'ends_with' on text values".to_owned()}),
                                 }
                             },
                             TestOp::Contains => {
                                 match column {
-                                    DbColumn::Texts(col) => if col[*index].as_str().contains(cond.value.to_keystring().as_str()) {keepers.push(*index)},
+                                    DbColumn::Texts(col) => if col[*index].as_str().contains(cond.value.to_keystring().as_str()) {keepers.insert(*index);},
                                     _ => return Err(EzError{tag: ErrorTag::Query, text: "Can only filter by 'contains' on text values".to_owned()}),
                                 }
                             },
                         }
                     }
                 } else {
-                    let mut losers = Vec::new();
+                    let mut losers = HashSet::new();
                     for keeper in &keepers {
                         match &cond.op {
                             TestOp::Equals => {
                                 match column {
-                                    DbColumn::Ints(col) => if col[*keeper] == cond.value.to_i32() {losers.push(*keeper)},
-                                    DbColumn::Floats(col) => if col[*keeper] == cond.value.to_f32() {losers.push(*keeper)},
-                                    DbColumn::Texts(col) => if col[*keeper] == cond.value.to_keystring() {losers.push(*keeper)},
+                                    DbColumn::Ints(col) => if !(col[*keeper] == cond.value.to_i32()) {losers.insert(*keeper);},
+                                    DbColumn::Floats(col) => if !(col[*keeper] == cond.value.to_f32()) {losers.insert(*keeper);},
+                                    DbColumn::Texts(col) => if !(col[*keeper] == cond.value.to_keystring()) {losers.insert(*keeper);},
                                 }
                             },
                             TestOp::NotEquals => {
                                 match column {
-                                    DbColumn::Ints(col) => if col[*keeper] != cond.value.to_i32() {losers.push(*keeper)},
-                                    DbColumn::Floats(col) => if col[*keeper] != cond.value.to_f32() {losers.push(*keeper)},
-                                    DbColumn::Texts(col) => if col[*keeper] != cond.value.to_keystring() {losers.push(*keeper)},
+                                    DbColumn::Ints(col) => if !(col[*keeper] != cond.value.to_i32()) {losers.insert(*keeper);},
+                                    DbColumn::Floats(col) => if !(col[*keeper] != cond.value.to_f32()) {losers.insert(*keeper);},
+                                    DbColumn::Texts(col) => if !(col[*keeper] != cond.value.to_keystring()) {losers.insert(*keeper);},
                                 }
                             },
                             TestOp::Less => {
                                 match column {
-                                    DbColumn::Ints(col) => if col[*keeper] < cond.value.to_i32() {losers.push(*keeper)},
-                                    DbColumn::Floats(col) => if col[*keeper] < cond.value.to_f32() {losers.push(*keeper)},
-                                    DbColumn::Texts(col) => if col[*keeper] < cond.value.to_keystring() {losers.push(*keeper)},
+                                    DbColumn::Ints(col) => if !(col[*keeper] < cond.value.to_i32()) {losers.insert(*keeper);},
+                                    DbColumn::Floats(col) => if !(col[*keeper] < cond.value.to_f32()) {losers.insert(*keeper);},
+                                    DbColumn::Texts(col) => if !(col[*keeper] < cond.value.to_keystring()) {losers.insert(*keeper);},
                                 }
                             },
                             TestOp::Greater => {
                                 match column {
-                                    DbColumn::Ints(col) => if col[*keeper] > cond.value.to_i32() {losers.push(*keeper)},
-                                    DbColumn::Floats(col) => if col[*keeper] > cond.value.to_f32() {losers.push(*keeper)},
-                                    DbColumn::Texts(col) => if col[*keeper] > cond.value.to_keystring() {losers.push(*keeper)},
+                                    DbColumn::Ints(col) => if !(col[*keeper] > cond.value.to_i32()) {losers.insert(*keeper);},
+                                    DbColumn::Floats(col) => if !(col[*keeper] > cond.value.to_f32()) {losers.insert(*keeper);},
+                                    DbColumn::Texts(col) => if !(col[*keeper] > cond.value.to_keystring()) {losers.insert(*keeper);},
                                 }
                             },
                             TestOp::Starts => {
                                 match column {
-                                    DbColumn::Texts(col) => if col[*keeper].as_str().starts_with(cond.value.to_keystring().as_str()) {losers.push(*keeper)},
+                                    DbColumn::Texts(col) => if !(col[*keeper].as_str().starts_with(cond.value.to_keystring().as_str())) {losers.insert(*keeper);},
                                     _ => return Err(EzError{tag: ErrorTag::Query, text: "Can only filter by 'starts_with' on text values".to_owned()}),
                                 }
                             },
                             TestOp::Ends => {
                                 match column {
-                                    DbColumn::Texts(col) => if col[*keeper].as_str().ends_with(cond.value.to_keystring().as_str()) {losers.push(*keeper)},
+                                    DbColumn::Texts(col) => if !(col[*keeper].as_str().ends_with(cond.value.to_keystring().as_str())) {losers.insert(*keeper);},
                                     _ => return Err(EzError{tag: ErrorTag::Query, text: "Can only filter by 'ends_with' on text values".to_owned()}),
                                 }
                             },
                             TestOp::Contains => {
                                 match column {
-                                    DbColumn::Texts(col) => if col[*keeper].as_str().contains(cond.value.to_keystring().as_str()) {losers.push(*keeper)},
+                                    DbColumn::Texts(col) => if !(col[*keeper].as_str().contains(cond.value.to_keystring().as_str())) {losers.insert(*keeper);},
                                     _ => return Err(EzError{tag: ErrorTag::Query, text: "Can only filter by 'contains' on text values".to_owned()}),
                                 }
                             },
                         }
                     }
-                    remove_indices(&mut keepers, &losers);
+                    for loser in &losers {
+                        keepers.remove(loser);
+                    }
                 }
             },
         }
@@ -2293,7 +2290,7 @@ mod tests {
 
     use rand::Rng;
 
-    use crate::{testing_tools::{random_column_table, random_kv_query, random_query}, utilities::ksf};
+    use crate::{testing_tools::{create_fixed_table, random_column_table, random_kv_query, random_query}, utilities::ksf};
 
     use super::*;
 
@@ -2392,6 +2389,30 @@ mod tests {
 
         assert_eq!(kv_queries, parsed_queries);
 
+    }
+
+    #[test]
+    fn test_standard_select() {
+        let test_table = create_fixed_table(100);
+
+        let select_query = Query::SELECT {
+            table_name: "SELECT_test".into(), 
+            primary_keys: RangeOrListOrAll::All, 
+            columns: vec!["ints".into(), "texts".into(), "floats".into()], 
+            conditions: vec![
+                OpOrCond::Cond(Condition { attribute: "ints".into(), op: TestOp::Equals, value: 1.into()}),            
+                OpOrCond::Op(Operator::AND),
+                OpOrCond::Cond(Condition { attribute: "ints".into(), op: TestOp::Equals, value: 1.into()}),
+                // OpOrCond::Op(Operator::AND),
+                // OpOrCond::Cond(Condition { attribute: "texts".into(), op: TestOp::Starts, value: ksf("text1").into()}),
+                // OpOrCond::Op(Operator::AND),
+                // OpOrCond::Cond(Condition { attribute: "floats".into(), op: TestOp::Greater, value: (10.0 as f32).into()}),
+            ],
+        };
+
+        let select_results = execute_select_query(&select_query, &test_table).unwrap().unwrap();
+
+        println!("{}", select_results);
     }
 
     // #[test]

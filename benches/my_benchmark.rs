@@ -262,7 +262,24 @@ fn my_benchmark(c: &mut Criterion) {
     //     }
     // }));
 
-}
+    // ###################### QUERY EXECUTION ###################################################
 
+    let test_table = create_fixed_table(10_000);
+
+    let select_query = Query::SELECT {
+        table_name: "SELECT_test".into(), 
+        primary_keys: RangeOrListOrAll::All, 
+        columns: vec!["ints".into(), "texts".into(), "floats".into()], 
+        conditions: vec![
+            OpOrCond::Cond(Condition { attribute: "ints".into(), op: TestOp::Equals, value: 1.into()}),
+            OpOrCond::Cond(Condition { attribute: "texts".into(), op: TestOp::Starts, value: ksf("text1").into()}),
+            OpOrCond::Cond(Condition { attribute: "floats".into(), op: TestOp::Greater, value: (10.0 as f32).into()}),
+        ],
+    };
+
+    group.bench_function("Query Execution - SELECT", |b| b.iter(|| {
+        let select_results = execute_select_query(&select_query, &test_table).unwrap().unwrap();
+    }));
+}
 criterion_group!(benches, my_benchmark);
 criterion_main!(benches);

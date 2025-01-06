@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet}, fmt::{self, Debug, Display}, num::{ParseFloatError, ParseIntError}, sync::atomic::{AtomicU64, Ordering}
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet}, fmt::{self, Debug, Display}, num::{ParseFloatError, ParseIntError}, ops::Index, sync::atomic::{AtomicU64, Ordering}
 };
 
 // use smartstring::{LazyCompact, SmartString, };
@@ -351,7 +351,16 @@ impl DbColumn {
             _ => panic!("Never call this function unless you are sure it's a KeyString column"),
         }
     }
+
+    pub fn index(&self, index: usize) -> DbValue {
+        match self {
+            DbColumn::Ints(vec) => DbValue::Int(vec[index]),
+            DbColumn::Texts(vec) => DbValue::Text(vec[index]),
+            DbColumn::Floats(vec) => DbValue::Float(vec[index]),
+        }
+    }
 }
+
 
 /// The header of a database column. Identifies name, type, and whether it is the primary key,
 /// a forreign key or just a regular ol' entry
@@ -826,20 +835,20 @@ impl ColumnTable {
 
         let mut input_table = inserts;
 
-        let mut losers = Vec::new();
+        let mut losers = HashSet::new();
 
         match &input_table.columns[&input_table.get_primary_key_col_index()] {
             DbColumn::Ints(column) => {
                 for item in column {
                     if let Some(index) = self.contains_key_i32(*item) {
-                        losers.push(index);
+                        losers.insert(index);
                     }
                 }
             },
             DbColumn::Texts(column) => {
                 for item in column {
                     if let Some(index) = self.contains_key_string(*item) {
-                        losers.push(index);
+                        losers.insert(index);
                     }
                 }
             },
@@ -1117,7 +1126,7 @@ impl ColumnTable {
 
     }
 
-    pub fn subtable_from_indexes(&self, indexes: &[usize], new_name: &KeyString) -> ColumnTable {
+    pub fn subtable_from_indexes(&self, indexes: &HashSet<usize>, new_name: &KeyString) -> ColumnTable {
         
         let mut result_columns = BTreeMap::new();
 
@@ -1408,7 +1417,7 @@ impl ColumnTable {
         let primary_index = self.get_primary_key_col_index();
         key_list.sort();
 
-        let mut indexes = Vec::new();
+        let mut indexes = HashSet::new();
         for item in key_list {
             match &self.columns[&primary_index] {
                 
@@ -1422,14 +1431,14 @@ impl ColumnTable {
                         Ok(num) => num,
                         Err(_) => continue,
                     };
-                    indexes.push(index);
+                    indexes.insert(index);
                 },
                 DbColumn::Texts(col) => {
                     let index: usize = match col.binary_search(&KeyString::from(item)) {
                         Ok(num) => num,
                         Err(_) => continue,
                     };
-                    indexes.push(index);
+                    indexes.insert(index);
                 },
                 DbColumn::Floats(_) => return Err(EzError{tag: ErrorTag::Structure, text: "There should never be a float primary key".to_owned()}),
             }
@@ -1459,7 +1468,7 @@ impl ColumnTable {
 
         let primary_index = self.get_primary_key_col_index();
 
-        let mut indexes = Vec::with_capacity(key_list.len());
+        let mut indexes = HashSet::new();
         match key_list {
             DbColumn::Ints(mut column) => {
                 column.sort();
@@ -1471,7 +1480,7 @@ impl ColumnTable {
                                 Ok(num) => num,
                                 Err(_) => continue,
                             };
-                            indexes.push(index);
+                            indexes.insert(index);
                         },
                         _ => unreachable!(
                             "If we ever get here then the table is invalid. Crash immediately.\n###################\nTable name: {}\n##########################"
@@ -1489,7 +1498,7 @@ impl ColumnTable {
                                 Ok(num) => num,
                                 Err(_) => continue,
                             };
-                            indexes.push(index);
+                            indexes.insert(index);
                         },
                         _ => unreachable!(
                             "If we ever get here then the table is invalid. Crash immediately.\n###################\nTable name: {}\n##########################"
@@ -1522,7 +1531,7 @@ impl ColumnTable {
         Ok(())
     }
 
-    pub fn delete_by_indexes(&mut self, indexes: &[usize]) {
+    pub fn delete_by_indexes(&mut self, indexes: &HashSet<usize>) {
         
 
         let imut = self.columns.values_mut();
@@ -1991,7 +2000,7 @@ pub struct RowTable {
 
 
 pub fn subtable_from_keys(table: &ColumnTable, mut keys: Vec<KeyString>) -> Result<ColumnTable, EzError> {
-    let mut indexes = Vec::new();
+    let mut indexes = HashSet::new();
     match table.get_primary_key_type() {
         DbType::Int => {
             let mut int_keys = Vec::new();
@@ -2006,7 +2015,7 @@ pub fn subtable_from_keys(table: &ColumnTable, mut keys: Vec<KeyString>) -> Resu
             let col = table.get_column_int(&table.get_primary_key_col_index()).unwrap();
             for index in 0..col.len() {
                 if int_keys[key_pointer] == col[index] {
-                    indexes.push(index);
+                    indexes.insert(index);
                     key_pointer += 1
                 }
             }
@@ -2017,7 +2026,7 @@ pub fn subtable_from_keys(table: &ColumnTable, mut keys: Vec<KeyString>) -> Resu
             let col = table.get_column_text(&table.get_primary_key_col_index()).unwrap();
             for index in 0..col.len() {
                 if keys[key_pointer] == col[index] {
-                    indexes.push(index);
+                    indexes.insert(index);
                     key_pointer += 1
                 }
             }
@@ -2082,14 +2091,12 @@ fn rearrange_by_index<T: Clone>(col: &mut Vec<T>, indexer: &[usize]) {
 }
 
 /// Helper function to remove indices in batches.
-pub fn remove_indices<T>(vec: &mut Vec<T>, indices: &[usize]) {
+pub fn remove_indices<T>(vec: &mut Vec<T>, indices: &HashSet<usize>) {
     
-
-    let indices_set: HashSet<_> = indices.iter().cloned().collect();
     let mut shift = 0;
 
     for i in 0..vec.len() {
-        if indices_set.contains(&i) {
+        if indices.contains(&i) {
             shift += 1;
         } else if shift > 0 {
             vec.swap(i - shift, i);
