@@ -60,6 +60,7 @@ DbColumn :: union {
     [dynamic]KeyString,
 }
 
+
 dbcolumn_destroy :: proc(column: DbColumn) {
     switch t in column {
         case [dynamic]i32: 
@@ -126,4 +127,21 @@ eztable_length :: proc(table: EzTable) -> int {
         break
     }
     return length
+}
+
+DbRow :: struct {
+    index: u32,
+}
+
+BTree :: struct {
+    root: BTreeRootNode,
+}
+
+BTreeRootNode :: struct {
+    values: [6]DbRow,
+    children: [7]^BTreeNode,
+}
+
+BTreeNode :: struct {
+    parent: ^BTreeNode,
 }

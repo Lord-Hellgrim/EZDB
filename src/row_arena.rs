@@ -1,3 +1,12 @@
+use std::collections::{BTreeMap, BTreeSet, HashSet};
+
+use crate::db_structure::{DbType, DbValue, HeaderItem};
+
+
+pub struct RowTable {
+    header: BTreeSet<HeaderItem>,
+    rows: BTreeMap<DbValue, usize>,
+}
 
 
 pub struct RowArena {
