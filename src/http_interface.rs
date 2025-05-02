@@ -2,7 +2,7 @@ use std::net::TcpStream;
 
 
 
-pub fn check_if_http_request(stream: &TcpStream) -> bool {
+pub fn check_if_http_request(_stream: &TcpStream) -> bool {
     #[cfg(debug_assertions)]
     println!("calling: check_if_http_request()");
 

@@ -1,11 +1,11 @@
 use std::collections::{BTreeMap, HashSet};
 use std::fs::{read_dir, File};
-use std::io::{Read, Write};
+use std::io::Read;
 use std::os::unix::fs::MetadataExt;
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, RwLock};
 
-use crate::db_structure::{write_column_table_binary_header, DbColumn, Metadata, Value};
+use crate::db_structure::Value;
 use crate::utilities::{ksf, KeyString, ErrorTag, EzError};
 use crate::db_structure::ColumnTable;
 use crate::PATH_SEP;
@@ -90,9 +90,9 @@ impl BufferPool {
         let core_value_2 = Value{name: ksf("core2"), body: vec![8,7,6,5,4,3,2,1]};
         let core_value_3 = Value{name: ksf("core3"), body: vec![0,0,0,0,0,0,0,0]};
 
-        self.add_value(core_value_1);
-        self.add_value(core_value_2);
-        self.add_value(core_value_3);
+        self.add_value(core_value_1).expect(&format!("{} - {} Initializing test values in DB", line!(), column!()));
+        self.add_value(core_value_2).expect(&format!("{} - {} Initializing test values in DB", line!(), column!()));
+        self.add_value(core_value_3).expect(&format!("{} - {} Initializing test values in DB", line!(), column!()));
         
         Ok(())
     }

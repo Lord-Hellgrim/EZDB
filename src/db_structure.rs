@@ -1,10 +1,10 @@
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet}, fmt::{self, Debug, Display}, num::{ParseFloatError, ParseIntError}, ops::Index, sync::atomic::{AtomicU64, Ordering}
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet}, fmt::{self, Debug, Display}, sync::atomic::{AtomicU64, Ordering}
 };
 
 // use smartstring::{LazyCompact, SmartString, };
 
-use ezcbor::cbor::{byteslice_from_cbor, byteslice_to_cbor, expected_data_item, Cbor, CborError, DataItem};
+use ezcbor::cbor::{expected_data_item, Cbor, CborError, DataItem};
 
 use crate::utilities::*;
 #[allow(unused)]
@@ -587,7 +587,7 @@ impl Display for ColumnTable {
 
 impl ColumnTable {
 
-    pub fn create_empty(name: &str, created_by: &str) -> ColumnTable {
+    pub fn create_empty(name: &str, _created_by: &str) -> ColumnTable {
 
         ColumnTable {
             name: ksf(name),
@@ -596,7 +596,7 @@ impl ColumnTable {
         }
     }
 
-    pub fn blank(header: &BTreeSet<HeaderItem>, name: KeyString, created_by: &str) -> ColumnTable {
+    pub fn blank(header: &BTreeSet<HeaderItem>, name: KeyString, _created_by: &str) -> ColumnTable {
 
         let mut columns = BTreeMap::new();
 
@@ -620,7 +620,7 @@ impl ColumnTable {
     pub fn from_csv_string(
         s: &str,
         table_name: &str,
-        created_by: &str,
+        _created_by: &str,
     ) -> Result<ColumnTable, EzError> {
         
 
@@ -809,7 +809,7 @@ impl ColumnTable {
 
         let header: BTreeSet<HeaderItem> = header.iter().cloned().collect();
 
-        let mut output = ColumnTable {
+        let output = ColumnTable {
             name: KeyString::from(table_name),
             header: header,
             columns: result,
@@ -1989,16 +1989,6 @@ pub fn write_column_table_binary_header(binary: &mut Vec<u8>, table: &ColumnTabl
     
     128 + table.header.len()+80
 } 
-
-
-pub struct DbRow<'a> {
-    inner: &'a [u8],
-}
-
-
-pub struct RowTable {
-    arena: bumpalo::Bump
-}
 
 
 pub fn subtable_from_keys(table: &ColumnTable, mut keys: Vec<KeyString>) -> Result<ColumnTable, EzError> {

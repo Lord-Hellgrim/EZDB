@@ -1,7 +1,12 @@
-use std::{collections::{BTreeMap, BTreeSet, HashMap, HashSet}, fmt::Display, str::FromStr, sync::Arc};
+#![allow(non_camel_case_types)]
+#![allow(non_snake_case)]
 
-use crate::{db_structure::{remove_indices, table_from_inserts, ColumnTable, DbColumn, DbValue, Metadata, Value}, server_networking::Database, utilities::{i32_from_le_slice, ksf, mean_f32_slice, mean_i32_slice, median_f32_slice, median_i32_slice, mode_i32_slice, mode_string_slice, print_sep_list, stdev_f32_slice, stdev_i32_slice, sum_f32_slice, sum_i32_slice, u64_from_le_slice, usize_from_le_slice, ErrorTag, EzError, KeyString}};
 
+use std::{collections::{BTreeSet, HashSet}, fmt::Display, str::FromStr, sync::Arc};
+
+use crate::{db_structure::{ColumnTable, DbColumn, DbValue, Value}, server_networking::Database, utilities::*};
+
+#[allow(unused)]
 use crate::PATH_SEP;
 
 
@@ -598,7 +603,7 @@ impl Query {
     pub fn and_condition(mut self, attribute: impl Into<KeyString>, op: TestOp, value: impl Into<DbValue>) -> Query {
         let condition = Condition{attribute: attribute.into(), op, value: value.into()};
         match &mut self {
-            Query::SELECT { table_name, primary_keys, columns, conditions } => {
+            Query::SELECT { table_name: _, primary_keys: _, columns: _, conditions } => {
                 if conditions.is_empty() {
                     ()
                 } else {
@@ -607,7 +612,7 @@ impl Query {
                 conditions.push(OpOrCond::Cond(condition));
 
             },
-            Query::UPDATE { table_name, primary_keys, conditions, updates } => {
+            Query::UPDATE { table_name: _, primary_keys: _, conditions, updates: _ } => {
                 if conditions.is_empty() {
                     ()
                 } else {
@@ -615,7 +620,7 @@ impl Query {
                 }
                 conditions.push(OpOrCond::Cond(condition));
             },
-            Query::DELETE { primary_keys, table_name, conditions } => {
+            Query::DELETE { primary_keys: _, table_name: _, conditions } => {
                 if conditions.is_empty() {
                     ()
                 } else {
@@ -632,7 +637,7 @@ impl Query {
     pub fn or_condition(mut self, attribute: impl Into<KeyString>, op: TestOp, value: impl Into<DbValue>) -> Query {
         let condition = Condition{attribute: attribute.into(), op, value: value.into()};
         match &mut self {
-            Query::SELECT { table_name, primary_keys, columns, conditions } => {
+            Query::SELECT { table_name: _, primary_keys: _, columns: _, conditions } => {
                 if conditions.is_empty() {
                     ()
                 } else {
@@ -641,7 +646,7 @@ impl Query {
                 conditions.push(OpOrCond::Cond(condition));
 
             },
-            Query::UPDATE { table_name, primary_keys, conditions, updates } => {
+            Query::UPDATE { table_name: _, primary_keys: _, conditions, updates: _ } => {
                 if conditions.is_empty() {
                     ()
                 } else {
@@ -649,7 +654,7 @@ impl Query {
                 }
                 conditions.push(OpOrCond::Cond(condition));
             },
-            Query::DELETE { primary_keys, table_name, conditions } => {
+            Query::DELETE { primary_keys: _, table_name: _, conditions } => {
                 if conditions.is_empty() {
                     ()
                 } else {
@@ -1403,14 +1408,6 @@ pub enum ConditionBranch<'a> {
 }
 
 
-pub struct ParserState {
-    depth: u8,
-    stack: Vec<u8>,
-    word_buffer: Vec<u8>,
-
-}
-
-
 pub fn subsplitter(s: &str) -> Vec<Vec<&str>> {
     // println!("calling: subsplitter()");
 
@@ -1622,7 +1619,7 @@ pub fn execute_EZQL_queries(queries: Vec<Query>, database: Arc<Database>) -> Res
                 }
             },
             
-            Query::SUMMARY { table_name, columns } => {
+            Query::SUMMARY { table_name, columns: _ } => {
                 match result_table {
                     Some(table) => {
                         let result = execute_summary_query(&query, &table)?;
@@ -1873,98 +1870,6 @@ pub fn execute_select_query(query: &Query, table: &ColumnTable) -> Result<Option
     }
 }
 
-pub fn alt_execute_select_query(query: Query, table: &ColumnTable) -> Result<Option<ColumnTable>, EzError> {
-    // println!("calling: execute_select_query()");
-
-    match query {
-        Query::SELECT { table_name: _, primary_keys, columns, conditions } => {
-            match primary_keys {
-                RangeOrListOrAll::Range(key_string, key_string1) => execute_select_query_with_pk_range(table, key_string, key_string1, columns, conditions),
-                RangeOrListOrAll::List(vec) => execute_select_query_with_pk_list(table, vec, columns, conditions),
-                RangeOrListOrAll::All => execute_select_query_with_pk_all(table, columns, conditions),
-            }
-        },
-        other_query => return Err(EzError{tag: ErrorTag::Query, text: format!("Wrong type of query passed to execute_select_query() function.\nReceived query: {}", other_query)}),
-    }
-}
-
-pub fn execute_select_query_with_pk_range(table: &ColumnTable, start: KeyString, stop: KeyString, columns: Vec<KeyString>, conditions: Vec<OpOrCond>) -> Result<Option<ColumnTable>, EzError> {
-    let pk_index = table.get_primary_key_col_index();
-    let mut first = 0;
-    let mut last = table.len();
-    match &table.columns[&pk_index] {
-        DbColumn::Ints(vec) => {
-            first = match vec.binary_search(&start.to_i32()) {
-                Ok(x) => x,
-                Err(x) => x,
-            };
-            last = match vec.binary_search(&stop.to_i32()) {
-                Ok(x) => x,
-                Err(x) => x,
-            };
-        },
-        DbColumn::Texts(vec) => {
-            first = match vec.binary_search(&start) {
-                Ok(x) => x,
-                Err(x) => x,
-            };
-            last = match vec.binary_search(&stop) {
-                Ok(x) => x,
-                Err(x) => x,
-            };
-        },
-        DbColumn::Floats(vec) => return Err(EzError { tag: ErrorTag::Query, text: "There should neve be a float primary key".to_owned() }),
-    };
-
-    // let mut keepers = Vec::new();
-    for condition in conditions {
-        let mut current_op = Operator::OR;
-        match condition {
-            OpOrCond::Op(operator) => current_op = operator,
-            OpOrCond::Cond(condition) => {
-                let column = match table.columns.get(&condition.attribute) {
-                    Some(c) => c,
-                    None => continue
-                };
-                match condition.value {
-                    DbValue::Int(_) => match column {
-                        DbColumn::Ints(_) => (),
-                        _ => return Err(EzError { tag: ErrorTag::Query, text: format!("Can't compare Int and not int") })
-                    },
-                    DbValue::Float(_) => match column {
-                        DbColumn::Floats(_) => (),
-                        _ => return Err(EzError { tag: ErrorTag::Query, text: format!("Can't compare Float and not float") })
-                    },
-                    DbValue::Text(_) => match column {
-                        DbColumn::Texts(_) => (),
-                        _ => return Err(EzError { tag: ErrorTag::Query, text: format!("Can't compare Text and not text") })
-                    },
-                };
-                for index in first..last {
-                    match condition.op {
-                        TestOp::Equals => todo!(),
-                        TestOp::NotEquals => todo!(),
-                        TestOp::Less => todo!(),
-                        TestOp::Greater => todo!(),
-                        TestOp::Starts => todo!(),
-                        TestOp::Ends => todo!(),
-                        TestOp::Contains => todo!(),
-                    }
-                }
-            },
-        };
-    }
-
-    todo!()
-}
-
-pub fn execute_select_query_with_pk_list(table: &ColumnTable, list: Vec<KeyString>, columns: Vec<KeyString>, conditions: Vec<OpOrCond>) -> Result<Option<ColumnTable>, EzError> {
-    todo!()
-}
-
-pub fn execute_select_query_with_pk_all(table: &ColumnTable, columns: Vec<KeyString>, conditions: Vec<OpOrCond>) -> Result<Option<ColumnTable>, EzError> {
-    todo!()
-}
 
 pub fn execute_summary_query(query: &Query, table: &ColumnTable) -> Result<Option<ColumnTable>, EzError> {
     match query {

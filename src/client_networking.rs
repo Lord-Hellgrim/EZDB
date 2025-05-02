@@ -2,9 +2,9 @@ use std::str::{self};
 
 use eznoise::{initiate_connection, Connection};
 
-use crate::db_structure::{ColumnTable, Metadata, Value};
+use crate::db_structure::{ColumnTable, Value};
 use crate::ezql::{KvQuery, Query};
-use crate::utilities::{ksf, kv_query_results_from_binary, KeyString, u64_from_le_slice, ErrorTag, EzError};
+use crate::utilities::{ksf, kv_query_results_from_binary, KeyString, ErrorTag, EzError};
 // use crate::PATH_SEP;
 
 

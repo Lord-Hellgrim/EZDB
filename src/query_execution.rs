@@ -2,7 +2,7 @@ use std::{collections::{BTreeMap, BTreeSet}, sync::Arc};
 
 use eznoise::Connection;
 
-use crate::{db_structure::{remove_indices, write_column_table_binary_header, ColumnTable, DbColumn, DbType, HeaderItem, TableKey}, ezql::{filter_keepers, OpOrCond, Operator, RangeOrListOrAll, Statistic, Test, TestOp, Update}, server_networking::Database, utilities::{ksf, ErrorTag, EzError, KeyString}};
+use crate::{db_structure::{ColumnTable, DbColumn, HeaderItem, TableKey}, ezql::{filter_keepers, OpOrCond, RangeOrListOrAll, Statistic, Update}, server_networking::Database, utilities::{ErrorTag, EzError, KeyString}};
 
 pub const BUFCAP: usize = 65535;
 
@@ -144,7 +144,7 @@ impl SubTable<'_> {
     pub fn byte_size(&self) -> usize {
         let header_size = self.header.len() * size_of::<HeaderItem>();
         let mut table_size = 0;
-        for (key, column) in &self.columns {
+        for (_, column) in &self.columns {
             table_size += column.byte_size();
         }
 

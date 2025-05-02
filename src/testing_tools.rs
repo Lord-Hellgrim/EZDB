@@ -37,6 +37,7 @@ fn random_keystring() -> KeyString {
     KeyString::from(s.as_str())
 }
 
+#[allow(unused)]
 fn random_metadata() -> Metadata {
     let mut rng = rand::thread_rng();
 
@@ -148,6 +149,7 @@ fn random_db_value() -> DbValue {
     }
 }
 
+#[allow(unused)]
 fn random_test() -> Test {
 
     let mut rng = rand::thread_rng();
@@ -165,6 +167,7 @@ fn random_test() -> Test {
     
 }
 
+#[allow(unused)]
 fn random_alt_test() -> AltTest {
 
     let mut rng = rand::thread_rng();
@@ -339,7 +342,7 @@ pub fn random_kv_query() -> KvQuery {
         1 => KvQuery::Read(random_keystring()),
         2 => KvQuery::Update(random_keystring(), random_vec(100)),
         3 => KvQuery::Delete(random_keystring()),
-        other => panic!()
+        _ => panic!()
     }
 }
 
@@ -382,7 +385,7 @@ pub fn random_ez_error() -> EzError {
         16 => ErrorTag::Serialization,
         17 => ErrorTag::Deserialization,
         18 => ErrorTag::Structure,
-        x => unreachable!()
+        _ => unreachable!()
     };
     let text = random_keystring().as_str().to_string();
     EzError{tag, text}

@@ -1,7 +1,7 @@
-use std::{collections::{HashMap, VecDeque}, net::TcpStream, os::fd::AsRawFd, sync::{Arc, Condvar, Mutex}};
+use std::{collections::{HashMap, VecDeque}, os::fd::AsRawFd, sync::{Arc, Condvar, Mutex}};
 
 
-use crate::{query_execution::StreamBuffer, server_networking::{answer_kv_query, answer_query, interior_log, perform_administration, perform_maintenance, Database}, utilities::{ksf, CsPair, KeyString}};
+use crate::{server_networking::{answer_kv_query, answer_query, perform_administration, perform_maintenance, Database}, utilities::{ksf, KeyString}};
 
 
 pub struct Job {
@@ -32,7 +32,7 @@ pub fn initialize_thread_pool(number_of_threads: usize, db_ref: Arc<Database>) -
 
     let jobs_queue_condvar = Arc::new(Condvar::new());
     
-    for i in 0..number_of_threads {
+    for _ in 0..number_of_threads {
         let jobs = job_queue.clone();
 
         let open_connections_clone = open_connections.clone();
@@ -114,17 +114,5 @@ pub fn initialize_thread_pool(number_of_threads: usize, db_ref: Arc<Database>) -
         open_connections,
 
     }
-
-}
-
-
-
-#[cfg(test)]
-mod tests {
-    use std::time::Duration;
-
-    use super::*;
-
-    
 
 }

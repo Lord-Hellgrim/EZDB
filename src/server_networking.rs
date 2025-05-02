@@ -14,10 +14,9 @@ use crate::auth::{check_kv_permission, check_permission, user_has_permission, Pe
 use crate::disk_utilities::{BufferPool, MAX_BUFFERPOOL_SIZE};
 use crate::ezql::{execute_EZQL_queries, execute_kv_queries, parse_kv_queries_from_binary, parse_queries_from_binary};
 use crate::logging::Logger;
-use crate::query_execution::StreamBuffer;
+// use crate::query_execution::StreamBuffer;
 use crate::thread_pool::{initialize_thread_pool, Job};
-use crate::utilities::{authenticate_client, ez_hash, get_current_time, ksf, kv_query_results_to_binary, read_known_length, u64_from_le_slice, ErrorTag, EzError, Instruction, KeyString};
-use crate::db_structure::Value;
+use crate::utilities::*;
 use crate::PATH_SEP;
 
 pub const INSTRUCTION_LENGTH: usize = 284;
@@ -138,7 +137,7 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
 
     let mut events = vec![EpollEvent::empty(); 100];
 
-    let mut unsigned_streams = HashMap::new();
+    let mut unsigned_streams: HashMap<u64, (TcpStream, u64)> = HashMap::new();
     let mut virgin_connections: HashMap<u64, Connection> = HashMap::new();
     let mut stream_statuses: HashMap<u64, (StreamStatus, Option<eznoise::HandshakeState>)> = HashMap::new();
     let mut pending_jobs = HashMap::new();
@@ -156,7 +155,7 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
             },
         };
 
-        println!("number of events: {}", number_of_events);
+        // println!("number of events: {}", number_of_events);
 
         let mut remove_list = Vec::new();
         for (fd, con) in virgin_connections.iter() {
@@ -205,16 +204,16 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
         }
 
         let mut remove_list = Vec::new();
-        for (fd, con) in unsigned_streams.iter() {
-            println!("con.opened: {}", con.opened);
-            if get_current_time() - con.opened > 5 {
+        for (fd, (_, timestamp)) in unsigned_streams.iter() {
+            println!("con.opened: {}", timestamp);
+            if get_current_time() - timestamp > 5 {
                 stream_statuses.remove(fd);
                 remove_list.push(fd.clone());
             }
         }
         
         for fd in remove_list {
-            if let Some(conn) = unsigned_streams.remove(&fd) {
+            if let Some((conn, _)) = unsigned_streams.remove(&fd) {
                 // Remove from epoll
                 println!("Removed dead connection");
                 epoll.delete(conn.as_fd()).unwrap_or_else(|e| {
@@ -242,7 +241,7 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                 stream_statuses.insert(key, (StreamStatus::Handshake1, handshakestate));
 
                 epoll.add(stream.as_fd(), EpollEvent::new(EpollFlags::EPOLLIN, key)).unwrap();
-                unsigned_streams.insert(key, stream);
+                unsigned_streams.insert(key, (stream, get_current_time()));
             } else {
                 let fd = events[i].data();
                 match stream_statuses.remove(&fd) {
@@ -252,7 +251,7 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                         },
                         StreamStatus::Handshake1 => {
                             println!("handshake1");
-                            let stream = unsigned_streams.remove(&fd).unwrap();
+                            let (stream, _) = unsigned_streams.remove(&fd).unwrap();
                             let connection = eznoise::ESTABLISH_CONNECTION_STEP_3(stream, handshakestate.unwrap()).unwrap();
                             connection.stream.set_nonblocking(true)?;
                             if virgin_connections.contains_key(&fd) {
@@ -297,7 +296,7 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                             let expected_length = u64_from_le_slice(&expected_length_bytes) as usize;
                             let mut pending_job: Vec<u8> = Vec::new();
                             let mut total_read = 0;
-                            for i in 0..10_000 {
+                            for _ in 0..10_000 {
                                 println!("STUCK HERE!");
                                 let to_read = std::cmp::min(4096, expected_length - total_read);
                                 let bytes_received= match connection.stream.read(&mut read_buffer[..to_read]) {
@@ -362,8 +361,8 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                                         },
                                     };
                                     let expected_length = u64_from_le_slice(&expected_length_bytes) as usize;
-                                    let mut pending_job: Vec<u8> = Vec::new();
-                                    let mut total_read = 0;
+                                    let pending_job: Vec<u8> = Vec::new();
+                                    let total_read = 0;
                                     (expected_length, total_read, pending_job)
                                 },
                             };
@@ -417,8 +416,6 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
 
 pub fn answer_query(binary: &[u8], connection: &mut Connection, db_ref: Arc<Database>) -> Result<Vec<u8>, EzError> {
 
-    let mut streambuffer = StreamBuffer::new(connection);
-
     println!("query hash: {:?}", ez_hash(binary));
 
     let queries = parse_queries_from_binary(&binary)?;
@@ -442,14 +439,14 @@ pub fn answer_kv_query(binary: &[u8], connection: &mut Connection, db_ref: Arc<D
     check_kv_permission(&queries, connection.peer.as_str(), db_ref.users.clone())?;
     let query_results: Vec<Result<Option<crate::db_structure::Value>, EzError>> = execute_kv_queries(queries, db_ref);
 
-    let mut binary = kv_query_results_to_binary(&query_results);
+    let binary = kv_query_results_to_binary(&query_results);
     
 
     Ok(binary)
 
 }
 
-pub fn perform_administration(binary: &[u8], db_ref: Arc<Database>) -> Result<Vec<u8>, EzError> {
+pub fn perform_administration(_binary: &[u8], _db_ref: Arc<Database>) -> Result<Vec<u8>, EzError> {
     todo!()
 }
 
@@ -521,7 +518,7 @@ pub fn parse_instruction(
     let username = KeyString::try_from(&instructions[0..64])?;
     let action = KeyString::try_from(&instructions[64..128])?;
     let table_name = KeyString::try_from(&instructions[128..192])?;
-    let blank = KeyString::try_from(&instructions[192..256])?;
+    let _blank = KeyString::try_from(&instructions[192..256])?;
 
     if table_name.as_str() == "All" {
         return Err(EzError{tag: ErrorTag::Instruction, text: "Table cannot be called 'All'".to_owned()});
@@ -560,18 +557,4 @@ pub fn parse_instruction(
     };
 
     confirmed
-}
-
-
-
-#[cfg(test)]
-mod tests {
-
-    use super::*;
-
-    // #[test]
-    // fn test_server_init() {
-    //     run_server("127.0.0.1:3004").unwrap();
-    // }
-
 }

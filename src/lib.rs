@@ -1,5 +1,6 @@
 //#![allow(unused)]
-//#![allow(non_snake_case)]
+#![allow(non_camel_case_types)]
+#![allow(non_snake_case)]
 #![feature(portable_simd)]
 
 #[cfg(target_os="windows")]
@@ -21,9 +22,9 @@ pub mod handlers;
 pub mod logging;
 pub mod utilities;
 pub mod server_networking;
-pub mod bloom_filter;
+// pub mod bloom_filter;
 pub mod row_arena;
 pub mod http_interface;
 pub mod thread_pool;
 pub mod testing_tools;
-pub mod query_execution;
+// pub mod query_execution;

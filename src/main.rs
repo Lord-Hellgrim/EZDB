@@ -1,15 +1,6 @@
 //#![allow(unused)]
 //#![allow(non_snake_case)]
 
-
-use EZDB::db_structure::ColumnTable;
-use EZDB::db_structure::DbValue;
-use EZDB::ezql::execute_select_query;
-use EZDB::ezql::Condition;
-use EZDB::ezql::OpOrCond;
-use EZDB::ezql::Query;
-use EZDB::ezql::RangeOrListOrAll;
-use EZDB::ezql::TestOp;
 use EZDB::server_networking;
 use EZDB::utilities;
 
@@ -36,7 +27,7 @@ fn main() -> Result<(), utilities::EzError> {
     }
 
     // This stuff is for debugging purposes around simd
-    unsafe { p() };
+    p();
     
     server_networking::run_server("127.0.0.1:3004")?;
 
