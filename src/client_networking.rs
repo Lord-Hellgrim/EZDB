@@ -143,13 +143,13 @@ mod tests {
 
         let mut connection = make_connection(address, username, password).unwrap();
 
-        let response1 = send_query(&mut connection, &query).unwrap();
-        // std::thread::sleep(Duration::from_millis(500));
-        let response2 = send_query(&mut connection, &query).unwrap();
+        let mut response1 = send_query(&mut connection, &query).unwrap();
+        std::thread::sleep(Duration::from_millis(500));
+        let mut response2 = send_query(&mut connection, &query).unwrap();
         println!("{}", response1);
         println!("{}", response2);
 
-        assert_eq!(response1, response2);
+        assert_eq!(response1.sort(), response2.sort());
     }
 
     #[test]

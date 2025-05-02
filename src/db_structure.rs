@@ -814,7 +814,7 @@ impl ColumnTable {
             header: header,
             columns: result,
         };
-        output.sort();
+        // output.sort();
         Ok(output)
     }
 
@@ -1176,7 +1176,7 @@ impl ColumnTable {
             return Err(EzError{tag: ErrorTag::Query, text: "No columns specified. If you want all columns, us '*'".to_owned()})
         }
 
-        if columns[0].as_str() == "*" || columns[0].as_str() == "*" {
+        if columns[0].as_str() == "*" {
             return Ok(
                 ColumnTable {
                     name: KeyString::from(new_name),

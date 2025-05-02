@@ -155,10 +155,34 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                 0
             },
         };
+
+        let remove_list = Vec::new();
+        for (fd, con) in virgin_connections {
+            if get_current_time() - con.opened > 5 {
+                stream_statuses.remove(fd.clone());
+                remove_list.push(fd.clone());
+            }
+        }
+
+        for fd in remove_list {
+            virgin_connections.remove(fd.clone());
+        }
+
+        let remove_list = Vec::new();
+        for (fd, con) in thread_handler.open_connections.lock().unwrap().iter() {
+            if get_current_time() - con.opened > 5 {
+                stream_statuses.remove(fd);
+                remove_list.push(fd.clone());
+            }
+        }
+
+        for fd in remove_list {
+            thread_handler.open_connections.lock().unwrap().remove(&fd);
+        }
         
         let db_con = database.clone();
-
         'events: for i in 0..number_of_events {
+            println!("Number of events: {}", number_of_events);
             if events[i].data() == listener.as_raw_fd() as u64 {
                 let (mut stream, client_address) = match listener.accept() {
                     Ok((n,m)) => (n, m),
@@ -278,9 +302,18 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                             let (expected_length, mut total_read, mut pending_job) = match pending_jobs.remove(&fd) {
                                 Some(x) => x,
                                 None => {
-                                    println!("Failed to get pending job");
-                                    drop(connection);
-                                    continue
+                                    let mut expected_length_bytes = [0u8;8];
+                                    match connection.stream.read_exact(&mut expected_length_bytes) {
+                                        Ok(_) => (),
+                                        Err(e) => {
+                                            println!("Failed to receive command because: {}", e);
+                                            continue 'events
+                                        },
+                                    };
+                                    let expected_length = u64_from_le_slice(&expected_length_bytes) as usize;
+                                    let mut pending_job: Vec<u8> = Vec::new();
+                                    let mut total_read = 0;
+                                    (expected_length, total_read, pending_job)
                                 },
                             };
 
@@ -369,23 +402,17 @@ pub fn perform_administration(binary: &[u8], db_ref: Arc<Database>) -> Result<Ve
 
 pub fn perform_maintenance(db_ref: Arc<Database>) -> Result<(), EzError> {
 
-    println!("Current tables:");
-    for table in db_ref.buffer_pool.tables.read().unwrap().keys() {
-        println!("{}", table);
-    }
-    println!("Background thread still running");
-    println!("{:?}", db_ref.buffer_pool.table_delete_list.read().unwrap());
+    // println!("{:?}", db_ref.buffer_pool.table_delete_list.read().unwrap());
     for key in db_ref.buffer_pool.table_delete_list.read().unwrap().iter() {
         println!("KEY: {}", key);
         match std::fs::remove_file(format!("EZconfig{PATH_SEP}raw_tables{PATH_SEP}{}", key.as_str())) {
             Ok(_) => (),
             Err(e) => println!("LINE: {} - ERROR: {}", line!(), e),
         }
-        
     }
-    println!("{:?}", db_ref.buffer_pool.table_delete_list.read().unwrap());
-    db_ref.buffer_pool.table_delete_list.write().unwrap().clear();
 
+    // println!("{:?}", db_ref.buffer_pool.table_delete_list.read().unwrap());
+    db_ref.buffer_pool.table_delete_list.write().unwrap().clear();
 
     for key in db_ref.buffer_pool.value_delete_list.write().unwrap().iter() {
         match std::fs::remove_file(format!("EZconfig{PATH_SEP}raw_values{PATH_SEP}{}", key.as_str())) {
@@ -396,7 +423,7 @@ pub fn perform_maintenance(db_ref: Arc<Database>) -> Result<(), EzError> {
     db_ref.buffer_pool.value_delete_list.write().unwrap().clear();
 
     for (key, table_lock) in db_ref.buffer_pool.tables.read().unwrap().iter() {
-        println!("key: {}", key);
+        // println!("key: {}", key);
         let mut table_naughty_list = db_ref.buffer_pool.table_naughty_list.write().unwrap();
         if table_naughty_list.contains(key) {
             let mut file = match std::fs::File::create(format!("EZconfig{PATH_SEP}raw_tables{PATH_SEP}{}", key.as_str())) {
