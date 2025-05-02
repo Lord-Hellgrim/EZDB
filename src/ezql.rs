@@ -1856,14 +1856,23 @@ pub fn execute_select_query(query: &Query, table: &ColumnTable) -> Result<Option
 
     match query {
         Query::SELECT { table_name: _, primary_keys, columns, conditions } => {
+            
+            let timer = std::time::Instant::now();
             let table = table.subtable_from_columns(columns, "RESULT")?;
+            println!("subtable_from_columns: {}", timer.elapsed().as_secs_f64());
+            
+            let timer = std::time::Instant::now();
             let keepers = filter_keepers(&conditions, &primary_keys, &table)?;
-        
+            println!("filter_keepers: {}", timer.elapsed().as_secs_f64());
+
+            let timer = std::time::Instant::now();
+            let output_table = table.subtable_from_indexes(&keepers, &KeyString::from("RESULT"));
+            println!("subtable_from_indexes: {}", timer.elapsed().as_secs_f64());
+
             Ok(
                 Some(
-                    table
-                        .subtable_from_indexes(&keepers, &KeyString::from("RESULT"))
-                    )
+                    output_table
+                )
             )
         },
         other_query => return Err(EzError{tag: ErrorTag::Query, text: format!("Wrong type of query passed to execute_select_query() function.\nReceived query: {}", other_query)}),
@@ -2320,35 +2329,27 @@ mod tests {
         println!("{}", select_results);
     }
 
-    // #[test]
-    // fn test_make_massive_table() {
-    //     let massive_table_binary = std::fs::read("test_files/massive_table.eztable").unwrap();
-    //     println!("HERE!");
-    //     let massive_table = ColumnTable::from_binary("massive_table".into(), &massive_table_binary).unwrap();
-    //     println!("HERE!");
+    #[test]
+    fn profile_select_execution() {
+        let test_table = create_fixed_table(10_000);
 
-    //     let query = Query::SELECT {
-    //         table_name: "massive_table".into(),
-    //         primary_keys: RangeOrListOrAll::All,
-    //         columns: vec![
-    //             "tqn[SNsonEhmBAbkTphVntSTPTqwyN]^EVnt".into(), 
-    //             r"qlsCKiYAd_tko\PLNkoHwB`bUNlcTf_AryKdRKGmyo]ZixfsVNaELouL".into(),
-    //             "oRMWqCfGSVjYydfSJeQnNgbPtqjQTaOTscYsxyy`NeeJVmU".into(),
-    //         ],
-    //         conditions: vec![
-    //             OpOrCond::Cond(Condition{attribute: "tqn[SNsonEhmBAbkTphVntSTPTqwyN]^EVnt".into(), op: TestOp::Greater, value: DbValue::Float(0.0)}),
-    //             OpOrCond::Cond(Condition{attribute: r"qlsCKiYAd_tko\PLNkoHwB`bUNlcTf_AryKdRKGmyo]ZixfsVNaELouL".into(), op: TestOp::Equals, value: DbValue::Text("Hella".into())}),
-    //             OpOrCond::Cond(Condition{attribute: "oRMWqCfGSVjYydfSJeQnNgbPtqjQTaOTscYsxyy`NeeJVmU".into(), op: TestOp::Greater, value: DbValue::Int(0)}),
-    //         ],
-    //     };
-    //     println!("HERE!");
+        let select_query = Query::SELECT {
+            table_name: "SELECT_test".into(), 
+            primary_keys: RangeOrListOrAll::All, 
+            columns: vec!["ints".into(), "texts".into(), "floats".into()], 
+            conditions: vec![
+                OpOrCond::Cond(Condition { attribute: "ints".into(), op: TestOp::Equals, value: 1.into()}),
+                OpOrCond::Op(Operator::OR),
+                OpOrCond::Cond(Condition { attribute: "texts".into(), op: TestOp::Starts, value: ksf("text1").into()}),
+                OpOrCond::Op(Operator::OR),
+                OpOrCond::Cond(Condition { attribute: "floats".into(), op: TestOp::Greater, value: (10.0 as f32).into()}),
+            ],
+        };
 
-    //     let start = std::time::Instant::now();
-    //     execute_select_query(&query, &massive_table).unwrap().unwrap();
-    //     let stop = start.elapsed().as_millis();
-    //     println!("Time: {}ms", stop);
-
-    // }
+        let start = std::time::Instant::now();
+        let select_results = execute_select_query(&select_query, &test_table).unwrap().unwrap();
+        println!("total time!: {}", start.elapsed().as_secs_f64());
+    }
 
 
 }

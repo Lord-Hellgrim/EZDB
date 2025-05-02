@@ -27,4 +27,5 @@ pub mod row_arena;
 pub mod http_interface;
 pub mod thread_pool;
 pub mod testing_tools;
+pub mod row_table;
 // pub mod query_execution;

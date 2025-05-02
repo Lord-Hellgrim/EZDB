@@ -1131,31 +1131,28 @@ impl ColumnTable {
         let mut result_columns = BTreeMap::new();
 
         for (key, column) in self.columns.iter() {
-            for index in indexes {
-                assert!(*index < self.len());
-                match column {
-                    DbColumn::Ints(column) => {
-                        let mut temp = Vec::with_capacity(indexes.len());
-                        for index in indexes {
-                            temp.push(column[*index]);
-                        }
-                        result_columns.insert(*key, DbColumn::Ints(temp));
-                    },
-                    DbColumn::Floats(column) => {
-                        let mut temp = Vec::with_capacity(indexes.len());
-                        for index in indexes {
-                            temp.push(column[*index]);
-                        }
-                        result_columns.insert(*key, DbColumn::Floats(temp));
-                    },
-                    DbColumn::Texts(column) => {
-                        let mut temp = Vec::with_capacity(indexes.len());
-                        for index in indexes {
-                            temp.push(column[*index]);
-                        }
-                        result_columns.insert(*key, DbColumn::Texts(temp));
-                    },
-                }
+            match column {
+                DbColumn::Ints(column) => {
+                    let mut temp = Vec::with_capacity(indexes.len());
+                    for index in indexes {
+                        temp.push(column[*index]);
+                    }
+                    result_columns.insert(*key, DbColumn::Ints(temp));
+                },
+                DbColumn::Floats(column) => {
+                    let mut temp = Vec::with_capacity(indexes.len());
+                    for index in indexes {
+                        temp.push(column[*index]);
+                    }
+                    result_columns.insert(*key, DbColumn::Floats(temp));
+                },
+                DbColumn::Texts(column) => {
+                    let mut temp = Vec::with_capacity(indexes.len());
+                    for index in indexes {
+                        temp.push(column[*index]);
+                    }
+                    result_columns.insert(*key, DbColumn::Texts(temp));
+                },
             }
         }
 

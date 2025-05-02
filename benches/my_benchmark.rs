@@ -271,9 +271,11 @@ fn my_benchmark(c: &mut Criterion) {
         primary_keys: RangeOrListOrAll::All, 
         columns: vec!["ints".into(), "texts".into(), "floats".into()], 
         conditions: vec![
-            OpOrCond::Cond(Condition { attribute: "ints".into(), op: TestOp::Equals, value: 1.into()}),
-            OpOrCond::Cond(Condition { attribute: "texts".into(), op: TestOp::Starts, value: ksf("text1").into()}),
-            OpOrCond::Cond(Condition { attribute: "floats".into(), op: TestOp::Greater, value: (10.0 as f32).into()}),
+            // OpOrCond::Cond(Condition { attribute: "ints".into(), op: TestOp::Equals, value: 1.into()}),
+            // OpOrCond::Op(Operator::AND),
+            // OpOrCond::Cond(Condition { attribute: "texts".into(), op: TestOp::Starts, value: ksf("text1").into()}),
+            // OpOrCond::Op(Operator::AND),
+            // OpOrCond::Cond(Condition { attribute: "floats".into(), op: TestOp::Greater, value: (10.0 as f32).into()}),
         ],
     };
 
