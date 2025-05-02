@@ -1859,8 +1859,10 @@ impl ColumnTable {
 
     /// Reads an EZ binary formatted file to a ColumnTable, checking for strictness.
     pub fn from_binary(name: Option<&str>, binary: &[u8]) -> Result<ColumnTable, EzError> {
-
-        if binary.len() < 128 + 8 + 8 {
+        if binary.len() == 5 && &binary[0..5] == ("None.".as_bytes()) {
+            return Ok(ColumnTable::create_empty("Empty", "create_query"));
+        }
+        else if binary.len() < 128 + 8 + 8 {
             return Err(EzError{tag: ErrorTag::Deserialization, text: ("binary is less than 144 bytes".to_owned())});
         }
 

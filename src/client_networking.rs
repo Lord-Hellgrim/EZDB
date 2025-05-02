@@ -83,7 +83,7 @@ mod tests {
     #![allow(unused, non_snake_case)]
     use std::{fs::remove_file, path::Path, time::Duration};
 
-    use crate::{db_structure::{ColumnTable, DbValue}, ezql::{Condition, RangeOrListOrAll, Test, TestOp}, testing_tools::random_column_table, utilities::ksf};
+    use crate::{db_structure::{ColumnTable, DbValue}, ezql::{Condition, RangeOrListOrAll, Test, TestOp}, testing_tools::random_column_table, utilities::{ez_hash, ksf}};
 
     use super::*;
 
@@ -125,8 +125,9 @@ mod tests {
             table: random_column_table(5, 1000),
         };
 
+        println!("query hash: {:?}", ez_hash(&query.to_binary()));
+
         let response = oneshot_query(address, username, password, &query).unwrap();
-        println!("{}", response);
     }
 
     #[test]

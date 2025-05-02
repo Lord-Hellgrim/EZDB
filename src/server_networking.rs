@@ -16,7 +16,7 @@ use crate::ezql::{execute_EZQL_queries, execute_kv_queries, parse_kv_queries_fro
 use crate::logging::Logger;
 use crate::query_execution::StreamBuffer;
 use crate::thread_pool::{initialize_thread_pool, Job};
-use crate::utilities::{authenticate_client, KeyString, ksf, kv_query_results_to_binary, read_known_length, u64_from_le_slice, ErrorTag, EzError, Instruction};
+use crate::utilities::{authenticate_client, ez_hash, get_current_time, ksf, kv_query_results_to_binary, read_known_length, u64_from_le_slice, ErrorTag, EzError, Instruction, KeyString};
 use crate::db_structure::Value;
 use crate::PATH_SEP;
 
@@ -139,8 +139,8 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
     let mut events = vec![EpollEvent::empty(); 100];
 
     let mut unsigned_streams = HashMap::new();
-    let mut virgin_connections = HashMap::new();
-    let mut stream_statuses = HashMap::new();
+    let mut virgin_connections: HashMap<u64, Connection> = HashMap::new();
+    let mut stream_statuses: HashMap<u64, (StreamStatus, Option<eznoise::HandshakeState>)> = HashMap::new();
     let mut pending_jobs = HashMap::new();
     let mut read_buffer = [0u8;4096];
 
@@ -156,20 +156,33 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
             },
         };
 
-        let remove_list = Vec::new();
-        for (fd, con) in virgin_connections {
+        println!("number of events: {}", number_of_events);
+
+        let mut remove_list = Vec::new();
+        for (fd, con) in virgin_connections.iter() {
+            println!("con.opened: {}", con.opened);
             if get_current_time() - con.opened > 5 {
-                stream_statuses.remove(fd.clone());
+                stream_statuses.remove(fd);
                 remove_list.push(fd.clone());
             }
         }
-
+        
         for fd in remove_list {
-            virgin_connections.remove(fd.clone());
+            if let Some(conn) = virgin_connections.remove(&fd) {
+                // Remove from epoll
+                println!("Removed dead connection");
+                epoll.delete(conn.stream.as_fd()).unwrap_or_else(|e| {
+                    eprintln!("Failed to remove fd {} from epoll: {}", fd, e);
+                });
+                
+                // Explicitly close the stream
+                drop(conn);
+            }
         }
-
-        let remove_list = Vec::new();
+        
+        let mut remove_list = Vec::new();
         for (fd, con) in thread_handler.open_connections.lock().unwrap().iter() {
+            println!("Open connection number: {}", fd);
             if get_current_time() - con.opened > 5 {
                 stream_statuses.remove(fd);
                 remove_list.push(fd.clone());
@@ -177,7 +190,40 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
         }
 
         for fd in remove_list {
-            thread_handler.open_connections.lock().unwrap().remove(&fd);
+            
+            if let Some(conn) = thread_handler.open_connections.lock().unwrap().remove(&fd) {
+                // Remove from epoll
+                println!("Removed dead connection");
+
+                epoll.delete(conn.stream.as_fd()).unwrap_or_else(|e| {
+                    eprintln!("Failed to remove fd {} from epoll: {}", fd, e);
+                });
+        
+                // Explicitly close the stream
+                drop(conn);
+            }
+        }
+
+        let mut remove_list = Vec::new();
+        for (fd, con) in unsigned_streams.iter() {
+            println!("con.opened: {}", con.opened);
+            if get_current_time() - con.opened > 5 {
+                stream_statuses.remove(fd);
+                remove_list.push(fd.clone());
+            }
+        }
+        
+        for fd in remove_list {
+            if let Some(conn) = unsigned_streams.remove(&fd) {
+                // Remove from epoll
+                println!("Removed dead connection");
+                epoll.delete(conn.as_fd()).unwrap_or_else(|e| {
+                    eprintln!("Failed to remove fd {} from epoll: {}", fd, e);
+                });
+                
+                // Explicitly close the stream
+                drop(conn);
+            }
         }
         
         let db_con = database.clone();
@@ -243,12 +289,16 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                             let mut expected_length_bytes = [0u8;8];
                             match connection.stream.read_exact(&mut expected_length_bytes) {
                                 Ok(_) => (),
-                                Err(e) => println!("Failed to receive command because: {}", e),
+                                Err(e) => {
+                                    println!("Failed to receive command because: {}", e);
+                                    continue 'events;
+                            },
                             };
                             let expected_length = u64_from_le_slice(&expected_length_bytes) as usize;
                             let mut pending_job: Vec<u8> = Vec::new();
                             let mut total_read = 0;
-                            loop {
+                            for i in 0..10_000 {
+                                println!("STUCK HERE!");
                                 let to_read = std::cmp::min(4096, expected_length - total_read);
                                 let bytes_received= match connection.stream.read(&mut read_buffer[..to_read]) {
                                     Ok(x) => x,
@@ -307,6 +357,7 @@ pub fn run_server(address: &str) -> Result<(), EzError> {
                                         Ok(_) => (),
                                         Err(e) => {
                                             println!("Failed to receive command because: {}", e);
+                                            
                                             continue 'events
                                         },
                                     };
@@ -368,6 +419,8 @@ pub fn answer_query(binary: &[u8], connection: &mut Connection, db_ref: Arc<Data
 
     let mut streambuffer = StreamBuffer::new(connection);
 
+    println!("query hash: {:?}", ez_hash(binary));
+
     let queries = parse_queries_from_binary(&binary)?;
 
     check_permission(&queries, connection.peer.as_str(), db_ref.users.clone())?;
@@ -401,7 +454,7 @@ pub fn perform_administration(binary: &[u8], db_ref: Arc<Database>) -> Result<Ve
 }
 
 pub fn perform_maintenance(db_ref: Arc<Database>) -> Result<(), EzError> {
-
+    println!("calling_perform_maintenance()");
     // println!("{:?}", db_ref.buffer_pool.table_delete_list.read().unwrap());
     for key in db_ref.buffer_pool.table_delete_list.read().unwrap().iter() {
         println!("KEY: {}", key);
