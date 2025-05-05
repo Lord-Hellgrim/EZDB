@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use criterion::{criterion_group, criterion_main, Criterion};
+use rand::random;
 use rand::Rng;
 // use EZDB::compression::brotli_compress;
 // use EZDB::compression::brotli_decompress;
@@ -11,6 +12,7 @@ use EZDB::compression::miniz_decompress;
 use EZDB::db_structure::*;
 use EZDB::ezql::*;
 
+use EZDB::row_table::BlockAllocator;
 use EZDB::testing_tools::create_fixed_table;
 use EZDB::utilities::*;
 use EZDB::PATH_SEP;
@@ -282,6 +284,12 @@ fn my_benchmark(c: &mut Criterion) {
     group.bench_function("Query Execution - SELECT", |b| b.iter(|| {
         let select_results = execute_select_query(&select_query, &test_table).unwrap().unwrap();
     }));
+
+
+    // ################### ALLOCATOR BENCHMARKS #################################################
+
+
+    
 }
 criterion_group!(benches, my_benchmark);
 criterion_main!(benches);
