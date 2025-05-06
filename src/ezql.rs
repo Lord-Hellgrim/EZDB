@@ -1857,17 +1857,11 @@ pub fn execute_select_query(query: &Query, table: &ColumnTable) -> Result<Option
     match query {
         Query::SELECT { table_name: _, primary_keys, columns, conditions } => {
             
-            let timer = std::time::Instant::now();
             let table = table.subtable_from_columns(columns, "RESULT")?;
-            println!("subtable_from_columns: {}", timer.elapsed().as_secs_f64());
             
-            let timer = std::time::Instant::now();
             let keepers = filter_keepers(&conditions, &primary_keys, &table)?;
-            println!("filter_keepers: {}", timer.elapsed().as_secs_f64());
 
-            let timer = std::time::Instant::now();
             let output_table = table.subtable_from_indexes(&keepers, &KeyString::from("RESULT"));
-            println!("subtable_from_indexes: {}", timer.elapsed().as_secs_f64());
 
             Ok(
                 Some(

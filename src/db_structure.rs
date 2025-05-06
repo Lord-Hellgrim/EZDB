@@ -86,6 +86,89 @@ impl Metadata {
     }
 }
 
+
+#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq)]
+pub enum DbKey {
+    Int(i32),
+    Text(KeyString),
+}
+
+impl Display for DbKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DbKey::Int(x) => write!(f,"Value: '{}'", x),
+            DbKey::Text(x) => write!(f,"Value: '{}'", x),
+        }
+    }
+}
+
+impl From<i32> for DbKey {
+    fn from(value: i32) -> Self {
+        DbKey::Int(value)
+    }
+}
+
+impl From<KeyString> for DbKey {
+    fn from(value: KeyString) -> Self {
+        DbKey::Text(value)
+    }
+}
+
+impl DbKey {
+
+    pub fn to_i32(&self) -> i32 {
+        match self {
+            DbKey::Int(i) => *i,
+            x => panic!("A call to DbKey.to_i32() failed. Actual value: '{}'", x)
+        }
+    }
+
+    pub fn to_keystring(&self) -> KeyString {
+        match self {
+            DbKey::Text(t) => *t,
+            x => panic!("A call to DbKey.to_keystring() failed. Actual value: '{}'", x)
+        }
+    }
+
+
+    pub fn to_binary(&self) -> [u8;72] {
+        let mut binary = [0u8;72];
+        match self {
+            DbKey::Int(i) => {
+                binary[0] = b'i';
+                binary[1..4].copy_from_slice(&[0,0,0]);
+                binary[4..8].copy_from_slice(&i.to_le_bytes());
+            },
+            DbKey::Text(key_string) => {
+                binary[0] = b't';
+                binary[1..8].copy_from_slice(&[0u8;7]);
+                binary[8..72].copy_from_slice(key_string.raw());
+            }
+        };
+
+        binary
+    }
+
+    pub fn from_binary(binary: &[u8]) -> Result<DbKey, EzError> {
+
+        if binary.len() < 8 {
+            return Err(EzError { tag: ErrorTag::Deserialization, text: format!("cannot deserialize a DbKey from less than 8 bytes. Was passed: '{}' bytes", binary.len()) })
+        }
+
+        match binary[0] {
+            b'i' => {
+                let i = i32_from_le_slice(&binary[4..8]);
+                Ok(DbKey::Int(i))
+            }
+            b't' => {
+                let ks = KeyString::try_from(&binary[8..72])?;
+                Ok(DbKey::Text(ks))
+            }
+            other => return Err(EzError { tag: ErrorTag::Deserialization, text: format!("Unsupported data type: '{}'", other) })
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub enum DbValue {
     Int(i32),

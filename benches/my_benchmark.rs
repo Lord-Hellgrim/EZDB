@@ -2,6 +2,7 @@
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use criterion::black_box;
 use criterion::{criterion_group, criterion_main, Criterion};
 use rand::random;
 use rand::Rng;
@@ -13,6 +14,7 @@ use EZDB::db_structure::*;
 use EZDB::ezql::*;
 
 use EZDB::row_table::BlockAllocator;
+use EZDB::row_table::Hallocator;
 use EZDB::testing_tools::create_fixed_table;
 use EZDB::utilities::*;
 use EZDB::PATH_SEP;
@@ -281,12 +283,37 @@ fn my_benchmark(c: &mut Criterion) {
         ],
     };
 
-    group.bench_function("Query Execution - SELECT", |b| b.iter(|| {
-        let select_results = execute_select_query(&select_query, &test_table).unwrap().unwrap();
-    }));
+    // group.bench_function("Query Execution - SELECT", |b| b.iter(|| {
+    //     let select_results = execute_select_query(&select_query, &test_table).unwrap().unwrap();
+    // }));
 
 
     // ################### ALLOCATOR BENCHMARKS #################################################
+
+    let mut hallocator = Hallocator::new(8);
+
+    let mut pointers = Vec::new();
+    let mut numvec: Vec<u64> = Vec::new();
+    for i in 0..10_000 {
+        let pointer = hallocator.alloc();
+        pointers.push(pointer);
+        hallocator.write_u64(pointer, 0, random());
+        numvec.push(random());
+    }
+
+    group.bench_function("Allocator - read speed Hallocator", |b| b.iter(|| {
+        for i in 0..10_000 {
+            let thing = hallocator.read_u64(pointers[i], 0);
+            black_box(thing);
+        }
+    }));
+
+    group.bench_function("Allocator - read speed Vec", |b| b.iter(|| {
+        for item in numvec.iter() {
+            let thing = *item;
+            black_box(thing);
+        }
+    }));
 
 
     
