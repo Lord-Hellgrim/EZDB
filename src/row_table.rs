@@ -1,12 +1,12 @@
 use std::alloc::{alloc, dealloc, Layout};
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::Hash;
 use std::io::Write;
 use std::ops::Index;
 
 use fnv::{FnvBuildHasher, FnvHashSet, FnvHasher};
 
-use crate::db_structure::DbKey;
+use crate::db_structure::{DbKey, DbType};
 use crate::{db_structure::{DbValue, HeaderItem}, utilities::*};
 
 
@@ -271,24 +271,107 @@ impl Hallocator {
 
 
 pub struct RowTable {
-    pub tree: BTreeMap<DbKey, usize>,
+    pub name: KeyString,
+    pub header: BTreeSet<HeaderItem>,
+    pub primary_tree: BTreeMap<DbKey, usize>,
+    pub indexes: HashMap<KeyString, BTreeMap<DbKey, usize>>,
     pub row_size: usize,
     pub allocator: Hallocator,
 }
 
 impl RowTable {
-    pub fn new(row_size: usize) -> RowTable {
-        RowTable { tree: BTreeMap::new(), row_size, allocator: Hallocator::new(row_size) }
+    pub fn new(row_size: usize, name: KeyString, header: BTreeSet<HeaderItem>) -> RowTable {
+        RowTable {
+            name,
+            header,
+            primary_tree: BTreeMap::new(),
+            indexes: HashMap::new(),
+            row_size, 
+            allocator: Hallocator::new(row_size) 
+        }
     }
 
     pub fn insert_row(&mut self, key: impl Into<DbKey>, row: &[u8]) -> Result<(), EzError> {
+
+        let key: DbKey = key.into();
 
         let pointer = self.allocator.alloc();
         match self.allocator.get_block_mut(pointer).write(row) {
             Ok(_) => (),
             Err(e) => return Err(EzError { tag: ErrorTag::Structure, text: e.to_string() }),
         };
-        self.tree.insert(key.into(), pointer);
+        self.primary_tree.insert(key, pointer);
+
+
+        let mut offset: usize = match key {
+            DbKey::Int(_) => 4,
+            DbKey::Text(_) => 64,
+        };
+        for item in &self.header {
+            if self.indexes.contains_key(&item.name) {
+                match item.kind {
+                    crate::db_structure::DbType::Int => {
+                        let num = i32_from_le_slice(&row[offset..offset+4]);
+                        let index_tree = self.indexes.get_mut(&item.name).expect("Will never panic because of previous check");
+                        index_tree.insert(num.into(), pointer);
+                        offset += 4;
+                    },
+                    crate::db_structure::DbType::Float => {
+                        unreachable!("There cannot be a float index on a table. If we got here, there has been a consistency error in the code. Alert the maintainers asap.")
+                    },
+                    crate::db_structure::DbType::Text => {
+                        let num = KeyString::try_from(&row[offset..offset+64]).unwrap();
+                        let index_tree = self.indexes.get_mut(&item.name).expect("Will never panic because of previous check");
+                        index_tree.insert(num.into(), pointer);
+                        offset += 64;
+                    },
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn add_index(&mut self, index: KeyString) -> Result<(), EzError> {
+
+        let mut index_is_in_header = false;
+        let mut index_offset = 0;
+        let mut index_type: DbType = DbType::Int;
+        for item in &self.header {
+
+            if index == item.name {
+                index_is_in_header = true;
+                index_type = item.kind;
+                match index_type {
+                    DbType::Int => (),
+                    DbType::Text => (),
+                    DbType::Float => return Err(EzError { tag: ErrorTag::Query, text: format!("Cannot have indexes on floats") }),
+                };
+                break
+            }
+            index_offset += item.offset();
+        }
+        
+        if !index_is_in_header {
+            return Err(EzError { tag: ErrorTag::Query, text: format!("There is no column: {} in table: {}", index, self.name) })
+        }
+
+        let mut new_index_tree: BTreeMap<DbKey, usize> = BTreeMap::new();
+        for (_primary_key, pointer) in &self.primary_tree {
+            match index_type {
+                DbType::Int => {
+                    let row = self.allocator.get_block(*pointer);
+                    let num = i32_from_le_slice(&row[index_offset..index_offset+4]);
+                    new_index_tree.insert(num.into(), *pointer);
+                },
+                DbType::Text => {
+                    let row = self.allocator.get_block(*pointer);
+                    let ks = KeyString::try_from(&row[index_offset..index_offset+4]).unwrap();
+                    new_index_tree.insert(ks.into(), *pointer);
+                },
+                DbType::Float => unreachable!(),
+            };
+        }
 
         Ok(())
     }

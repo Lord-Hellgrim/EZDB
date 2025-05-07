@@ -87,7 +87,7 @@ impl Metadata {
 }
 
 
-#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Ord, Eq)]
 pub enum DbKey {
     Int(i32),
     Text(KeyString),
@@ -280,8 +280,8 @@ impl DbValue {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum DbType {
     Int,
-    Float,
     Text,
+    Float,
 }
 
 impl Cbor for DbType {
@@ -520,6 +520,14 @@ impl HeaderItem {
             name: KeyString::from("default_name"),
             kind: DbType::Text,
             key: TableKey::None,
+        }
+    }
+
+    pub fn offset(&self) -> usize {
+        match self.kind {
+            DbType::Int => 4,
+            DbType::Float => 4,
+            DbType::Text => 64,
         }
     }
 }
