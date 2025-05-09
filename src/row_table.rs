@@ -3,7 +3,9 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::Hash;
 use std::io::Write;
 use std::ops::Index;
+use std::slice::{ChunksExact, ChunksExactMut, ChunksMut};
 
+use bumpalo::ChunkIter;
 use fnv::{FnvBuildHasher, FnvHashSet, FnvHasher};
 
 use crate::db_structure::{DbKey, DbType};
@@ -210,9 +212,9 @@ impl Hallocator {
 
     #[inline]
     pub fn read_u64(&self, pointer: usize, offset: usize) -> u64 {
-        // if offset > self.block_size - 8 {
-        //     panic!("Trying to read out of bounds memory")
-        // }
+        if offset > self.block_size - 8 {
+            panic!("Trying to read out of bounds memory")
+        }
         unsafe { *(self.get_block(pointer+offset).as_ptr() as *const u64) }
     }
 
@@ -280,7 +282,15 @@ pub struct RowTable {
 }
 
 impl RowTable {
-    pub fn new(row_size: usize, name: KeyString, header: BTreeSet<HeaderItem>) -> RowTable {
+    pub fn new(name: KeyString, header: BTreeSet<HeaderItem>) -> RowTable {
+        let mut row_size = 0;
+        for item in &header {
+            row_size += match item.kind {
+                DbType::Int => 4,
+                DbType::Text => 64,
+                DbType::Float => 4,
+            }
+        }
         RowTable {
             name,
             header,
@@ -373,7 +383,53 @@ impl RowTable {
             };
         }
 
+        self.indexes.insert(index, new_index_tree);
+
         Ok(())
+    }
+
+    pub fn iter(&self) -> RowTableIterator {
+        RowTableIterator {
+            chunks: self.allocator.buffer.chunks_exact(self.row_size),
+        }
+    }
+
+    pub fn iter_mut(&mut self) -> RowTableIteratorMut {
+        RowTableIteratorMut {
+            chunks: self.allocator.buffer.chunks_exact_mut(self.row_size),
+        }
+    }
+}
+
+struct RowTableIterator<'a> {
+    chunks: ChunksExact<'a, u8>,
+}
+
+impl<'a> Iterator for RowTableIterator<'a> {
+    type Item = &'a [u8];
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.chunks.next()
+    }
+
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        self.chunks.nth(n)
+    }
+}
+
+struct RowTableIteratorMut<'a> {
+    chunks: ChunksExactMut<'a, u8>,
+}
+
+impl<'a> Iterator for RowTableIteratorMut<'a> {
+    type Item = &'a mut [u8];
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.chunks.next()
+    }
+
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        self.chunks.nth(n)
     }
 }
 
@@ -381,6 +437,8 @@ impl RowTable {
 
 #[cfg(test)]
 mod tests {
+
+    use crate::db_structure::TableKey;
 
     use super::*;
 
@@ -429,5 +487,59 @@ mod tests {
         }
 
         // println!("pointer_sum: {}", sum);
+    }
+
+    #[test]
+    fn test_row_table() {
+        let mut header = BTreeSet::new();
+        header.insert(HeaderItem {
+            name: ksf("ints"),
+            kind: DbType::Int,
+            key: TableKey::Primary,
+        });
+        header.insert(HeaderItem {
+            name: ksf("texts"),
+            kind: DbType::Text,
+            key: TableKey::None,
+        });
+        header.insert(HeaderItem {
+            name: ksf("floats"),
+            kind: DbType::Float,
+            key: TableKey::None,
+        });
+        let mut table = RowTable::new( ksf("test_table"), header);
+
+        for i in 0..10 as i32 {
+            let mut row = Vec::new();
+            row.extend_from_slice(&i.to_le_bytes());
+            row.extend_from_slice(ksf(&i.to_string()).as_bytes());
+            row.extend_from_slice(&(i as f32).to_le_bytes());
+
+            table.insert_row(i, &row).unwrap();
+        }
+
+        for item in table.iter() {
+            let mut offset = 0;
+            for head in &table.header {
+                match head.kind {
+                    DbType::Int => {
+                        let int = read_i32(item, offset);
+                        println!("{int}");
+                        offset += 4;
+                    },
+                    DbType::Text => {
+                        let ksf = read_keystring(item, offset);
+                        println!("{ksf}");
+                        offset += 64;
+                    },
+                    DbType::Float => {
+                        let int = read_f32(item, offset);
+                        println!("{int}");
+                        offset += 4;
+                    },
+                }
+            }
+        }
+
     }
 }

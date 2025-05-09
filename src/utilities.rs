@@ -979,6 +979,73 @@ pub fn usize_from_le_slice(slice: &[u8]) -> usize {
 }
 
 
+
+#[inline]
+pub fn read_i32(slice: &[u8], offset: usize) -> i32 {
+    if offset > slice.len() - 4 {
+        panic!("Trying to read out of bounds memory")
+    }
+    unsafe { *(slice[offset..offset+4].as_ptr() as *const i32) }
+}
+
+#[inline]
+pub fn read_u64(slice: &[u8], offset: usize) -> u64 {
+    if offset > slice.len() - 8 {
+        panic!("Trying to read out of bounds memory")
+    }
+    unsafe { *(slice[offset..offset+8].as_ptr() as *const u64) }
+}
+
+#[inline]
+pub fn read_f32(slice: &[u8], offset: usize) -> f32 {
+    if offset > slice.len() - 4 {
+        panic!("Trying to read out of bounds memory")
+    }
+    unsafe { *(slice[offset..offset+4].as_ptr() as *const f32) }
+}
+
+#[inline]
+pub fn read_keystring(slice: &[u8], offset: usize) -> KeyString {
+    if offset > slice.len() - 64 {
+        panic!("Trying to read out of bounds memory")
+    }
+    unsafe { *(slice[offset..offset+64].as_ptr() as *const KeyString) }
+}
+
+#[inline]
+pub fn write_i32(slice: &mut [u8], offset: usize, value: i32) {
+    if offset > slice.len() - 4 {
+        panic!("Trying to write out of bounds memory")
+    }
+    unsafe { ((slice[offset..offset+4]).as_mut_ptr() as *mut i32).write(value) }
+}
+
+#[inline]
+pub fn write_u64(slice: &mut [u8], offset: usize, value: u64) {
+    if offset > slice.len() - 8 {
+        panic!("Trying to write out of bounds memory")
+    }
+    unsafe { ((slice[offset..offset+8]).as_mut_ptr() as *mut u64).write(value) }
+}
+
+#[inline]
+pub fn write_f32(slice: &mut [u8], offset: usize, value: f32) {
+    if offset > slice.len() - 4 {
+        panic!("Trying to write out of bounds memory")
+    }
+    unsafe { ((slice[offset..offset+4]).as_mut_ptr() as *mut f32).write(value) }
+}
+
+#[inline]
+pub fn write_keystring(slice: &mut [u8], offset: usize, value: KeyString) {
+    if offset > slice.len() - 64 {
+        panic!("Trying to write out of bounds memory")
+    }
+    unsafe { ((slice[offset..offset+64]).as_mut_ptr() as *mut KeyString).write(value) }
+
+}
+
+
 #[inline]
 pub fn print_sep_list<T>(list: &[T], sep: &str) -> String 
 where T: Display  {

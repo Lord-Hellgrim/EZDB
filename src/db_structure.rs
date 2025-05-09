@@ -2357,6 +2357,8 @@ mod tests {
     use ezcbor::cbor::decode_cbor;
     use rand::Rng;
 
+    use crate::row_table::RowTable;
+
     use super::*;
 
     #[test]
