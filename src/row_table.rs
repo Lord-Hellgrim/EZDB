@@ -271,7 +271,6 @@ impl Hallocator {
 
 
 
-
 pub struct RowTable {
     pub name: KeyString,
     pub header: BTreeSet<HeaderItem>,
@@ -301,12 +300,41 @@ impl RowTable {
         }
     }
 
-    pub fn insert_row(&mut self, key: impl Into<DbKey>, row: &[u8]) -> Result<(), EzError> {
+    pub fn insert_row(&mut self, key: impl Into<DbKey>, row: &[DbValue]) -> Result<(), EzError> {
+
+        let mut i = 0;
+        let mut checked_row = Vec::new();
+        for item in &self.header {
+            match item.kind {
+                DbType::Int => {
+                    if !row[i].is_int() {
+                        return Err(EzError { tag: ErrorTag::Query, text: format!("Column: {} can only contain values of type Int", item.name) })
+                    }
+                    checked_row.extend_from_slice(&row[i].to_i32().to_le_bytes());
+                },
+                DbType::Text => {
+                    if !row[i].is_text() {
+                        return Err(EzError { tag: ErrorTag::Query, text: format!("Column: {} can only contain values of type Text", item.name) })
+                    }
+                    checked_row.extend_from_slice(row[i].to_keystring().as_bytes());
+
+                },
+                DbType::Float => {
+                    if !row[i].is_float() {
+                        return Err(EzError { tag: ErrorTag::Query, text: format!("Column: {} can only contain values of type Float", item.name) })
+                    }
+                    checked_row.extend_from_slice(&row[i].to_f32().to_le_bytes());
+
+                },
+            }
+
+            i += 1;
+        }
 
         let key: DbKey = key.into();
 
         let pointer = self.allocator.alloc();
-        match self.allocator.get_block_mut(pointer).write(row) {
+        match self.allocator.get_block_mut(pointer).write(&checked_row) {
             Ok(_) => (),
             Err(e) => return Err(EzError { tag: ErrorTag::Structure, text: e.to_string() }),
         };
@@ -321,7 +349,7 @@ impl RowTable {
             if self.indexes.contains_key(&item.name) {
                 match item.kind {
                     crate::db_structure::DbType::Int => {
-                        let num = i32_from_le_slice(&row[offset..offset+4]);
+                        let num = i32_from_le_slice(&checked_row[offset..offset+4]);
                         let index_tree = self.indexes.get_mut(&item.name).expect("Will never panic because of previous check");
                         index_tree.insert(num.into(), pointer);
                         offset += 4;
@@ -330,7 +358,7 @@ impl RowTable {
                         unreachable!("There cannot be a float index on a table. If we got here, there has been a consistency error in the code. Alert the maintainers asap.")
                     },
                     crate::db_structure::DbType::Text => {
-                        let num = KeyString::try_from(&row[offset..offset+64]).unwrap();
+                        let num = KeyString::try_from(&checked_row[offset..offset+64]).unwrap();
                         let index_tree = self.indexes.get_mut(&item.name).expect("Will never panic because of previous check");
                         index_tree.insert(num.into(), pointer);
                         offset += 64;
@@ -401,7 +429,7 @@ impl RowTable {
     }
 }
 
-struct RowTableIterator<'a> {
+pub struct RowTableIterator<'a> {
     chunks: ChunksExact<'a, u8>,
 }
 
@@ -417,7 +445,7 @@ impl<'a> Iterator for RowTableIterator<'a> {
     }
 }
 
-struct RowTableIteratorMut<'a> {
+pub struct RowTableIteratorMut<'a> {
     chunks: ChunksExactMut<'a, u8>,
 }
 
@@ -511,9 +539,9 @@ mod tests {
 
         for i in 0..10 as i32 {
             let mut row = Vec::new();
-            row.extend_from_slice(&i.to_le_bytes());
-            row.extend_from_slice(ksf(&i.to_string()).as_bytes());
-            row.extend_from_slice(&(i as f32).to_le_bytes());
+            row.push(DbValue::Float(i as f32));
+            row.push(DbValue::Int(i));
+            row.push(DbValue::Text(ksf(&i.to_string())));
 
             table.insert_row(i, &row).unwrap();
         }

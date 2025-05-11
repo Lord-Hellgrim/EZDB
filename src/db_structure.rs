@@ -274,6 +274,27 @@ impl DbValue {
             other => return Err(EzError { tag: ErrorTag::Deserialization, text: format!("Unsupported data type: '{}'", other) })
         }
     }
+
+    pub fn is_int(&self) -> bool {
+        match self {
+            DbValue::Int(_) => true,
+            _ => false
+        }
+    }
+
+    pub fn is_float(&self) -> bool {
+        match self {
+            DbValue::Float(_) => true,
+            _ => false
+        }
+    }
+
+    pub fn is_text(&self) -> bool {
+        match self {
+            DbValue::Text(_) => true,
+            _ => false
+        }
+    }
 }
 
 /// Identifies a type of a DbVec

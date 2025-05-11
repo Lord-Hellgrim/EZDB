@@ -5,6 +5,8 @@ import utf "core:unicode/utf8"
 import "core:slice"
 import "core:log"
 
+import linux "core:sys/linux"
+
 
 KeyString :: distinct [64]u8
 
@@ -129,19 +131,6 @@ eztable_length :: proc(table: EzTable) -> int {
     return length
 }
 
-DbRow :: struct {
-    index: u32,
-}
-
-BTree :: struct {
-    root: BTreeRootNode,
-}
-
-BTreeRootNode :: struct {
-    values: [6]DbRow,
-    children: [7]^BTreeNode,
-}
-
-BTreeNode :: struct {
-    parent: ^BTreeNode,
+Hallocator :: struct {
+    
 }
