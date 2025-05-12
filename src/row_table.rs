@@ -5,7 +5,6 @@ use std::io::Write;
 use std::ops::Index;
 use std::slice::{ChunksExact, ChunksExactMut, ChunksMut};
 
-use bumpalo::ChunkIter;
 use fnv::{FnvBuildHasher, FnvHashSet, FnvHasher};
 
 use crate::db_structure::{DbKey, DbType};
