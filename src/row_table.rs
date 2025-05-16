@@ -2,7 +2,6 @@ use std::alloc::{alloc, dealloc, Layout};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::Hash;
 use std::io::Write;
-use std::ops::Index;
 use std::slice::{ChunksExact, ChunksExactMut, ChunksMut};
 
 use fnv::{FnvBuildHasher, FnvHashSet, FnvHasher};
@@ -568,5 +567,12 @@ mod tests {
             }
         }
 
+    }
+
+    #[test]
+    fn test_craziness() {
+        let x = crazy_function(&[1,2,3, 4, 5, 6, 7, 8]);
+
+        println!("{}", x);
     }
 }

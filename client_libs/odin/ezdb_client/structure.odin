@@ -4,8 +4,10 @@ import str "core:strings"
 import utf "core:unicode/utf8"
 import "core:slice"
 import "core:log"
+import "core:mem"
+import "base:runtime"
 
-import linux "core:sys/linux"
+import "vendor:libc"
 
 
 KeyString :: distinct [64]u8
@@ -132,5 +134,18 @@ eztable_length :: proc(table: EzTable) -> int {
 }
 
 Hallocator :: struct {
+    memory: [dynamic]byte,
+    block_size: u32,
+    free_list: [dynamic]uint,
+}
+
+new_hallocator :: proc(block_size: u32) -> Hallocator {
     
+    hallocator: Hallocator
+
+    current_allocator := context.allocator
+
+    memory : = make_dynamic_array([dynamic]byte)
+
+    return hallocator
 }
