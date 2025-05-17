@@ -2,17 +2,23 @@ use std::alloc::{alloc, dealloc, Layout};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::Hash;
 use std::io::Write;
+use std::ops::{Index, IndexMut};
 use std::slice::{ChunksExact, ChunksExactMut, ChunksMut};
 
 use fnv::{FnvBuildHasher, FnvHashSet, FnvHasher};
 
 use crate::db_structure::{DbKey, DbType};
+use crate::ezql::Query;
 use crate::{db_structure::{DbValue, HeaderItem}, utilities::*};
 
 
 pub const ZEROES: [u8;4096] = [0u8;4096];
 pub const CHUNK_SIZE: usize = 4096;
 
+
+pub fn extend_zeroes(vec: &mut Vec<u8>, n: usize) {
+    vec.resize(vec.len() + n, 0);
+}
 
 
 pub fn pop_from_hashset<T: Eq + Hash + Clone>(set: &mut FnvHashSet<T>) -> Option<T> {
@@ -267,6 +273,66 @@ impl Hallocator {
     
 }
 
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct FixedList<T: Default + Clone, const N: usize> {
+    list: [T ; N],
+    len: usize,
+}
+
+impl<T: Default + Clone, const N: usize> FixedList<T, N> {
+    pub fn new() -> FixedList<T, N> {
+
+        FixedList {
+            list: std::array::from_fn(|_| T::default()),
+            len: 0,
+        }
+    }
+
+    pub fn push(&mut self, t: T) -> bool {
+        if self.len > self.list.len() {
+            return false
+        } else {
+            self.list[self.len] = t;
+            self.len += 1;
+            return true
+        }
+    }
+
+    pub fn pop(&mut self) -> Option<T> {
+        if self.len == 0 {
+            None
+        } else {
+            let result = self.list[self.len].clone();
+            self.list[self.len] = Default::default();
+            self.len -= 1;
+            Some(result)
+        }
+    }
+}
+
+impl<T: Default + Clone, const N: usize> Index<usize> for FixedList<T, N> {
+    type Output = T;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.list[index]
+    }
+}
+
+impl<T: Default + Clone, const N: usize> IndexMut<usize> for FixedList<T, N> {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.list[index]
+    }
+}
+
+pub struct BPlusTreeNode<T: Ord + Sized> {
+    values: [T ; 20],
+    child_nodes: [usize;21],
+}
+
+pub struct BPlusTree</*K,*/ V: Ord> {
+    head_node: usize,
+    nodes: Vec<BPlusTreeNode<V>>,
+}
 
 
 pub struct RowTable {
@@ -425,6 +491,10 @@ impl RowTable {
             chunks: self.allocator.buffer.chunks_exact_mut(self.row_size),
         }
     }
+
+    pub fn execute_query(&mut self, query: Query) {
+
+    }
 }
 
 pub struct RowTableIterator<'a> {
@@ -570,9 +640,15 @@ mod tests {
     }
 
     #[test]
-    fn test_craziness() {
-        let x = crazy_function(&[1,2,3, 4, 5, 6, 7, 8]);
-
-        println!("{}", x);
+    fn test_fixed_list() {
+        let list: FixedList<usize, 10> = FixedList::new();
     }
+
+    #[test]
+    fn test_BPlusTree() {
+        let sum = 5;
+        println!("sum: {}", sum);
+    }
+
+
 }
