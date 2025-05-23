@@ -1,11 +1,8 @@
-use std::alloc::{alloc, dealloc, Layout};
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::hash::Hash;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::fmt::{Debug, Display};
 use std::io::Write;
-use std::ops::{Index, IndexMut};
-use std::slice::{ChunksExact, ChunksExactMut, ChunksMut};
+use std::slice::{ChunksExact, ChunksExactMut};
 
-use fnv::{FnvBuildHasher, FnvHashSet, FnvHasher};
 
 use crate::db_structure::{DbKey, DbType};
 use crate::ezql::Query;
@@ -15,331 +12,247 @@ use crate::{db_structure::{DbValue, HeaderItem}, utilities::*};
 pub const ZEROES: [u8;4096] = [0u8;4096];
 pub const CHUNK_SIZE: usize = 4096;
 
+const ORDER: usize = 10;
 
-pub fn extend_zeroes(vec: &mut Vec<u8>, n: usize) {
-    vec.resize(vec.len() + n, 0);
+
+
+
+
+
+#[derive(Clone)]
+pub struct BPlusTreeNode<T: Null + Clone + Debug + Ord + Eq + Sized> {
+    keys: FixedList<T, 20>,
+    parent: Pointer,
+    children: FixedList<Pointer, 21>,
+    is_leaf: bool,
 }
 
-
-pub fn pop_from_hashset<T: Eq + Hash + Clone>(set: &mut FnvHashSet<T>) -> Option<T> {
-    let result = match set.iter().next() {
-        Some(item) => item,
-        None => return None,
-    };
-    let key = result.clone();
-
-    set.take(&key)
-}
-
-pub fn pointer_add(pointer: *mut u8, offset: usize) -> *mut u8 {
-    let result = pointer.clone();
-    unsafe { result.add(offset) }
-}
-
-pub fn check_pointer_safety(pointer: *mut u8) {
-    if pointer.is_null() {
-        panic!("Got a NULL pointer from the OS. Either out of memory or some other unrecoverable error");
-    } else if usize::MAX - (pointer as usize) < 4096 {
-        panic!("Pointer from OS is only a page away from overflowing");
-    } else {
-        ()
+impl<T: Null + Clone + Debug + Ord + Eq + Sized> Display for BPlusTreeNode<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "children: {:?}", self.keys)
     }
 }
 
-pub struct Slice {
-    pub pointer: *mut u8,
-    pub len: usize,
-}
+impl <T: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeNode<T> {
+    pub fn new(key: &T, pointer: Pointer) -> BPlusTreeNode<T> {
+        let mut keys: FixedList<T, 20> = FixedList::new();
+        keys.push(key.clone());
+        let mut children = FixedList::new();
+        children[0] = pointer;
+        BPlusTreeNode { keys, children, parent: ptr(usize::MAX), is_leaf: true }
+    }
 
-impl Slice {
-    pub fn offset(&self, offset: usize) -> Result<*mut u8, EzError> {
-        if offset >= self.len {
-            return Err(EzError { tag: ErrorTag::Structure, text: format!("Attempting out of bounds access. Base pointer - offest: {} - {}", self.pointer as usize, offset) })
-        }
+    pub fn blank() -> BPlusTreeNode<T> {
+        BPlusTreeNode { keys: FixedList::new(), parent: ptr(usize::MAX), children: FixedList::new(), is_leaf: true }
+    }
 
-        return unsafe { Ok(self.pointer.add(offset)) }
+    pub fn clear(&mut self) {
+        self.children = FixedList::new();
+        self.keys = FixedList::new();
     }
 }
 
-pub struct BlockAllocator {
-    pub chunks: Vec<*mut u8>,
-    pub current_chunk: usize,
-    pub current_offset: usize,
-    pub block_size: usize,
-    pub free_list: FnvHashSet<*mut u8>,
-    alloc_count: usize,
+
+
+pub struct BPlusTree<K: Null + Clone + Debug + Ord + Eq + Sized> {
+    head_node: Option<Pointer>,
+    nodes: Vec<BPlusTreeNode<K>>,
+    allocator: Hallocator,
 }
 
-impl BlockAllocator {
-    pub fn new(block_size: usize) -> Result<BlockAllocator, EzError> {
-
-        if block_size % 64 != 0 {
-            return Err(EzError { tag: ErrorTag::Structure, text: format!("Improper block size. Must be multiple of 64. Received: {}", block_size) })
+impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTree<K> {
+    pub fn new(value_size: usize) -> BPlusTree<K> {
+        BPlusTree { 
+            head_node: None, 
+            nodes: Vec::new(),
+            allocator: Hallocator::new(value_size), 
         }
+    }
 
-        let layout = Layout::from_size_align(block_size * 64, 64)
-            .expect(&format!("Must have passed a monstrous block_size.\nBlock_size passed: {}", block_size));
-
-        let start = unsafe { alloc(layout) };
-        check_pointer_safety(start);
-
-        Ok(
-            BlockAllocator {
-                chunks: vec!(start),
-                current_chunk: 0,
-                current_offset: 0,
-                block_size,
-                free_list: FnvHashSet::with_hasher(FnvBuildHasher::new()),
-                alloc_count: 0,
+    fn find_leaf(&self, node_pointer: Pointer, key: &K) -> Option<&BPlusTreeNode<K>> {
+        let mut node = &self.nodes[node_pointer.pointer];
+        if node.keys.len() == 0 {
+    
+            return None;
+          }
+          while !node.is_leaf {
+            let mut i = 0;
+            while i < node.keys.len() {
+              if key >= &node.keys[i] {
+                i += 1;
+              }
+              else {
+                break
+            };
             }
-        )
+            node = &self.nodes[node.children[i].pointer];
+          }
+          return Some(node);
     }
 
-    pub fn alloc(&mut self) -> Slice {
-
-        self.alloc_count += 1;
-        let result: Slice;
-        match pop_from_hashset(&mut self.free_list) {
-            Some(pointer) => return Slice{pointer, len: self.block_size},
-            None => {
-                if self.current_chunk == self.chunks.len()-1 && self.block_size + self.current_offset == 64*self.block_size {
-                    let l = self.chunks.len();
-                    for _ in 0..l {
-                        let layout = Layout::from_size_align(self.block_size * 64, 64)
-                        .expect(&format!("Must have passed a monstrous block_size.\nBlock_size passed: {}", self.block_size));
+    fn find_leaf_mut(&mut self, node_pointer: Pointer, key: &K) -> Option<usize> {
+        let node = &self.nodes[node_pointer.pointer];
+        let mut pointer: usize = usize::MAX;
+        if node.keys.len() == 0 {
     
-                        let new_chunk = unsafe { alloc(layout) };
-                        check_pointer_safety(new_chunk);
-                        self.chunks.push(new_chunk);
-                    }
-                    let tail = pointer_add(self.chunks[self.current_chunk], self.current_offset);
-                    self.current_offset = 0;
-                    self.current_chunk += 1;
-                    result = Slice{pointer: tail, len: self.block_size};
-                } else if self.current_offset + self.block_size == 64*self.block_size {
-                    let tail = pointer_add(self.chunks[self.current_chunk], self.current_offset);
-                    self.current_chunk += 1;
-                    self.current_offset = 0;
-                    result = Slice{pointer: tail, len: self.block_size};
-                } else {
-                    let tail = pointer_add(self.chunks[self.current_chunk], self.current_offset);
-                    self.current_offset += self.block_size;
-                    result = Slice{pointer: tail, len: self.block_size}
-                }
-                result
-            },
+            return None;
+          }
+          
+          while !node.is_leaf {
+            let mut i = 0;
+            while i < node.keys.len() {
+              if key >= &node.keys[i] {
+                i += 1;
+              }
+              else {
+                break
+            };
+            }
+            pointer = node.children[i].pointer;
         }
-    }
-
-    pub fn free(&mut self, slice: Slice) -> Result<(), EzError> {
-
-        match self.free_list.insert(slice.pointer) {
-            true => (),
-            false => return Err(EzError { tag: ErrorTag::Structure, text: format!("Attempting to double free a pointer. Pointer address: {}", slice.pointer as usize) }),
-        }
-        unsafe { slice.pointer.write_bytes(0, self.block_size) };
-
-        Ok(())
-    }
-
-}
-
-impl Drop for BlockAllocator {
-    fn drop(&mut self) {
-        let layout = Layout::from_size_align(self.block_size * 64, 64).unwrap();
-        for pointer in &self.chunks {
-            unsafe { dealloc(*pointer, layout) };
-        }
-    }
-}
-
-pub struct Hallocator {
-    buffer: Vec<u8>,
-    block_size: usize,
-    tail: usize,
-    free_list: FnvHashSet<usize>,
-}
-
-impl Hallocator {
-    pub fn new(block_size: usize) -> Hallocator {
-        Hallocator {
-            buffer: Vec::with_capacity(block_size * 64),
-            block_size,
-            tail: 0,
-            free_list: FnvHashSet::default(),
-        }
-    }
-
-    pub fn alloc(&mut self) -> usize {
+        return Some(pointer);
         
-        match pop_from_hashset(&mut self.free_list) {
-            Some(pointer) => {
-                pointer
-            },
-            None => {
-                let result = self.tail;
-                self.buffer.extend_from_slice(&ZEROES[0..self.block_size]);
-                self.tail += self.block_size;
-                result
-            },
+    }
+
+    pub fn find(&self, key: &K) -> Option<(Pointer, &BPlusTreeNode<K>)> {
+
+        let head = self.head_node?;
+
+        let node = self.find_leaf(head, &key)?;
+
+        for index in 0..node.keys.len() {
+            if &node.keys[index] == key {
+                return Some((node.children[index], node))
+            }
+            
         }
+
+        None
     }
 
-    pub fn free(&mut self, pointer: usize) -> Result<(), EzError> {
-        match self.free_list.insert(pointer) {
-            true => (),
-            false => return Err(EzError { tag: ErrorTag::Structure, text: format!("Attempting to double free a pointer. Pointer address: {}", pointer as usize) }),
+    pub fn insert(&mut self, key: &K, value: &[u8]) {
+
+        assert!(value.len() == self.allocator.block_size()); 
+        
+        let record_pointer = self.find(&key);
+        if record_pointer.is_some() {
+            let (record_pointer, _) = record_pointer.unwrap();
+            self.allocator.get_block_mut(record_pointer).copy_from_slice(value);
+            return 
         }
-        let row_pointer = &self.buffer[pointer..pointer + self.block_size].as_mut_ptr();
-        unsafe { row_pointer.write_bytes(0, self.block_size) };
-
-        Ok(())
-    }
-
-    #[inline]
-    pub fn get_block(&self, pointer: usize) -> &[u8] {
-        &self.buffer[pointer..pointer+self.block_size]
-    }
-
-    #[inline]
-    pub fn get_block_mut(&mut self, pointer: usize) -> &mut [u8] {
-        &mut self.buffer[pointer..pointer+self.block_size]
-    }
-
-    #[inline]
-    pub fn read_i32(&self, pointer: usize, offset: usize) -> i32 {
-        if offset > self.block_size - 4 {
-            panic!("Trying to read out of bounds memory")
+        
+        let new_pointer = self.allocator.alloc();
+        self.allocator.get_block_mut(new_pointer).copy_from_slice(value);
+      
+        if self.head_node.is_none() {
+            self.head_node = Some(new_pointer);
+            return
         }
-        unsafe { *(self.get_block(pointer+offset).as_ptr() as *const i32) }
-    }
-
-    #[inline]
-    pub fn read_u64(&self, pointer: usize, offset: usize) -> u64 {
-        if offset > self.block_size - 8 {
-            panic!("Trying to read out of bounds memory")
+      
+        let leaf_pointer = self.find_leaf_mut(new_pointer, &key).unwrap();
+        let node_keys_len = self.nodes[leaf_pointer].keys.len();
+      
+        if node_keys_len < ORDER - 1 {
+          self.insert_into_leaf(leaf_pointer, key, new_pointer);
+          return
         }
-        unsafe { *(self.get_block(pointer+offset).as_ptr() as *const u64) }
-    }
+      
+        // self.insertIntoLeafAfterSplitting(leaf_pointer, key, new_pointer);
 
-    #[inline]
-    pub fn read_f32(&self, pointer: usize, offset: usize) -> f32 {
-        if offset > self.block_size - 4 {
-            panic!("Trying to read out of bounds memory")
+      }
+
+    fn insert_into_leaf(&mut self, leaf: usize, key: &K, value_pointer: Pointer) {
+        let mut i = 0;
+        let mut insertion_point = 0;
+        let mut leaf = self.nodes.get_mut(leaf).unwrap();
+        while insertion_point < leaf.keys.len() && &leaf.keys[insertion_point] < key {
+            insertion_point += 1;
         }
-        unsafe { *(self.get_block(pointer+offset).as_ptr() as *const f32) }
+        leaf.keys.insert_before(key, insertion_point);
+
+        leaf.children[insertion_point] = value_pointer;
     }
 
-    #[inline]
-    pub fn read_keystring(&self, pointer: usize, offset: usize) -> KeyString {
-        if offset > self.block_size - 64 {
-            panic!("Trying to read out of bounds memory")
-        }
-        unsafe { *(self.get_block(pointer+offset).as_ptr() as *const KeyString) }
-    }
 
-    #[inline]
-    pub fn write_i32(&mut self, pointer: usize, offset: usize, value: i32) {
-        if offset > self.block_size - 4 {
-            panic!("Trying to write out of bounds memory")
-        }
-        unsafe { (self.get_block_mut(pointer+offset).as_mut_ptr() as *mut i32).write(value) }
-    }
+    // pub fn insertIntoLeafAfterSplitting(&mut self, leaf_pointer: usize, key: &K, pointer: Pointer) -> usize {
+    //     // node *new_leaf;
+    //     // int *temp_keys;
+    //     // void **temp_pointers;
+    //     // int insertion_index, split, new_key, i, j;
+      
+    //     let new_leaf = BPlusTreeNode::blank();
+    //     let mut temp_keys: FixedList<K, 20> = FixedList::new();
+        
+    //     let mut temp_pointers: FixedList<Pointer, 20> = FixedList::new();
+        
+    //     let mut leaf = self.nodes.get_mut(leaf_pointer).unwrap();
 
-    #[inline]
-    pub fn write_u64(&mut self, pointer: usize, offset: usize, value: u64) {
-        if offset > self.block_size - 8 {
-            panic!("Trying to write out of bounds memory")
-        }
-        unsafe { (self.get_block_mut(pointer+offset).as_mut_ptr() as *mut u64).write(value) }
-    }
+    //     let mut insertion_index = 0;
+    //     while insertion_index < ORDER - 1 && &leaf.keys[insertion_index] < key {
+    //         insertion_index += 1;
+    //     }
+        
+    //     let mut j = 0;
+    //     for i in 0..leaf.keys.len() {
+    //       if j == insertion_index {
+    //           j += 1;
+    //       }
+    //       temp_keys[j] = leaf.keys[i];
+    //       temp_pointers[j] = leaf.children[i];
 
-    #[inline]
-    pub fn write_f32(&mut self, pointer: usize, offset: usize, value: f32) {
-        if offset > self.block_size - 4 {
-            panic!("Trying to write out of bounds memory")
-        }
-        unsafe { (self.get_block_mut(pointer+offset).as_mut_ptr() as *mut f32).write(value) }
-    }
+    //       j+= 1;
+    //     }
+      
+    //     temp_keys[insertion_index] = key.clone();
+    //     temp_pointers[insertion_index] = pointer;
+      
+    //     leaf.clear();
+      
+    //     let split = cut(ORDER - 1);
+      
+    //     for i in 0..split {
+    //       leaf.children.push(temp_pointers[i]);
+    //       leaf.keys.push(temp_keys[i]);
+    //     }
+        
+    //     let mut i = split;
+    //     for i in split..ORDER {
+    //       new_leaf.children.push(temp_pointers[i]);
+    //       new_leaf.keys.push(temp_keys[i]);
+    //       i += 1;
+    //     }
+      
+    //     new_leaf.children[ORDER - 1] = leaf.children[ORDER - 1];
+    //     leaf.children[ORDER - 1] = new_leaf;
+      
+    //     for (i = leaf->num_keys; i < ORDER - 1; i++)
+    //       leaf->pointers[i] = NULL;
+    //     for (i = new_leaf->num_keys; i < ORDER - 1; i++)
+    //       new_leaf->pointers[i] = NULL;
+      
+    //     new_leaf->parent = leaf->parent;
+    //     new_key = new_leaf->keys[0];
+      
+    //     return insertIntoParent(root, leaf, new_key, new_leaf);
+    //   }
 
-    #[inline]
-    pub fn write_keystring(&mut self, pointer: usize, offset: usize, value: KeyString) {
-        if offset > self.block_size - 64 {
-            panic!("Trying to write out of bounds memory")
-        }
-        unsafe { (self.get_block_mut(pointer+offset).as_mut_ptr() as *mut KeyString).write(value) }
-
-    }
-    
 }
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct FixedList<T: Default + Clone, const N: usize> {
-    list: [T ; N],
-    len: usize,
-}
 
-impl<T: Default + Clone, const N: usize> FixedList<T, N> {
-    pub fn new() -> FixedList<T, N> {
-
-        FixedList {
-            list: std::array::from_fn(|_| T::default()),
-            len: 0,
-        }
+pub fn cut(length: usize) -> usize {
+    if length % 2 == 0 {
+        return length / 2;
     }
-
-    pub fn push(&mut self, t: T) -> bool {
-        if self.len > self.list.len() {
-            return false
-        } else {
-            self.list[self.len] = t;
-            self.len += 1;
-            return true
-        }
+    else {
+        return length / 2 + 1;
     }
-
-    pub fn pop(&mut self) -> Option<T> {
-        if self.len == 0 {
-            None
-        } else {
-            let result = self.list[self.len].clone();
-            self.list[self.len] = Default::default();
-            self.len -= 1;
-            Some(result)
-        }
-    }
-}
-
-impl<T: Default + Clone, const N: usize> Index<usize> for FixedList<T, N> {
-    type Output = T;
-
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.list[index]
-    }
-}
-
-impl<T: Default + Clone, const N: usize> IndexMut<usize> for FixedList<T, N> {
-    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        &mut self.list[index]
-    }
-}
-
-pub struct BPlusTreeNode<T: Ord + Sized> {
-    values: [T ; 20],
-    child_nodes: [usize;21],
-}
-
-pub struct BPlusTree</*K,*/ V: Ord> {
-    head_node: usize,
-    nodes: Vec<BPlusTreeNode<V>>,
-}
-
+  }
 
 pub struct RowTable {
     pub name: KeyString,
     pub header: BTreeSet<HeaderItem>,
     pub primary_tree: BTreeMap<DbKey, usize>,
-    pub indexes: HashMap<KeyString, BTreeMap<DbKey, usize>>,
+    pub hash_indexes: HashMap<KeyString, BTreeMap<DbKey, usize>>,
     pub row_size: usize,
     pub allocator: Hallocator,
 }
@@ -358,7 +271,7 @@ impl RowTable {
             name,
             header,
             primary_tree: BTreeMap::new(),
-            indexes: HashMap::new(),
+            hash_indexes: HashMap::new(),
             row_size, 
             allocator: Hallocator::new(row_size) 
         }
@@ -402,7 +315,7 @@ impl RowTable {
             Ok(_) => (),
             Err(e) => return Err(EzError { tag: ErrorTag::Structure, text: e.to_string() }),
         };
-        self.primary_tree.insert(key, pointer);
+        self.primary_tree.insert(key, pointer.pointer);
 
 
         let mut offset: usize = match key {
@@ -410,12 +323,12 @@ impl RowTable {
             DbKey::Text(_) => 64,
         };
         for item in &self.header {
-            if self.indexes.contains_key(&item.name) {
+            if self.hash_indexes.contains_key(&item.name) {
                 match item.kind {
                     crate::db_structure::DbType::Int => {
                         let num = i32_from_le_slice(&checked_row[offset..offset+4]);
-                        let index_tree = self.indexes.get_mut(&item.name).expect("Will never panic because of previous check");
-                        index_tree.insert(num.into(), pointer);
+                        let index_tree = self.hash_indexes.get_mut(&item.name).expect("Will never panic because of previous check");
+                        index_tree.insert(num.into(), pointer.pointer);
                         offset += 4;
                     },
                     crate::db_structure::DbType::Float => {
@@ -423,8 +336,8 @@ impl RowTable {
                     },
                     crate::db_structure::DbType::Text => {
                         let num = KeyString::try_from(&checked_row[offset..offset+64]).unwrap();
-                        let index_tree = self.indexes.get_mut(&item.name).expect("Will never panic because of previous check");
-                        index_tree.insert(num.into(), pointer);
+                        let index_tree = self.hash_indexes.get_mut(&item.name).expect("Will never panic because of previous check");
+                        index_tree.insert(num.into(), pointer.pointer);
                         offset += 64;
                     },
                 }
@@ -462,12 +375,12 @@ impl RowTable {
         for (_primary_key, pointer) in &self.primary_tree {
             match index_type {
                 DbType::Int => {
-                    let row = self.allocator.get_block(*pointer);
+                    let row = self.allocator.get_block(ptr(*pointer));
                     let num = i32_from_le_slice(&row[index_offset..index_offset+4]);
                     new_index_tree.insert(num.into(), *pointer);
                 },
                 DbType::Text => {
-                    let row = self.allocator.get_block(*pointer);
+                    let row = self.allocator.get_block(ptr(*pointer));
                     let ks = KeyString::try_from(&row[index_offset..index_offset+4]).unwrap();
                     new_index_tree.insert(ks.into(), *pointer);
                 },
@@ -475,7 +388,7 @@ impl RowTable {
             };
         }
 
-        self.indexes.insert(index, new_index_tree);
+        self.hash_indexes.insert(index, new_index_tree);
 
         Ok(())
     }
@@ -492,9 +405,6 @@ impl RowTable {
         }
     }
 
-    pub fn execute_query(&mut self, query: Query) {
-
-    }
 }
 
 pub struct RowTableIterator<'a> {
@@ -639,10 +549,6 @@ mod tests {
 
     }
 
-    #[test]
-    fn test_fixed_list() {
-        let list: FixedList<usize, 10> = FixedList::new();
-    }
 
     #[test]
     fn test_BPlusTree() {

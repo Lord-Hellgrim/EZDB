@@ -13,8 +13,6 @@ use EZDB::compression::miniz_decompress;
 use EZDB::db_structure::*;
 use EZDB::ezql::*;
 
-use EZDB::row_table::BlockAllocator;
-use EZDB::row_table::Hallocator;
 use EZDB::testing_tools::create_fixed_table;
 use EZDB::utilities::*;
 use EZDB::PATH_SEP;
