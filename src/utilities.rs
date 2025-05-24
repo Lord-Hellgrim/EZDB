@@ -1586,6 +1586,14 @@ pub struct FreeListVec<T: Null> {
 }
 
 impl<T: Null + Clone> FreeListVec<T> {
+
+    pub fn new() -> FreeListVec<T> {
+        FreeListVec {
+            list: Vec::new(),
+            free_list: FnvHashSet::default(),
+        }
+    }
+
     pub fn add(&mut self, t: T) -> usize {
         match pop_from_hashset(&mut self.free_list) {
             Some(index) => {self.list[index] = t; return index},
@@ -1603,8 +1611,27 @@ impl<T: Null + Clone> FreeListVec<T> {
             return res
         }
     }
+}
 
-    
+impl<T: Null + Clone> Index<usize> for FreeListVec<T> {
+    type Output = T;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        if self.free_list.contains(&index) {
+            panic!("Tried to access a freed value with index: {}", index)
+        }
+        &self.list[index]
+    }
+}
+
+impl<T: Null + Clone> IndexMut<usize> for FreeListVec<T> {
+
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        if self.free_list.contains(&index) {
+            panic!("Tried to access a freed value with index: {}", index)
+        }
+        &mut self.list[index]
+    }
 }
 
 impl<'a, T: Null> IntoIterator for &'a FreeListVec<T> {
