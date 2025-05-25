@@ -12,7 +12,9 @@ use crate::{db_structure::{DbValue, HeaderItem}, utilities::*};
 pub const ZEROES: [u8;4096] = [0u8;4096];
 pub const CHUNK_SIZE: usize = 4096;
 
-static NULL: Pointer = Pointer{pointer: usize::MAX};
+pub const ORDER: usize = 20;
+
+const NULL: Pointer = Pointer{pointer: usize::MAX};
 
 
 #[derive(Clone, PartialEq)]
@@ -60,16 +62,14 @@ pub struct BPlusTree<K: Null + Clone + Debug + Ord + Eq + Sized> {
     head_node: Option<Pointer>,
     nodes: FreeListVec<BPlusTreeNode<K>>,
     allocator: Hallocator,
-    order: usize,
 }
 
 impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTree<K> {
-    pub fn new(value_size: usize, order: usize) -> BPlusTree<K> {
+    pub fn new(value_size: usize) -> BPlusTree<K> {
         BPlusTree { 
             head_node: None, 
             nodes: FreeListVec::new(),
-            allocator: Hallocator::new(value_size), 
-            order,
+            allocator: Hallocator::new(value_size),
         }
     }
 
@@ -156,7 +156,7 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTree<K> {
         let leaf_pointer = self.find_leaf_mut(new_pointer, &key).unwrap();
         let node_keys_len = self.nodes[leaf_pointer].keys.len();
       
-        if node_keys_len < self.order - 1 {
+        if node_keys_len < ORDER - 1 {
           self.insert_into_leaf(leaf_pointer, key, new_pointer);
           return
         }
@@ -191,7 +191,7 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTree<K> {
         let mut leaf = &mut self.nodes[leaf_pointer];
 
         let mut insertion_index = 0;
-        while insertion_index < self.order - 1 && &leaf.keys[insertion_index] < key {
+        while insertion_index < ORDER - 1 && &leaf.keys[insertion_index] < key {
             insertion_index += 1;
         }
         
@@ -211,25 +211,25 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTree<K> {
       
         leaf.clear();
       
-        let split = cut(self.order - 1);
+        let split = cut(ORDER - 1);
       
         for i in 0..split {
           leaf.children.push(temp_pointers[i]);
           leaf.keys.push(temp_keys[i].clone());
         }
         
-        for i in split..self.order {
+        for i in split..ORDER {
           new_leaf.children.push(temp_pointers[i]);
           new_leaf.keys.push(temp_keys[i].clone());
         }
 
         
-        new_leaf.children[self.order - 1] = leaf.children[self.order - 1];
+        new_leaf.children[ORDER - 1] = leaf.children[ORDER - 1];
         
-        for i in leaf.keys.len()..self.order - 1 {
+        for i in leaf.keys.len()..ORDER - 1 {
             leaf.children[i] = NULL;
         }
-        for i in new_leaf.keys.len() .. self.order - 1 {
+        for i in new_leaf.keys.len() .. ORDER - 1 {
             new_leaf.children[i] = NULL;
         }
         
@@ -240,30 +240,30 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTree<K> {
         let new_leaf_pointer = self.nodes.add(new_leaf);
         let leaf = &mut self.nodes[leaf_pointer];
 
-        leaf.children[self.order - 1] = ptr(new_leaf_pointer);
+        leaf.children[ORDER - 1] = ptr(new_leaf_pointer);
       
-        self.insertIntoParent(leaf_pointer, new_key, new_leaf_pointer);
+        self.insertIntoParent(leaf_pointer, &new_key, new_leaf_pointer);
     }
 
 
-    fn insertIntoParent(&mut self, left: usize, key: K, right: usize) -> Pointer {
+    fn insertIntoParent(&mut self, left: usize, key: &K, right: usize) -> Pointer {
         let left_node = &self.nodes[left];
         
-        let parent = left_node.parent;
+        let parent_pointer = left_node.parent;
       
-        if parent == NULL {
+        if parent_pointer == NULL {
             self.insertIntoNewRoot(left, &key, right);
         }
       
-        let left_index = self.getLeftIndex(parent.pointer, left);
+        let left_index = self.getLeftIndex(parent_pointer.pointer, left);
 
-        let parent = &mut self.nodes[parent.pointer];
+        let parent = &mut self.nodes[parent_pointer.pointer];
       
-        if parent.keys.len() < self.order - 1 {
-            return insertIntoNode(root, parent, left_index, key, right);
+        if parent.keys.len() < ORDER - 1 {
+            self.insertIntoNode(parent_pointer.pointer, left_index, key, right);
         }
       
-        return insertIntoNodeAfterSplitting(root, parent, left_index, key, right);
+        insertIntoNodeAfterSplitting(root, parent, left_index, key, right);
     }
 
 
@@ -295,15 +295,72 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTree<K> {
     }
 
     fn insertIntoNode(&mut self, n: usize, left_index: usize, key: &K, right: usize) {
+        
+        let n = &mut self.nodes[n];
+        
+        n.children.insert_before(&ptr(right), left_index + 1);
+        n.keys.insert_before(key, left_index);
+        
+    }
 
-        for (i = n->num_keys; i > left_index; i--) {
-        n->pointers[i + 1] = n->pointers[i];
-        n->keys[i] = n->keys[i - 1];
+    fn insertIntoNodeAfterSplitting(&mut self, old_node_pointer: usize, left_index: usize, key: &K, right: usize) {
+        // int i, j, split, k_prime;
+        // node *new_node, *child;
+        // int *temp_keys;
+        // node **temp_pointers;
+
+        let mut temp_children: FixedList<Pointer, ORDER> = FixedList::new();
+        
+        let mut temp_keys: FixedList<K, ORDER> = FixedList::new();
+
+        let old_node = &mut self.nodes[old_node_pointer];
+        let mut j = 0;
+        for i in 0 .. old_node.keys.len() + 1 {
+            if j == left_index + 1 {
+                j += 1;
+            }
+            temp_children[j] = old_node.children[i].clone();
+
+            j += 1;
         }
-        n->pointers[left_index + 1] = right;
-        n->keys[left_index] = key;
-        n->num_keys++;
-        return root;
+
+        let mut j = 0;
+        for i in 0 .. old_node.keys.len() {
+            if j == left_index {
+                j += 1;
+            }
+            temp_keys[j] = old_node.keys[i].clone();
+            j += 1;
+        }
+
+        temp_children[left_index + 1] = ptr(right);
+        temp_keys[left_index] = key.clone();
+
+        let split = cut(ORDER);
+        let new_node = BPlusTreeNode::blank();
+        
+        for i in 0 .. split - 1 {
+            old_node.children.push(temp_children[i].clone());
+            old_node.keys.push(temp_keys[i].clone());
+        }
+        old_node.children.push(temp_children[split-1].clone());
+        let k_prime = temp_keys[split - 1];
+
+        let mut j = 0;
+        for i in split .. ORDER {
+            new_node.children.push(temp_children[i].clone());
+            new_node.keys.push(temp_keys[i].clone());
+            j += 1;
+        }
+        new_node.children.push(temp_children[ORDER].clone());
+        
+        new_node.parent = old_node.parent;
+        for i in 0 ..= new_node.keys.len() {
+            let mut child = selfnew_node.children[i];
+            child.parent = new_node;
+        }
+
+        return insertIntoParent(root, old_node, k_prime, new_node);
     }
 
 
