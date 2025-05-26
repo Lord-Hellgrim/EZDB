@@ -1594,43 +1594,43 @@ impl<T: Null + Clone> FreeListVec<T> {
         }
     }
 
-    pub fn add(&mut self, t: T) -> usize {
+    pub fn add(&mut self, t: T) -> Pointer {
         match pop_from_hashset(&mut self.free_list) {
-            Some(index) => {self.list[index] = t; return index},
-            None => {self.list.push(t); return self.list.len() - 1},
+            Some(index) => {self.list[index] = t; return ptr(index)},
+            None => {self.list.push(t); return ptr(self.list.len() - 1)},
         }
     }
 
-    pub fn remove(&mut self, index: usize) -> T {
-        if self.free_list.contains(&index) {
+    pub fn remove(&mut self, index: Pointer) -> T {
+        if self.free_list.contains(&index.pointer) {
             panic!()
         } else  {
-            let res = self.list[index].clone();
-            self.list[index] = T::null();
-            self.free_list.insert(index);
+            let res = self.list[index.pointer].clone();
+            self.list[index.pointer] = T::null();
+            self.free_list.insert(index.pointer);
             return res
         }
     }
 }
 
-impl<T: Null + Clone> Index<usize> for FreeListVec<T> {
+impl<T: Null + Clone> Index<Pointer> for FreeListVec<T> {
     type Output = T;
 
-    fn index(&self, index: usize) -> &Self::Output {
-        if self.free_list.contains(&index) {
-            panic!("Tried to access a freed value with index: {}", index)
+    fn index(&self, index: Pointer) -> &Self::Output {
+        if self.free_list.contains(&index.pointer) {
+            panic!("Tried to access a freed value with index: {}", index.pointer)
         }
-        &self.list[index]
+        &self.list[index.pointer]
     }
 }
 
-impl<T: Null + Clone> IndexMut<usize> for FreeListVec<T> {
+impl<T: Null + Clone> IndexMut<Pointer> for FreeListVec<T> {
 
-    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        if self.free_list.contains(&index) {
-            panic!("Tried to access a freed value with index: {}", index)
+    fn index_mut(&mut self, index: Pointer) -> &mut Self::Output {
+        if self.free_list.contains(&index.pointer) {
+            panic!("Tried to access a freed value with index: {}", index.pointer)
         }
-        &mut self.list[index]
+        &mut self.list[index.pointer]
     }
 }
 
@@ -2020,19 +2020,20 @@ impl<T: Null + Clone + Debug + Ord + Eq + Sized, const N: usize> FixedList<T, N>
     pub fn len(&self) -> usize {
         self.len
     }
-}
 
-impl<T: Null + Clone + Debug + Ord + Eq + Sized, const N: usize> Index<usize> for FixedList<T, N> {
-    type Output = T;
-
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.list[index]
+    pub fn find(&self, t: &T) -> usize {
+        match self.list.binary_search(t) {
+            Ok(index) => index,
+            Err(index) => index,
+        }
     }
-}
 
-impl<T: Null + Clone + Debug + Ord + Eq + Sized, const N: usize> IndexMut<usize> for FixedList<T, N> {
-    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        &mut self.list[index]
+    pub fn get(&self, index: usize) -> Option<&T> {
+        self.list.get(index)
+    }
+
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
+        self.list.get_mut(index)
     }
 }
 
@@ -2168,7 +2169,7 @@ mod tests {
         println!("first");
         for i in 0..4 {
             if i % 2 == 0 {
-                let x = list.remove(i);
+                let x = list.remove(ptr(i));
                 println!("x: {:?}", x);
             }
         }
