@@ -60,14 +60,16 @@ impl<T: Null + Clone + Debug + Ord + Eq + Sized> Null for BPlusTreeNode<T> {
 
 
 pub struct BPlusTree<K: Null + Clone + Debug + Ord + Eq + Sized> {
+    name: KeyString,
     root_node: Pointer,
     nodes: FreeListVec<BPlusTreeNode<K>>,
     allocator: Hallocator,
 }
 
 impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTree<K> {
-    pub fn new(value_size: usize) -> BPlusTree<K> {
-        BPlusTree { 
+    pub fn new(value_size: usize, name: KeyString) -> BPlusTree<K> {
+        BPlusTree {
+            name,
             root_node: NULL, 
             nodes: FreeListVec::new(),
             allocator: Hallocator::new(value_size),
@@ -104,7 +106,7 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTree<K> {
         self.insert_into_node(key, value, node_pointer);
     }
 
-    fn insert_into_node(&mut self, key: &K, value: Pointer, node_pointer: Pointer) {
+    fn insert_into_node(&mut self, key: &K, pointer: Pointer, node_pointer: Pointer) {
 
         let node = &mut self.nodes[node_pointer];
 
@@ -112,9 +114,9 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTree<K> {
             panic!()
         }
 
-        let index = node.keys.find(key);
+        let index = node.keys.binary_search(key);
         node.keys.insert_before(key, index);
-        node.children.insert_before(&value, index);
+        node.children.insert_before(&pointer, index);
 
         if node.keys.len() == ORDER - 1 {
             
@@ -134,19 +136,34 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTree<K> {
                     right_node.children.push(p);
                 }
             }
-
             let key = node.keys.get(cut(ORDER)).unwrap().clone();
 
             let parent_pointer = node.parent;
             // drop(node);
             self.nodes.remove(node_pointer);
+            
+            let _left_pointer = self.nodes.add(left_node);
+            let right_pointer = self.nodes.add(right_node);
 
-            self.insert_into_node(&key, value, parent_pointer);
+            self.insert_into_node(&key, right_pointer, parent_pointer);
 
         }
     }
 
-    
+    pub fn delete(&mut self, key: &K) -> Result<(), EzError> {
+        let leaf_pointer = self.find_leaf(key);
+        if leaf_pointer.is_null() {
+            return Err(EzError { tag: ErrorTag::Query, text: format!("Key: '{:?}' does not exist in table: '{}'", key, self.name) } )
+        }
+
+        let leaf = &mut self.nodes[leaf_pointer];
+        let key_index = leaf.keys.find(key).unwrap();
+        
+
+        Ok(())
+    }
+
+
 
     
 

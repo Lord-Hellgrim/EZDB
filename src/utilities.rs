@@ -2006,7 +2006,11 @@ impl<T: Null + Clone + Debug + Ord + Eq + Sized, const N: usize> FixedList<T, N>
         }
 
         true
+    }
 
+    pub fn remove(&mut self, index: usize) -> T {
+        let t = self.list[index.clone()];
+        
     }
 
     pub fn sort(&mut self) {
@@ -2021,11 +2025,21 @@ impl<T: Null + Clone + Debug + Ord + Eq + Sized, const N: usize> FixedList<T, N>
         self.len
     }
 
-    pub fn find(&self, t: &T) -> usize {
+    pub fn binary_search(&self, t: &T) -> usize {
         match self.list.binary_search(t) {
             Ok(index) => index,
             Err(index) => index,
         }
+    }
+
+    pub fn find(&self, t: &T) -> Option<usize> {
+        for i in 0..self.len() {
+            if &self.list[i] == t {
+                return Some(i)
+            }
+        }
+
+        None
     }
 
     pub fn get(&self, index: usize) -> Option<&T> {
@@ -2162,30 +2176,15 @@ mod tests {
             free_list: FnvHashSet::default(),
         };
 
-        for i in 0..5 {
+        for i in 0..2000 {
             list.add(ptr(i));
         }
 
-        println!("first");
-        for i in 0..4 {
-            if i % 2 == 0 {
-                let x = list.remove(ptr(i));
-                println!("x: {:?}", x);
-            }
-        }
+        for i in 0..2000 {
+            let index = list.remove(ptr(i));
+            let new_index = list.add(ptr(999));
 
-        println!("second");
-        for item in list.into_iter() {
-            println!("item: {:?}", item);
-        }
-        
-        for i in 0..3 {
-            list.add(ptr(55));
-        }
-
-        println!("third");
-        for item in list.into_iter() {
-            println!("item: {:?}", item);
+            assert_eq!(index, new_index);
         }
 
 
