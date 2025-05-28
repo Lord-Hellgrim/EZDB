@@ -138,7 +138,13 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTree<K> {
             }
             let key = node.keys.get(cut(ORDER)).unwrap().clone();
 
-            let parent_pointer = node.parent;
+            let mut parent_pointer = node.parent;
+            if parent_pointer == NULL {
+                assert!(self.root_node == node_pointer);
+                let new_root_node: BPlusTreeNode<K> = BPlusTreeNode::blank();
+                parent_pointer = self.nodes.add(new_root_node);
+                left_node.parent = parent_pointer;
+            }
             // drop(node);
             self.nodes.remove(node_pointer);
             

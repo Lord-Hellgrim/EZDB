@@ -1563,6 +1563,12 @@ impl Null for Pointer {
     }
 }
 
+impl Display for Pointer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ptr({})", self.pointer)
+    }
+}
+
 #[inline]
 pub fn ptr(u: usize) -> Pointer {
     Pointer{pointer: u}
@@ -2009,8 +2015,14 @@ impl<T: Null + Clone + Debug + Ord + Eq + Sized, const N: usize> FixedList<T, N>
     }
 
     pub fn remove(&mut self, index: usize) -> T {
-        let t = self.list[index.clone()];
-        
+        let t = self.list[index].clone();
+        for i in index .. self.len()-1 {
+            self.list[i] = self.list[i+1].clone();
+            self.list[i+1] = T::null();
+        }
+        self.len -= 1;
+
+        t
     }
 
     pub fn sort(&mut self) {
@@ -2061,6 +2073,8 @@ impl<T: Null + Clone + Debug + Ord + Eq + Sized, const N: usize> Display for Fix
 
 #[cfg(test)]
 mod tests {
+    use rand::Rng;
+
     use crate::testing_tools::random_ez_error;
 
     use super::*;
@@ -2186,8 +2200,49 @@ mod tests {
 
             assert_eq!(index, new_index);
         }
+    }
 
+    #[test]
+    fn test_fixed_list() {
+        let mut list1: FixedList<Pointer, 100> = FixedList::new();
+        let mut list2: FixedList<Pointer, 100> = FixedList::new();
 
+        let mut removes: Vec<usize> = Vec::new();
+        let mut rng = rand::thread_rng();
+        
+        let upper_bound: usize = rng.gen_range(1..100);
+        println!("upper_bounds: {}", upper_bound);
+        for _ in 0..upper_bound {
+            let num = rng.gen_range(0..100);
+            if removes.contains(&num) {
+                continue
+            } else {
+                removes.push(num);
+            }
+        }
+
+        // removes = vec![6,4,2];
+        println!("removes: {:?}", removes);
+        removes.sort();
+        removes = removes.into_iter().rev().collect();
+
+        for i in 0..100 {
+            let num = rand::random::<usize>();
+            list1.push(ptr(num));
+            if removes.contains(&i) {
+                continue
+            } else {
+                list2.push(ptr(num));
+            }
+        }
+
+        for i in removes {
+            list1.remove(i);
+        }
+
+        println!("list1.len(): {}\nlist2.len(): {}", list1.len(), list2.len());
+
+        assert_eq!(list1, list2);
     }
 
 }
