@@ -1584,6 +1584,24 @@ pub trait Null: PartialEq + Sized {
 }
 
 
+impl Null for i32 {
+    fn null() -> i32 {
+        0
+    }
+}
+
+impl Null for f32 {
+    fn null() -> f32 {
+        0.0
+    }
+}
+
+impl Null for KeyString {
+    fn null() -> KeyString {
+        ksf("")
+    }
+}
+
 
 
 pub struct FreeListVec<T: Null> {
@@ -1998,7 +2016,7 @@ impl<T: Null + Clone + Debug + Ord + Eq + Sized, const N: usize> FixedList<T, N>
         self.len == N
     }
 
-    pub fn insert_before(&mut self, value: &T, index: usize) -> bool {
+    pub fn insert_before(&mut self, index: usize, value: &T) -> bool {
         if self.full() {
             return false
         }
@@ -2038,7 +2056,7 @@ impl<T: Null + Clone + Debug + Ord + Eq + Sized, const N: usize> FixedList<T, N>
     }
 
     pub fn binary_search(&self, t: &T) -> usize {
-        match self.list.binary_search(t) {
+        match self.list[0..self.len].binary_search(t) {
             Ok(index) => index,
             Err(index) => index,
         }
@@ -2065,7 +2083,7 @@ impl<T: Null + Clone + Debug + Ord + Eq + Sized, const N: usize> FixedList<T, N>
 
 impl<T: Null + Clone + Debug + Ord + Eq + Sized, const N: usize> Display for FixedList<T, N> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self.list)
+        write!(f, "{:?}", &self.list[0..self.len])
     }
 }
 

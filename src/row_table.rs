@@ -25,11 +25,18 @@ pub struct BPlusTreeNode<T: Null + Clone + Debug + Ord + Eq + Sized> {
     is_leaf: bool,
 }
 
-impl<T: Null + Clone + Debug + Ord + Eq + Sized> Display for BPlusTreeNode<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "children: {:?}", self.keys)
+impl<T: Null + Clone + Debug + Ord + Eq + Sized> Null for BPlusTreeNode<T> {
+    fn null() -> Self {
+        BPlusTreeNode::blank()
     }
 }
+
+impl<T: Null + Clone + Debug + Ord + Eq + Sized> Display for BPlusTreeNode<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "parent: {}\nis_leaf: {}\nkeys: {}\nchildren: {}", self.parent, self.is_leaf, self.keys, self.children)
+    }
+}
+
 
 impl <T: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeNode<T> {
     pub fn new(key: &T, pointer: Pointer) -> BPlusTreeNode<T> {
@@ -44,6 +51,10 @@ impl <T: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeNode<T> {
         BPlusTreeNode { keys: FixedList::new(), parent: NULL, children: FixedList::new(), is_leaf: false }
     }
 
+    pub fn new_leaf() -> BPlusTreeNode<T> {
+        BPlusTreeNode { keys: FixedList::new(), parent: NULL, children: FixedList::new(), is_leaf: true }
+    }
+
     pub fn clear(&mut self) {
         self.children = FixedList::new();
         self.keys = FixedList::new();
@@ -51,11 +62,6 @@ impl <T: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeNode<T> {
 
 }
 
-impl<T: Null + Clone + Debug + Ord + Eq + Sized> Null for BPlusTreeNode<T> {
-    fn null() -> Self {
-        BPlusTreeNode::blank()
-    }
-}
 
 
 
@@ -68,21 +74,26 @@ pub struct BPlusTree<K: Null + Clone + Debug + Ord + Eq + Sized> {
 
 impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTree<K> {
     pub fn new(value_size: usize, name: KeyString) -> BPlusTree<K> {
+        let mut root: BPlusTreeNode<K> = BPlusTreeNode::blank();
+        root.is_leaf = true;
+        let mut nodes = FreeListVec::new();
+        let root_pointer = nodes.add(root);
         BPlusTree {
             name,
-            root_node: NULL, 
-            nodes: FreeListVec::new(),
+            root_node: root_pointer, 
+            nodes,
             allocator: Hallocator::new(value_size),
         }
     }
 
+    pub fn name(&self) -> KeyString {
+        self.name
+    }
+
     pub fn find_leaf(&self, key: &K) -> Pointer {
-        if self.root_node.is_null() {
-            return NULL
-        }
 
         let mut node = &self.nodes[self.root_node];
-        let mut node_pointer = NULL;
+        let mut node_pointer = self.root_node;
         let mut i: usize;
         while !node.is_leaf {
             i = 0;
@@ -103,25 +114,27 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTree<K> {
 
     pub fn insert(&mut self, key: &K, value: Pointer) {
         let node_pointer = self.find_leaf(key);
+        
         self.insert_into_node(key, value, node_pointer);
     }
 
     fn insert_into_node(&mut self, key: &K, pointer: Pointer, node_pointer: Pointer) {
 
         let node = &mut self.nodes[node_pointer];
+        println!("node: {}\n{}", node_pointer, node);
 
         if node.keys.len() > ORDER {
             panic!()
         }
 
         let index = node.keys.binary_search(key);
-        node.keys.insert_before(key, index);
-        node.children.insert_before(&pointer, index);
+        node.keys.insert_before(index, key);
+        node.children.insert_before(index, &pointer);
 
         if node.keys.len() == ORDER - 1 {
             
-            let mut left_node = BPlusTreeNode::blank();
-            let mut right_node = BPlusTreeNode::blank();
+            let mut left_node = BPlusTreeNode::new_leaf();
+            let mut right_node = BPlusTreeNode::new_leaf();
 
             for i in 0 .. node.keys.len() {
                 let k = node.keys.get(i).unwrap().clone();
@@ -156,18 +169,18 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTree<K> {
         }
     }
 
-    pub fn delete(&mut self, key: &K) -> Result<(), EzError> {
-        let leaf_pointer = self.find_leaf(key);
-        if leaf_pointer.is_null() {
-            return Err(EzError { tag: ErrorTag::Query, text: format!("Key: '{:?}' does not exist in table: '{}'", key, self.name) } )
-        }
+    // pub fn delete(&mut self, key: &K) -> Result<(), EzError> {
+    //     let leaf_pointer = self.find_leaf(key);
+    //     if leaf_pointer.is_null() {
+    //         return Err(EzError { tag: ErrorTag::Query, text: format!("Key: '{:?}' does not exist in table: '{}'", key, self.name) } )
+    //     }
 
-        let leaf = &mut self.nodes[leaf_pointer];
-        let key_index = leaf.keys.find(key).unwrap();
+    //     let leaf = &mut self.nodes[leaf_pointer];
+    //     let key_index = leaf.keys.find(key).unwrap();
         
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
 
 
@@ -489,8 +502,37 @@ mod tests {
 
     #[test]
     fn test_BPlusTree() {
-        let sum = 5;
-        println!("sum: {}", sum);
+        let mut test_tree: BPlusTree<i32> = BPlusTree::new(64, ksf("test"));
+        for i in 0..30 {
+            test_tree.insert(&i, ptr(i as usize));
+        }
+
+        for node in test_tree.nodes.into_iter() {
+            println!("node:\n{}", node);
+        }
+
+        // loop {
+        //     let mut state = 0;
+        //     let mut node = &test_tree.nodes[test_tree.root_node];
+        //     if node.is_leaf && state == 0 {
+        //         println!("node:\n{}", node);
+        //         node = &test_tree.nodes[node.parent];
+        //         state = 1;
+        //     } else if node.is_leaf && state == 1 {
+        //         println!("node:\n{}", node);
+        //         break
+        //     } else if state == 0 {
+        //         println!("node:\n{}", node);
+        //         let child_index = *node.children.get(0).unwrap();
+        //         node = &test_tree.nodes[child_index];
+        //         state = 1;
+        //     } else if state == 1 {
+        //         println!("node:\n{}", node);
+        //         let child_index = *node.children.get(1).unwrap();
+        //         node = &test_tree.nodes[child_index];
+        //     }
+        // }
+
     }
 
 
