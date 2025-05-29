@@ -93,6 +93,12 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTree<K> {
     pub fn find_leaf(&self, key: &K) -> Pointer {
 
         let mut node = &self.nodes[self.root_node];
+        if node.is_leaf {
+            println!("ignore");
+        } else {
+            println!("key: {:?}", key);
+            println!("node: {}", node);
+        }
         let mut node_pointer = self.root_node;
         let mut i: usize;
         while !node.is_leaf {
@@ -108,7 +114,7 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTree<K> {
             node_pointer = *node.children.get(i).unwrap();
             node = &self.nodes[node_pointer];
         }
-
+        println!("returned_pointer: {}\n\n", node_pointer);
         node_pointer
     }
 
@@ -121,7 +127,7 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTree<K> {
     fn insert_into_node(&mut self, key: &K, pointer: Pointer, node_pointer: Pointer) {
 
         let node = &mut self.nodes[node_pointer];
-        println!("node: {}\n{}", node_pointer, node);
+        // println!("node: {}\n{}", node_pointer, node);
 
         if node.keys.len() > ORDER {
             panic!()
@@ -155,16 +161,29 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTree<K> {
             if parent_pointer == NULL {
                 assert!(self.root_node == node_pointer);
                 let new_root_node: BPlusTreeNode<K> = BPlusTreeNode::blank();
+                
                 parent_pointer = self.nodes.add(new_root_node);
                 left_node.parent = parent_pointer;
+                right_node.parent = parent_pointer;
+                self.nodes.remove(node_pointer);
+                
+                let left_pointer = self.nodes.add(left_node);
+                let right_pointer = self.nodes.add(right_node);
+                
+                let new_root_node = &mut self.nodes[parent_pointer];
+                new_root_node.children.push(left_pointer);
+                self.insert_into_node(&key, right_pointer, parent_pointer);
+            } else {
+                left_node.parent = parent_pointer;
+                right_node.parent = parent_pointer;
+                self.nodes.remove(node_pointer);
+                
+                let _left_pointer = self.nodes.add(left_node);
+                let right_pointer = self.nodes.add(right_node);
+    
+                self.insert_into_node(&key, right_pointer, parent_pointer);
             }
             // drop(node);
-            self.nodes.remove(node_pointer);
-            
-            let _left_pointer = self.nodes.add(left_node);
-            let right_pointer = self.nodes.add(right_node);
-
-            self.insert_into_node(&key, right_pointer, parent_pointer);
 
         }
     }
@@ -189,6 +208,7 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTree<K> {
 }
 
 
+#[inline]
 pub fn cut(length: usize) -> usize {
     if length % 2 == 0 {
         return length / 2;
@@ -503,7 +523,7 @@ mod tests {
     #[test]
     fn test_BPlusTree() {
         let mut test_tree: BPlusTree<i32> = BPlusTree::new(64, ksf("test"));
-        for i in 0..30 {
+        for i in 0..25 {
             test_tree.insert(&i, ptr(i as usize));
         }
 
@@ -511,9 +531,9 @@ mod tests {
             println!("node:\n{}", node);
         }
 
+        // let mut node = &test_tree.nodes[test_tree.root_node];
         // loop {
         //     let mut state = 0;
-        //     let mut node = &test_tree.nodes[test_tree.root_node];
         //     if node.is_leaf && state == 0 {
         //         println!("node:\n{}", node);
         //         node = &test_tree.nodes[node.parent];
