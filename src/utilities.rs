@@ -1602,6 +1602,12 @@ impl Null for KeyString {
     }
 }
 
+impl Null for usize {
+    fn null() -> usize {
+        0
+    }
+}
+
 
 
 pub struct FreeListVec<T: Null> {
@@ -2016,7 +2022,7 @@ impl<T: Null + Clone + Debug + Ord + Eq + Sized, const N: usize> FixedList<T, N>
         self.len == N
     }
 
-    pub fn insert_before(&mut self, index: usize, value: &T) -> bool {
+    pub fn insert_at(&mut self, index: usize, value: &T) -> bool {
         if self.full() {
             return false
         }
@@ -2055,11 +2061,15 @@ impl<T: Null + Clone + Debug + Ord + Eq + Sized, const N: usize> FixedList<T, N>
         self.len
     }
 
-    pub fn binary_search(&self, t: &T) -> usize {
-        match self.list[0..self.len].binary_search(t) {
-            Ok(index) => index,
-            Err(index) => index,
+    pub fn search(&self, t: &T) -> usize {
+        let mut i = 0;
+        while i < self.len() {
+            if &self.list[i] > t  {
+                break
+            }
+            i += 1;
         }
+        return i
     }
 
     pub fn find(&self, t: &T) -> Option<usize> {
@@ -2081,9 +2091,15 @@ impl<T: Null + Clone + Debug + Ord + Eq + Sized, const N: usize> FixedList<T, N>
     }
 }
 
-impl<T: Null + Clone + Debug + Ord + Eq + Sized, const N: usize> Display for FixedList<T, N> {
+impl<T: Null + Clone + Debug + Display + Ord + Eq + Sized, const N: usize> Display for FixedList<T, N> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", &self.list[0..self.len])
+        let mut printer = String::from("[");
+        for item in &self.list[0..self.len()] {
+            printer.push_str(&format!("{}, ", item));
+        }
+        printer.push(']');
+
+        write!(f, "{}",printer)
     }
 }
 
