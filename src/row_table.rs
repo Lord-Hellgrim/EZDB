@@ -13,9 +13,6 @@ pub const CHUNK_SIZE: usize = 4096;
 
 pub const ORDER: usize = 20;
 
-const NULL: Pointer = Pointer{pointer: usize::MAX};
-
-
 
 #[derive(Clone, PartialEq)]
 pub struct BPlusTreeNode<T: Null + Clone + Debug + Ord + Eq + Sized> {
@@ -48,11 +45,11 @@ impl <T: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeNode<T> {
     }
 
     pub fn blank() -> BPlusTreeNode<T> {
-        BPlusTreeNode { keys: FixedList::new(), parent: NULL, children: FixedList::new(), is_leaf: false }
+        BPlusTreeNode { keys: FixedList::new(), parent: NULLPTR, children: FixedList::new(), is_leaf: false }
     }
 
     pub fn new_leaf() -> BPlusTreeNode<T> {
-        BPlusTreeNode { keys: FixedList::new(), parent: NULL, children: FixedList::new(), is_leaf: true }
+        BPlusTreeNode { keys: FixedList::new(), parent: NULLPTR, children: FixedList::new(), is_leaf: true }
     }
 
     pub fn clear(&mut self) {
@@ -69,11 +66,10 @@ pub struct BPlusTree<K: Null + Clone + Debug + Ord + Eq + Sized> {
     name: KeyString,
     root_node: Pointer,
     nodes: FreeListVec<BPlusTreeNode<K>>,
-    allocator: Hallocator,
 }
 
 impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTree<K> {
-    pub fn new(value_size: usize, name: KeyString) -> BPlusTree<K> {
+    pub fn new(name: KeyString) -> BPlusTree<K> {
         let mut root: BPlusTreeNode<K> = BPlusTreeNode::blank();
         root.is_leaf = true;
         let mut nodes = FreeListVec::new();
@@ -82,7 +78,6 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTree<K> {
             name,
             root_node: root_pointer, 
             nodes,
-            allocator: Hallocator::new(value_size),
         }
     }
 
@@ -152,7 +147,7 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTree<K> {
             let key = node.keys.get(cut(ORDER)).unwrap().clone();
 
             let mut parent_pointer = node.parent;
-            if parent_pointer == NULL {
+            if parent_pointer == NULLPTR {
                 assert!(self.root_node == target_node_pointer);
                 let new_root_node: BPlusTreeNode<K> = BPlusTreeNode::blank();
                 
@@ -174,29 +169,25 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTree<K> {
                 right_node.parent = parent_pointer;
                 self.nodes.remove(target_node_pointer);
                 
-                let lower_key = left_node.keys.get(0).unwrap().clone();
-                let upper_key = left_node.keys.get(left_node.keys.len()-1).unwrap().clone();
-
-                let left_pointer = self.nodes.add(left_node);
+                let _left_pointer = self.nodes.add(left_node);
                 let right_pointer = self.nodes.add(right_node);
                 
                 // self.update_keys(parent_pointer, left_pointer, &lower_key, &upper_key);
                 self.insert_into_node(&key, right_pointer, parent_pointer);
             }
             // drop(node);
-
         }
     }
 
-    fn update_keys(&mut self, target_node: Pointer, child_pointer: Pointer, lower_key: &K, upper_key: &K ) {
-        let node = &mut self.nodes[target_node];
-        let lower_key_index = node.keys.search(lower_key);
-        let upper_key_index = node.keys.search(upper_key);
-        let current_pointer_index = node.children.find(&target_node).unwrap();
-
-        if lower_key_index == upper_key_index {
-            return
+    pub fn get(&self, key: &K) -> Pointer {
+        let node = self.find_leaf(key);
+        if node.is_null() {
+            return NULLPTR
         }
+        let node = &self.nodes[node];
+        let index = node.keys.find(key).unwrap();
+        let value = node.children.get(index).unwrap().clone();
+        return value
 
     }
 
@@ -534,7 +525,7 @@ mod tests {
 
     #[test]
     fn test_BPlusTree() {
-        let mut test_tree: BPlusTree<usize> = BPlusTree::new(64, ksf("test"));
+        let mut test_tree: BPlusTree<usize> = BPlusTree::new(ksf("test"));
         for i in 0..25usize {
             test_tree.insert(&i, ptr(i*10 as usize));
         }
@@ -543,11 +534,8 @@ mod tests {
             println!("node:\n{}", node);
         }
 
-        // let mut v: FixedList<Pointer, 20> = FixedList::new();
-        // v.push(ptr(0));
-        // let i = v.search(&ptr(10));
-        // println!("i: {}", i);
-
+        // let test_value = test_tree.get(&10);
+        // println!("test_value: {}", test_value);
 
     }
 

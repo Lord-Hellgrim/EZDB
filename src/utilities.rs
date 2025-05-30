@@ -30,6 +30,7 @@ use crate::server_networking::Database;
 pub const INSTRUCTION_BUFFER: usize = 1024;
 pub const DATA_BUFFER: usize = 1_048;//_576; // 1 mb
 pub const MAX_DATA_LEN: usize = u32::MAX as usize;
+pub const NULLPTR: Pointer = Pointer{pointer: usize::MAX};
 
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord)]
 pub enum ErrorTag {
@@ -1559,7 +1560,7 @@ pub struct Pointer {
 
 impl Null for Pointer {
     fn null() -> Self {
-        Self { pointer: usize::MAX }
+        NULLPTR
     }
 }
 
