@@ -11,7 +11,7 @@ use crate::{db_structure::{DbValue, HeaderItem}, utilities::*};
 pub const ZEROES: [u8;4096] = [0u8;4096];
 pub const CHUNK_SIZE: usize = 4096;
 
-pub const ORDER: usize = 10;
+pub const ORDER: usize = 20;
 
 const NULL: Pointer = Pointer{pointer: usize::MAX};
 
@@ -129,7 +129,7 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTree<K> {
 
         let index = node.keys.search(key);
         node.keys.insert_at(index, key);
-        node.children.insert_at(index, &value_pointer);
+        node.children.insert_at(index+1, &value_pointer);
 
         if node.keys.len() == ORDER - 1 {
             
@@ -174,14 +174,30 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTree<K> {
                 right_node.parent = parent_pointer;
                 self.nodes.remove(target_node_pointer);
                 
-                let _left_pointer = self.nodes.add(left_node);
+                let lower_key = left_node.keys.get(0).unwrap().clone();
+                let upper_key = left_node.keys.get(left_node.keys.len()-1).unwrap().clone();
+
+                let left_pointer = self.nodes.add(left_node);
                 let right_pointer = self.nodes.add(right_node);
-    
+                
+                // self.update_keys(parent_pointer, left_pointer, &lower_key, &upper_key);
                 self.insert_into_node(&key, right_pointer, parent_pointer);
             }
             // drop(node);
 
         }
+    }
+
+    fn update_keys(&mut self, target_node: Pointer, child_pointer: Pointer, lower_key: &K, upper_key: &K ) {
+        let node = &mut self.nodes[target_node];
+        let lower_key_index = node.keys.search(lower_key);
+        let upper_key_index = node.keys.search(upper_key);
+        let current_pointer_index = node.children.find(&target_node).unwrap();
+
+        if lower_key_index == upper_key_index {
+            return
+        }
+
     }
 
     // pub fn delete(&mut self, key: &K) -> Result<(), EzError> {
