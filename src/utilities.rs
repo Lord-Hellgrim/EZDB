@@ -1614,7 +1614,6 @@ impl Null for usize {
 }
 
 
-
 pub struct FreeListVec<T: Null> {
     list: Vec<T>,
     free_list: FnvHashSet<usize>,
@@ -1847,6 +1846,9 @@ impl Hallocator {
     }
     
 }
+
+
+
 
 
 pub fn extend_zeroes(vec: &mut Vec<u8>, n: usize) {

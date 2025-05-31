@@ -200,18 +200,17 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeMap<K> {
 
     }
 
-    // pub fn delete(&mut self, key: &K) -> Result<(), EzError> {
-    //     let leaf_pointer = self.find_leaf(key);
-    //     if leaf_pointer.is_null() {
-    //         return Err(EzError { tag: ErrorTag::Query, text: format!("Key: '{:?}' does not exist in table: '{}'", key, self.name) } )
-    //     }
+    pub fn remove(&mut self, key: &K) -> Result<(), EzError> {
+        let leaf_pointer = self.find_leaf(key);
+        if leaf_pointer.is_null() {
+            return Err(EzError { tag: ErrorTag::Query, text: format!("Key: '{:?}' does not exist in table: '{}'", key, self.name) } )
+        }
 
-    //     let leaf = &mut self.nodes[leaf_pointer];
-    //     let key_index = leaf.keys.find(key).unwrap();
-        
+        let leaf = &mut self.nodes[leaf_pointer];
+        let key_index = leaf.keys.find(key).unwrap();
 
-    //     Ok(())
-    // }
+        Ok(())
+    }
 
 
 
