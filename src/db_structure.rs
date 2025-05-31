@@ -87,7 +87,7 @@ impl Metadata {
 }
 
 
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Ord, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Ord, Eq, Hash)]
 pub enum DbKey {
     Int(i32),
     Text(KeyString),
@@ -101,6 +101,7 @@ impl Display for DbKey {
         }
     }
 }
+
 
 impl From<i32> for DbKey {
     fn from(value: i32) -> Self {

@@ -11,7 +11,7 @@ use crate::{db_structure::{DbValue, HeaderItem}, utilities::*};
 pub const ZEROES: [u8;4096] = [0u8;4096];
 pub const CHUNK_SIZE: usize = 4096;
 
-pub const ORDER: usize = 20;
+pub const ORDER: usize = 10;
 
 
 #[derive(Clone, PartialEq)]
@@ -62,19 +62,19 @@ impl <T: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeNode<T> {
 
 
 
-pub struct BPlusTree<K: Null + Clone + Debug + Ord + Eq + Sized> {
+pub struct BPlusTreeMap<K: Null + Clone + Debug + Ord + Eq + Sized> {
     name: KeyString,
     root_node: Pointer,
     nodes: FreeListVec<BPlusTreeNode<K>>,
 }
 
-impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTree<K> {
-    pub fn new(name: KeyString) -> BPlusTree<K> {
+impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeMap<K> {
+    pub fn new(name: KeyString) -> BPlusTreeMap<K> {
         let mut root: BPlusTreeNode<K> = BPlusTreeNode::blank();
         root.is_leaf = true;
         let mut nodes = FreeListVec::new();
         let root_pointer = nodes.add(root);
-        BPlusTree {
+        BPlusTreeMap {
             name,
             root_node: root_pointer, 
             nodes,
@@ -123,8 +123,19 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTree<K> {
         }
 
         let index = node.keys.search(key);
-        node.keys.insert_at(index, key);
-        node.children.insert_at(index+1, &value_pointer);
+        node.keys.insert_at(index, key).unwrap();
+        if node.is_leaf {
+            node.children.insert_at(index, &value_pointer).unwrap();
+            
+        } else {
+            if index == node.children.len()-1 {
+                node.children.push(value_pointer);
+            } else if index < node.children.len() -1 {
+                node.children.insert_at(index+1, &value_pointer).unwrap();
+            } else {
+                panic!("Received an index of {} for a BPlusTree of order {}.", index, ORDER)
+            }
+        }
 
         if node.keys.len() == ORDER - 1 {
             
@@ -137,8 +148,6 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTree<K> {
                 if i < cut(ORDER) {
                     left_node.keys.push(k);
                     left_node.children.push(p);
-                } else if i == cut(ORDER) {
-                    continue
                 } else {
                     right_node.keys.push(k);
                     right_node.children.push(p);
@@ -225,7 +234,9 @@ pub struct RowTable {
     pub name: KeyString,
     pub header: BTreeSet<HeaderItem>,
     pub primary_tree: BTreeMap<DbKey, usize>,
-    pub hash_indexes: HashMap<KeyString, BTreeMap<DbKey, usize>>,
+    pub hash_indexes: HashMap<KeyString, HashMap<DbKey, usize>>,
+    pub int_indexes: HashMap<KeyString, BPlusTreeMap<i32>>,
+    pub text_indexes: HashMap<KeyString, BPlusTreeMap<KeyString>>,
     pub row_size: usize,
     pub allocator: Hallocator,
 }
@@ -245,6 +256,8 @@ impl RowTable {
             header,
             primary_tree: BTreeMap::new(),
             hash_indexes: HashMap::new(),
+            int_indexes: HashMap::new(),
+            text_indexes: HashMap::new(),
             row_size, 
             allocator: Hallocator::new(row_size) 
         }
@@ -320,7 +333,7 @@ impl RowTable {
         Ok(())
     }
 
-    pub fn add_index(&mut self, index: KeyString) -> Result<(), EzError> {
+    pub fn add_hash_index(&mut self, index: KeyString) -> Result<(), EzError> {
 
         let mut index_is_in_header = false;
         let mut index_offset = 0;
@@ -344,7 +357,7 @@ impl RowTable {
             return Err(EzError { tag: ErrorTag::Query, text: format!("There is no column: {} in table: {}", index, self.name) })
         }
 
-        let mut new_index_tree: BTreeMap<DbKey, usize> = BTreeMap::new();
+        let mut new_index_tree: HashMap<DbKey, usize> = HashMap::new();
         for (_primary_key, pointer) in &self.primary_tree {
             match index_type {
                 DbType::Int => {
@@ -362,6 +375,53 @@ impl RowTable {
         }
 
         self.hash_indexes.insert(index, new_index_tree);
+
+        Ok(())
+    }
+
+    pub fn add_bplustree_index(&mut self, index: KeyString) -> Result<(), EzError> {
+
+        let mut index_is_in_header = false;
+        let mut index_offset = 0;
+        let mut index_type: DbType = DbType::Int;
+        for item in &self.header {
+
+            if index == item.name {
+                index_is_in_header = true;
+                index_type = item.kind;
+                match index_type {
+                    DbType::Int => (),
+                    DbType::Text => (),
+                    DbType::Float => return Err(EzError { tag: ErrorTag::Query, text: format!("Cannot have indexes on floats") }),
+                };
+                break
+            }
+            index_offset += item.offset();
+        }
+        
+        if !index_is_in_header {
+            return Err(EzError { tag: ErrorTag::Query, text: format!("There is no column: {} in table: {}", index, self.name) })
+        }
+
+        for (_primary_key, pointer) in &self.primary_tree {
+            match index_type {
+                DbType::Int => {
+                    let mut new_index_tree: BPlusTreeMap<i32> = BPlusTreeMap::new(index);
+                    let row = self.allocator.get_block(ptr(*pointer));
+                    let num = i32_from_le_slice(&row[index_offset..index_offset+4]);
+                    new_index_tree.insert(&num, ptr(*pointer));
+                    self.int_indexes.insert(index, new_index_tree);
+                },
+                DbType::Text => {
+                    let mut new_index_tree: BPlusTreeMap<KeyString> = BPlusTreeMap::new(index);
+                    let row = self.allocator.get_block(ptr(*pointer));
+                    let ks = KeyString::try_from(&row[index_offset..index_offset+64]).unwrap();
+                    new_index_tree.insert(&ks, ptr(*pointer));
+                    self.text_indexes.insert(index, new_index_tree);
+                },
+                DbType::Float => unreachable!(),
+            };
+        }
 
         Ok(())
     }
@@ -525,7 +585,7 @@ mod tests {
 
     #[test]
     fn test_BPlusTree() {
-        let mut test_tree: BPlusTree<usize> = BPlusTree::new(ksf("test"));
+        let mut test_tree: BPlusTreeMap<usize> = BPlusTreeMap::new(ksf("test"));
         for i in 0..25usize {
             test_tree.insert(&i, ptr(i*10 as usize));
         }
@@ -534,8 +594,8 @@ mod tests {
             println!("node:\n{}", node);
         }
 
-        // let test_value = test_tree.get(&10);
-        // println!("test_value: {}", test_value);
+        let test_value = test_tree.get(&10);
+        println!("test_value: {}", test_value);
 
     }
 

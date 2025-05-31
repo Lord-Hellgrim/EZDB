@@ -1566,7 +1566,11 @@ impl Null for Pointer {
 
 impl Display for Pointer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "ptr({})", self.pointer)
+        if self.is_null() {
+            write!(f, "NULL")
+        } else {
+            write!(f, "ptr({})", self.pointer)
+        }
     }
 }
 
@@ -2023,9 +2027,9 @@ impl<T: Null + Clone + Debug + Ord + Eq + Sized, const N: usize> FixedList<T, N>
         self.len == N
     }
 
-    pub fn insert_at(&mut self, index: usize, value: &T) -> bool {
-        if self.full() {
-            return false
+    pub fn insert_at(&mut self, index: usize, value: &T) -> Result<(), EzError> {
+        if self.full() || index > self.len {
+            return Err(EzError { tag: ErrorTag::Query, text: format!("Tried to insert {:?} past the bounds of a FixedList", value) })
         }
 
         let temp = self.list[index..].to_vec();
@@ -2036,7 +2040,7 @@ impl<T: Null + Clone + Debug + Ord + Eq + Sized, const N: usize> FixedList<T, N>
             self.list[index+1+i] = temp[i].clone();
         }
 
-        true
+        Ok(())
     }
 
     pub fn remove(&mut self, index: usize) -> T {
