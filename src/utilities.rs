@@ -2037,12 +2037,12 @@ mod tests {
         let mut list2: FixedList<Pointer, 100> = FixedList::new();
 
         let mut removes: Vec<usize> = Vec::new();
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         
-        let upper_bound: usize = rng.gen_range(1..100);
+        let upper_bound: usize = rng.random_range(1..100);
         println!("upper_bounds: {}", upper_bound);
         for _ in 0..upper_bound {
-            let num = rng.gen_range(0..100);
+            let num = rng.random_range(0..100);
             if removes.contains(&num) {
                 continue
             } else {
@@ -2056,12 +2056,12 @@ mod tests {
         removes = removes.into_iter().rev().collect();
 
         for i in 0..100 {
-            let num = rand::random::<usize>();
-            list1.push(ptr(num));
+            let num = rand::random::<u64>();
+            list1.push(ptr(num as usize));
             if removes.contains(&i) {
                 continue
             } else {
-                list2.push(ptr(num));
+                list2.push(ptr(num as usize));
             }
         }
 

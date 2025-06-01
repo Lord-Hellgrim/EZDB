@@ -2408,11 +2408,11 @@ mod tests {
             if i > 50 {
                 break;
             }
-            let random_number: i32 = rand::thread_rng().gen();
-            let random_float: f32 = rand::thread_rng().gen();
+            let random_number: i32 = rand::random();
+            let random_float: f32 = rand::random();
             let mut random_string = String::new();
             for _ in 0..8 {
-                random_string.push(rand::thread_rng().gen_range(97..122) as u8 as char);
+                random_string.push(rand::random_range(97..122) as u8 as char);
             }
             printer.push_str(&format!(
                 "a{i};{random_string};{random_number};{random_float}\n"

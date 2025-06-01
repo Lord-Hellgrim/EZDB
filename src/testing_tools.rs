@@ -1,31 +1,31 @@
 use std::{collections::{BTreeMap, BTreeSet}, sync::atomic::AtomicU64};
 
-use rand::{distributions::Standard, prelude::Distribution, Rng};
+use rand::{distr::StandardUniform, prelude::Distribution, Rng};
 
 use crate::{db_structure::{ColumnTable, DbColumn, DbType, DbValue, HeaderItem, Metadata, TableKey}, ezql::{AltTest, Condition, KvQuery, OpOrCond, Operator, Query, RangeOrListOrAll, StatOp, Statistic, Test, TestOp, Update, UpdateOp}, utilities::{get_current_time, ksf, ErrorTag, EzError, KeyString}};
 
 
-fn random_vec<T>(max_length: usize) -> Vec<T>  where Standard: Distribution<T> {
+fn random_vec<T>(max_length: usize) -> Vec<T>  where StandardUniform: Distribution<T> {
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
-    let len = rng.gen_range(1..max_length);
+    let len = rng.random_range(1..max_length);
     let mut output = Vec::new();
     for _ in 0..len {
-        output.push(rng.gen());
+        output.push(rng.random());
     }
 
     output
 }
 
 fn random_string(max_len: usize) -> String {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     let mut output = String::new();
 
-    let len = rng.gen_range(1..max_len);
+    let len = rng.random_range(1..max_len);
     for _ in 0..len {
-        let c: u8 = rng.gen_range(65..122);
+        let c: u8 = rng.random_range(65..122);
         output.push(c as char);
     }
 
@@ -39,11 +39,11 @@ fn random_keystring() -> KeyString {
 
 #[allow(unused)]
 fn random_metadata() -> Metadata {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     let created_by = random_keystring();
     let last_access = AtomicU64::from(get_current_time());
-    let times_accessed = AtomicU64::from(rng.gen_range(0..200_000));
+    let times_accessed = AtomicU64::from(rng.random_range(0..200_000));
     Metadata {
         last_access,
         times_accessed,
@@ -54,15 +54,15 @@ fn random_metadata() -> Metadata {
 
 
 pub fn random_column_table(max_cols: usize, max_rows: usize) -> ColumnTable {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
-    let num_columns = rng.gen_range(3..max_cols);
-    let num_rows = rng.gen_range(1..max_rows);
+    let num_columns = rng.random_range(3..max_cols);
+    let num_rows = rng.random_range(1..max_rows);
 
     let mut header = BTreeSet::new();
     for _ in 0..num_columns {
         let name = random_keystring();
-        let kind: u8 = rng.gen_range(0..3);
+        let kind: u8 = rng.random_range(0..3);
         let kind = match kind {
             0 => DbType::Int,
             1 => DbType::Text,
@@ -73,7 +73,7 @@ pub fn random_column_table(max_cols: usize, max_rows: usize) -> ColumnTable {
         header.insert(HeaderItem{name, kind, key});
     }
     let name = random_keystring();
-    let kind: u8 = rng.gen_range(0..2);
+    let kind: u8 = rng.random_range(0..2);
     let kind = match kind {
         0 => DbType::Int,
         1 => DbType::Text,
@@ -91,14 +91,14 @@ pub fn random_column_table(max_cols: usize, max_rows: usize) -> ColumnTable {
             DbType::Int => {
                 let mut col: Vec<i32> = Vec::new();
                 for _ in 0..num_rows {
-                    col.push(rng.gen());
+                    col.push(rng.random());
                 }
                 cols.insert(name, DbColumn::Ints(col));
             },
             DbType::Float => {
                 let mut col: Vec<f32> = Vec::new();
                 for _ in 0..num_rows {
-                    col.push(rng.gen());
+                    col.push(rng.random());
                 }
                 cols.insert(name, DbColumn::Floats(col));
             },
@@ -122,14 +122,14 @@ pub fn random_column_table(max_cols: usize, max_rows: usize) -> ColumnTable {
 
 
 fn random_range_or_list_or_all() -> RangeOrListOrAll {
-    let mut rng = rand::thread_rng();
-    let n = rng.gen_range(0..3);
+    let mut rng = rand::rng();
+    let n = rng.random_range(0..3);
     match n {
         0 => RangeOrListOrAll::All,
         1 => RangeOrListOrAll::Range(random_keystring(), random_keystring()),
         2 => {
             let mut list = Vec::new();
-            for _ in 0..rng.gen_range(1..1000) {
+            for _ in 0..rng.random_range(1..1000) {
                 list.push(random_keystring());
             }
             RangeOrListOrAll::List(list)
@@ -139,11 +139,11 @@ fn random_range_or_list_or_all() -> RangeOrListOrAll {
 }
 
 fn random_db_value() -> DbValue {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
-    match rng.gen_range(0..3) {
-        0 => DbValue::Int(rng.gen()),
-        1 => DbValue::Float(rng.gen()),
+    match rng.random_range(0..3) {
+        0 => DbValue::Int(rng.random()),
+        1 => DbValue::Float(rng.random()),
         2 => DbValue::Text(random_keystring()),
         _ => unreachable!("Range is limited"),
     }
@@ -152,9 +152,9 @@ fn random_db_value() -> DbValue {
 #[allow(unused)]
 fn random_test() -> Test {
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
-    match rng.gen_range(0..5) {
+    match rng.random_range(0..5) {
         0 => Test::Contains(random_db_value()),
         1 => Test::Equals(random_db_value()),
         2 => Test::NotEquals(random_db_value()),
@@ -170,9 +170,9 @@ fn random_test() -> Test {
 #[allow(unused)]
 fn random_alt_test() -> AltTest {
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
-    match rng.gen_range(0..5) {
+    match rng.random_range(0..5) {
         0 => AltTest{op: TestOp::Contains, value: random_db_value()},
         1 => AltTest{op: TestOp::Equals, value: random_db_value()},
         2 => AltTest{op: TestOp::NotEquals, value: random_db_value()},
@@ -187,9 +187,9 @@ fn random_alt_test() -> AltTest {
 
 fn random_test_op() -> TestOp {
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
-    match rng.gen_range(0..7) {
+    match rng.random_range(0..7) {
         0 => TestOp::Contains,
         1 => TestOp::Equals,
         2 => TestOp::NotEquals,
@@ -203,15 +203,15 @@ fn random_test_op() -> TestOp {
 }
 
 fn random_conditions() -> Vec<OpOrCond> {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     let mut output = Vec::new();
 
-    for i in 0..rng.gen_range(0..10)*2 + 1 {
+    for i in 0..rng.random_range(0..10)*2 + 1 {
         if i % 2 == 0 {
             output.push(OpOrCond::Cond(Condition{ attribute: random_keystring(), op: random_test_op(), value: random_db_value() }));
         } else {
-            match rng.gen::<bool>() {
+            match rng.random::<bool>() {
                 true => output.push(OpOrCond::Op(Operator::AND)),
                 false => output.push(OpOrCond::Op(Operator::OR)),
             };
@@ -224,11 +224,11 @@ fn random_conditions() -> Vec<OpOrCond> {
 fn random_updates(max_length: usize) -> Vec<Update> {
     
     let mut updates = Vec::new();
-    for _ in 0..rand::thread_rng().gen_range(0..max_length) {
+    for _ in 0..rand::rng().random_range(0..max_length) {
 
         let attribute = random_keystring();
         let value = random_db_value();
-        let operator = match rand::thread_rng().gen_range(0..6) {
+        let operator = match rand::rng().random_range(0..6) {
             0 => UpdateOp::Append,
             1 => UpdateOp::Assign,
             2 => UpdateOp::MinusEquals,
@@ -248,14 +248,14 @@ fn random_updates(max_length: usize) -> Vec<Update> {
 fn random_statistics(max_length: usize, max_actions: usize) -> Vec<Statistic> {
     
     let mut updates = Vec::new();
-    for _ in 0..rand::thread_rng().gen_range(0..max_length) {
+    for _ in 0..rand::rng().random_range(0..max_length) {
 
         let column = random_keystring();
 
         let mut actions = BTreeSet::new();
-        for _ in 0..rand::thread_rng().gen_range(1..max_actions) {
+        for _ in 0..rand::rng().random_range(1..max_actions) {
 
-            let stat = match rand::thread_rng().gen_range(0..5) {
+            let stat = match rand::rng().random_range(0..5) {
                 0 => StatOp::SUM,
                 1 => StatOp::MEAN,
                 2 => StatOp::MEDIAN,
@@ -289,11 +289,11 @@ fn random_statistics(max_length: usize, max_actions: usize) -> Vec<Statistic> {
 
 pub fn random_query() -> Query {
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let table_name = random_keystring();
     let right_table_name = random_keystring();
     let mut columns = Vec::new();
-    for _ in 0..rng.gen_range(1..30) {
+    for _ in 0..rng.random_range(1..30) {
         columns.push(random_keystring());
     }
     let primary_keys = random_range_or_list_or_all();
@@ -302,7 +302,7 @@ pub fn random_query() -> Query {
     let updates = random_updates(1000);
     let alt_summaries = random_statistics(10, 3);
 
-    let query_type = rng.gen_range(0..8);
+    let query_type = rng.random_range(0..8);
     match query_type {
         0 => {
             Query::SELECT{ table_name, primary_keys, columns, conditions }
@@ -334,9 +334,9 @@ pub fn random_query() -> Query {
 }
 
 pub fn random_kv_query() -> KvQuery {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
-    let query_type = rng.gen_range(0..4);
+    let query_type = rng.random_range(0..4);
     match query_type {
         0 => KvQuery::Create(random_keystring(), random_vec(100)),
         1 => KvQuery::Read(random_keystring()),
@@ -364,8 +364,8 @@ pub fn create_fixed_table(n: usize) -> ColumnTable {
 }
 
 pub fn random_ez_error() -> EzError {
-    let mut rng = rand::thread_rng();
-    let tag = match rng.gen_range(0..19) {
+    let mut rng = rand::rng();
+    let tag = match rng.random_range(0..19) {
         0 => ErrorTag::Utf8,
         1 => ErrorTag::Io,
         2 => ErrorTag::Instruction,

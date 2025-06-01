@@ -1981,7 +1981,7 @@ pub fn keys_to_indexes(table: &ColumnTable, keys: &RangeOrListOrAll) -> Result<H
     let mut indexes = HashSet::new();
 
     match keys {
-        RangeOrListOrAll::Range(ref start, ref stop) => {
+        RangeOrListOrAll::Range(start, stop) => {
             match &table.columns[&table.get_primary_key_col_index()] {
                 DbColumn::Ints(column) => {
                     let first = match column.binary_search(&start.to_i32()) {
@@ -2008,7 +2008,7 @@ pub fn keys_to_indexes(table: &ColumnTable, keys: &RangeOrListOrAll) -> Result<H
                 DbColumn::Floats(_n) => unreachable!("There should never be a float primary key"),
             }
         },
-        RangeOrListOrAll::List(ref keys) => {
+        RangeOrListOrAll::List(keys) => {
             match &table.columns[&table.get_primary_key_col_index()] {
                 DbColumn::Ints(column) => {
                     if keys.len() > column.len() {

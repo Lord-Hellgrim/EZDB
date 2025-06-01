@@ -57,6 +57,13 @@ impl <T: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeNode<T> {
         self.keys = FixedList::new();
     }
 
+    pub fn get_left_sibling(&self) -> Pointer {
+
+        
+
+        NULLPTR
+    }
+
 }
 
 
