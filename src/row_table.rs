@@ -137,7 +137,7 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeMap<K> {
             }
         }
 
-        if node.keys.len() == ORDER - 1 {
+        if node.keys.len() == ORDER {
             
             let mut left_node = BPlusTreeNode::new_leaf();
             let mut right_node = BPlusTreeNode::new_leaf();
@@ -231,35 +231,49 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeMap<K> {
     }
 
     pub fn remove(&mut self, key: &K) -> Result<(), EzError> {
-        let leaf_pointer = self.find_leaf(key);
-        if leaf_pointer.is_null() {
+        let current_node_pointer = self.find_leaf(key);
+        if current_node_pointer.is_null() {
             return Err(EzError { tag: ErrorTag::Query, text: format!("Key: '{:?}' does not exist in table: '{}'", key, self.name) } )
         }
 
-        let leaf = &mut self.nodes[leaf_pointer];
-        let key_index = leaf.keys.find(key).unwrap();
-        leaf.keys.remove(key_index);
-        leaf.children.remove(key_index);
-        let num_keys = leaf.keys.len();
-
-        let leaf = &self.nodes[leaf_pointer];
-
-        if num_keys < cut(ORDER) {
-            let right_sibling_pointer = self.get_right_sibling_pointer(leaf);
-            let right_sibling = &mut self.nodes[right_sibling_pointer];
-            if right_sibling.keys.len() == ORDER/2 {
+        let current_node = &mut self.nodes[current_node_pointer];
+        let key_index = current_node.keys.find(key).unwrap();
+        current_node.keys.remove(key_index);
+        current_node.children.remove(key_index);
+        
+        // let mut num_keys = current_node.keys.len();
+        // while num_keys < cut(ORDER) {
+        //     let current_node = &self.nodes[current_node_pointer];
+        //     let right_sibling_pointer = self.get_right_sibling_pointer(current_node);
+        //     let right_sibling = &mut self.nodes[right_sibling_pointer];
+        //     let mut temp_keys = FixedList::new();
+        //     let mut temp_children = FixedList::new();
+        //     if right_sibling.keys.len() == ORDER/2 {
+        //         temp_keys.drain(&mut right_sibling.keys);
+        //         temp_children.drain(&mut right_sibling.children);
                 
-            } else {
+        //         let right_parent_pointer = right_sibling.parent;
+        //         let current_node = &mut self.nodes[current_node_pointer];
+        //         current_node.keys.drain(&mut temp_keys);
+        //         current_node.children.drain(&mut temp_children);
+                
+        //         self.nodes.remove(right_sibling_pointer);
+        //         let right_parent = &mut self.nodes[right_parent_pointer];
+        //         let right_index = right_parent.children.find(&right_sibling_pointer).unwrap();
 
-            }
-        }
+        //         right_parent.keys.remove(right_index);
+        //         right_parent.children.remove(right_index);
+        //         num_keys = right_parent.keys.len();
+        //         current_node_pointer = right_sibling_pointer;
+
+        //     } else {
+
+        //     }
+        // }
 
         Ok(())
     }
 
-
-
-    
 
 }
 
