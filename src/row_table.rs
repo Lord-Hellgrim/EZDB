@@ -57,13 +57,6 @@ impl <T: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeNode<T> {
         self.keys = FixedList::new();
     }
 
-    pub fn get_left_sibling(&self) -> Pointer {
-
-        
-
-        NULLPTR
-    }
-
 }
 
 
@@ -207,6 +200,36 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeMap<K> {
 
     }
 
+    fn get_left_sibling_pointer(&self, leaf_node: &BPlusTreeNode<K>) -> Pointer {
+        let parent_node = &self.nodes[leaf_node.parent];
+        let leaf_key = leaf_node.keys.get(0).unwrap();
+        let mut sibling = NULLPTR;
+        for i in 0..parent_node.keys.len() {
+            if parent_node.keys.get(i).unwrap() <= leaf_key {
+                sibling = parent_node.children.get(i).unwrap().clone();
+            }
+        }
+
+        sibling
+    }
+
+    fn get_right_sibling_pointer(&self, leaf_node: &BPlusTreeNode<K>) -> Pointer {
+        let parent_node = &self.nodes[leaf_node.parent];
+        let leaf_key = leaf_node.keys.get(0).unwrap();
+        let mut sibling = NULLPTR;
+        for i in 0..parent_node.keys.len() {
+            if parent_node.keys.get(i).unwrap() <= leaf_key {
+                if i+2 >= parent_node.keys.len() {
+                    continue
+                } else {
+                    sibling = parent_node.children.get(i+2).unwrap().clone();
+                }
+            }
+        }
+
+        sibling
+    }
+
     pub fn remove(&mut self, key: &K) -> Result<(), EzError> {
         let leaf_pointer = self.find_leaf(key);
         if leaf_pointer.is_null() {
@@ -215,6 +238,21 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeMap<K> {
 
         let leaf = &mut self.nodes[leaf_pointer];
         let key_index = leaf.keys.find(key).unwrap();
+        leaf.keys.remove(key_index);
+        leaf.children.remove(key_index);
+        let num_keys = leaf.keys.len();
+
+        let leaf = &self.nodes[leaf_pointer];
+
+        if num_keys < cut(ORDER) {
+            let right_sibling_pointer = self.get_right_sibling_pointer(leaf);
+            let right_sibling = &mut self.nodes[right_sibling_pointer];
+            if right_sibling.keys.len() == ORDER/2 {
+                
+            } else {
+
+            }
+        }
 
         Ok(())
     }
@@ -603,6 +641,13 @@ mod tests {
         let test_value = test_tree.get(&10);
         println!("test_value: {}", test_value);
 
+        let test_leaf = test_tree.find_leaf(&10);
+        println!("test_leaf: {}", test_leaf);
+        let test_leaf = &test_tree.nodes[test_leaf];
+        let left_sibling = test_tree.get_left_sibling_pointer(test_leaf);
+        println!("sibling: {}", left_sibling);
+        let right_sibling = test_tree.get_right_sibling_pointer(test_leaf);
+        println!("sibling: {}", right_sibling);
     }
 
 

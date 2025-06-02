@@ -2217,7 +2217,7 @@ mod tests {
     #[test]
     fn test_queries_from_binary() {
         for _ in 0..100 {
-            let i = rand::thread_rng().gen_range(1..10);
+            let i = rand::rng().random_range(1..10);
             if i == 1 {
                 let query = random_query();
                 let bin_query = query.to_binary();
