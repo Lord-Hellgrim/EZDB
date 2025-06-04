@@ -1836,6 +1836,7 @@ impl<T: Null + Clone + Debug + Ord + Eq + Sized, const N: usize> FixedList<T, N>
         Ok(())
     }
 
+    ///Removes item at index and shifts subsequent items down
     pub fn remove(&mut self, index: usize) -> T {
         let t = self.list[index].clone();
         for i in index .. self.len()-1 {
@@ -1894,6 +1895,10 @@ impl<T: Null + Clone + Debug + Ord + Eq + Sized, const N: usize> FixedList<T, N>
 
     pub fn get_last_mut(&mut self) -> Option<&mut T> {
         self.list.get_mut(self.len-1)
+    }
+
+    pub fn set(&mut self, index: usize, value: T) {
+        self.list[index] = value;
     }
 
     pub fn drain(&mut self, other: &mut FixedList<T, N>) {

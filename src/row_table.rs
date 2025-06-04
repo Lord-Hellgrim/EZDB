@@ -275,7 +275,19 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeMap<K> {
                     current_node_pointer = current_parent_pointer;
     
                 } else {
-    
+                    let temp_key = left_sibling.keys.pop().unwrap();
+                    let temp_child = left_sibling.children.pop().unwrap();
+                    
+                    let current_node = &mut self.nodes[current_node_pointer];
+                    current_node.keys.push(temp_key);
+                    current_node.children.push(temp_child);
+                    let min_current_key = current_node.keys.get(0).unwrap().clone();
+
+                    let current_parent = &mut self.nodes[current_parent_pointer];
+                    let current_index = current_parent.children.find(&current_node_pointer).unwrap();
+                    current_parent.keys.set(current_index, min_current_key);
+
+                    break
                 }
             } else {
                 let right_sibling = &mut self.nodes[right_sibling_pointer];
@@ -300,7 +312,22 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeMap<K> {
                     current_node_pointer = right_parent_pointer;
     
                 } else {
-                    
+                    let temp_key = right_sibling.keys.remove(0);
+                    let temp_child = right_sibling.children.remove(0);
+                    let min_right_key = right_sibling.keys.get(0).unwrap().clone();
+
+                    let right_parent_pointer = right_sibling.parent;
+                    let current_node = &mut self.nodes[current_node_pointer];
+                    current_node.keys.push(temp_key);
+                    current_node.children.push(temp_child);
+
+                    let right_parent = &mut self.nodes[right_parent_pointer];
+                    let right_index = right_parent.children.find(&right_sibling_pointer).unwrap();
+                    right_parent.keys.set(right_index, min_right_key);
+
+                    break
+
+
                 }
             }
         }
