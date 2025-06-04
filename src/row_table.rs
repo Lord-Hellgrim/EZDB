@@ -36,26 +36,58 @@ impl<T: Null + Clone + Debug + Display + Ord + Eq + Sized> Display for BPlusTree
 }
 
 
-impl <T: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeNode<T> {
-    pub fn new(key: &T, pointer: Pointer) -> BPlusTreeNode<T> {
-        let mut keys: FixedList<T, ORDER> = FixedList::new();
+impl <K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeNode<K> {
+    pub fn new(key: &K, pointer: Pointer) -> BPlusTreeNode<K> {
+        let mut keys: FixedList<K, ORDER> = FixedList::new();
         keys.push(key.clone());
         let mut children = FixedList::new();
         children.push(pointer);
         BPlusTreeNode { keys, children, parent: ptr(usize::MAX), is_leaf: true, next: NULLPTR }
     }
 
-    pub fn blank() -> BPlusTreeNode<T> {
+    pub fn blank() -> BPlusTreeNode<K> {
         BPlusTreeNode { keys: FixedList::new(), parent: NULLPTR, children: FixedList::new(), is_leaf: false, next: NULLPTR }
     }
 
-    pub fn new_leaf() -> BPlusTreeNode<T> {
+    pub fn new_leaf() -> BPlusTreeNode<K> {
         BPlusTreeNode { keys: FixedList::new(), parent: NULLPTR, children: FixedList::new(), is_leaf: true, next: NULLPTR }
     }
 
     pub fn clear(&mut self) {
         self.children = FixedList::new();
         self.keys = FixedList::new();
+    }
+
+    pub fn get_child(&self, key: &K) -> Pointer {
+        let mut node_pointer = NULLPTR;
+        for i in 0..self.keys.len() {
+            let node_key = self.keys.get(i).unwrap();
+            if key >= node_key {
+                node_pointer = *self.children.get(i).unwrap();
+            }
+        }
+        if node_pointer.is_null() {
+            node_pointer = self.next;
+        }
+
+        node_pointer
+            
+    }
+
+    pub fn get_left_child(&self, key: &K) -> Pointer {
+        let mut node_pointer = NULLPTR;
+        for i in 1..self.keys.len() {
+            let node_key = self.keys.get(i).unwrap();
+            if key >= node_key {
+                node_pointer = *self.children.get(i-1).unwrap();
+            }
+        }
+        if node_pointer.is_null() {
+            node_pointer = self.next;
+        }
+
+        node_pointer
+            
     }
 
 }
@@ -207,7 +239,6 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeMap<K> {
 
         let mut parent_node = &self.nodes[leaf_node.parent];
         let leaf_key = leaf_node.keys.get(0).unwrap();
-        let mut sibling = NULLPTR;
 
         let mut path_key = parent_node.keys.get(0).unwrap();
         while path_key >= leaf_key {
@@ -218,15 +249,15 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeMap<K> {
             path_key = parent_node.keys.get(0).unwrap();
         }
 
-        let path_node_pointer = *parent_node.children.get(parent_node.keys.find(path_key).unwrap()).unwrap();
+        let mut path_node_pointer = *parent_node.children.get(parent_node.keys.find(path_key).unwrap()).unwrap();
         let mut path_node = &self.nodes[path_node_pointer];
 
         while !path_node.is_leaf {
-            
+            path_node_pointer = path_node.get_child(leaf_key);
+            path_node = &self.nodes[path_node_pointer];
         }
 
-
-        sibling
+        path_node_pointer
     }
 
     fn get_right_sibling_pointer(&self, leaf_node: &BPlusTreeNode<K>) -> Pointer {
