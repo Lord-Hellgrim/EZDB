@@ -16,9 +16,10 @@ pub const ORDER: usize = 10;
 
 #[derive(Clone, PartialEq)]
 pub struct BPlusTreeNode<T: Null + Clone + Debug + Ord + Eq + Sized> {
-    keys: FixedList<T, 20>,
+    keys: FixedList<T, ORDER>,
     parent: Pointer,
-    children: FixedList<Pointer, 21>,
+    children: FixedList<Pointer, ORDER>,
+    next: Pointer,
     is_leaf: bool,
 }
 
@@ -37,19 +38,19 @@ impl<T: Null + Clone + Debug + Display + Ord + Eq + Sized> Display for BPlusTree
 
 impl <T: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeNode<T> {
     pub fn new(key: &T, pointer: Pointer) -> BPlusTreeNode<T> {
-        let mut keys: FixedList<T, 20> = FixedList::new();
+        let mut keys: FixedList<T, ORDER> = FixedList::new();
         keys.push(key.clone());
         let mut children = FixedList::new();
         children.push(pointer);
-        BPlusTreeNode { keys, children, parent: ptr(usize::MAX), is_leaf: true }
+        BPlusTreeNode { keys, children, parent: ptr(usize::MAX), is_leaf: true, next: NULLPTR }
     }
 
     pub fn blank() -> BPlusTreeNode<T> {
-        BPlusTreeNode { keys: FixedList::new(), parent: NULLPTR, children: FixedList::new(), is_leaf: false }
+        BPlusTreeNode { keys: FixedList::new(), parent: NULLPTR, children: FixedList::new(), is_leaf: false, next: NULLPTR }
     }
 
     pub fn new_leaf() -> BPlusTreeNode<T> {
-        BPlusTreeNode { keys: FixedList::new(), parent: NULLPTR, children: FixedList::new(), is_leaf: true }
+        BPlusTreeNode { keys: FixedList::new(), parent: NULLPTR, children: FixedList::new(), is_leaf: true, next: NULLPTR }
     }
 
     pub fn clear(&mut self) {
@@ -90,18 +91,16 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeMap<K> {
         let mut node = &self.nodes[self.root_node];
         
         let mut node_pointer = self.root_node;
-        let mut i: usize;
         while !node.is_leaf {
-            i = 0;
-            while i < node.keys.len() {
-                if key >= node.keys.get(i).unwrap() {
-                    i += 1;
-                }
-                else {
-                    break;
+            for i in 0..node.keys.len() {
+                let node_key = node.keys.get(i).unwrap();
+                if key >= node_key {
+                    node_pointer = *node.children.get(i).unwrap();
                 }
             }
-            node_pointer = *node.children.get(i).unwrap();
+            if node_pointer.is_null() {
+                node_pointer = node.next;
+            }
             node = &self.nodes[node_pointer];
         }
         node_pointer
@@ -141,7 +140,7 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeMap<K> {
             
             let mut left_node = BPlusTreeNode::new_leaf();
             let mut right_node = BPlusTreeNode::new_leaf();
-
+            let old_sibling = node.next;
             for i in 0 .. node.keys.len() {
                 let k = node.keys.get(i).unwrap().clone();
                 let p = node.children.get(i).unwrap().clone();
@@ -166,8 +165,10 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeMap<K> {
                 right_node.parent = parent_pointer;
                 self.nodes.remove(target_node_pointer);
                 
-                let left_pointer = self.nodes.add(left_node);
+                right_node.next = old_sibling;
                 let right_pointer = self.nodes.add(right_node);
+                left_node.next = right_pointer;
+                let left_pointer = self.nodes.add(left_node);
                 
                 let new_root_node = &mut self.nodes[parent_pointer];
                 new_root_node.keys.push(key);
@@ -177,9 +178,11 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeMap<K> {
                 left_node.parent = parent_pointer;
                 right_node.parent = parent_pointer;
                 self.nodes.remove(target_node_pointer);
-                
-                let _left_pointer = self.nodes.add(left_node);
+
+                right_node.next = old_sibling;
                 let right_pointer = self.nodes.add(right_node);
+                left_node.next = right_pointer;
+                let _left_pointer = self.nodes.add(left_node);
                 
                 // self.update_keys(parent_pointer, left_pointer, &lower_key, &upper_key);
                 self.insert_into_node(&key, right_pointer, parent_pointer);
@@ -201,33 +204,34 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeMap<K> {
     }
 
     fn get_left_sibling_pointer(&self, leaf_node: &BPlusTreeNode<K>) -> Pointer {
-        let parent_node = &self.nodes[leaf_node.parent];
+
+        let mut parent_node = &self.nodes[leaf_node.parent];
         let leaf_key = leaf_node.keys.get(0).unwrap();
         let mut sibling = NULLPTR;
-        for i in 0..parent_node.keys.len() {
-            if parent_node.keys.get(i).unwrap() <= leaf_key {
-                sibling = parent_node.children.get(i).unwrap().clone();
+
+        let mut path_key = parent_node.keys.get(0).unwrap();
+        while path_key >= leaf_key {
+            if parent_node.parent.is_null() {
+                return NULLPTR
             }
+            parent_node = &self.nodes[parent_node.parent];
+            path_key = parent_node.keys.get(0).unwrap();
         }
+
+        let path_node_pointer = *parent_node.children.get(parent_node.keys.find(path_key).unwrap()).unwrap();
+        let mut path_node = &self.nodes[path_node_pointer];
+
+        while !path_node.is_leaf {
+            
+        }
+
 
         sibling
     }
 
     fn get_right_sibling_pointer(&self, leaf_node: &BPlusTreeNode<K>) -> Pointer {
-        let parent_node = &self.nodes[leaf_node.parent];
-        let leaf_key = leaf_node.keys.get(0).unwrap();
-        let mut sibling = NULLPTR;
-        for i in 0..parent_node.keys.len() {
-            if parent_node.keys.get(i).unwrap() <= leaf_key {
-                if i+2 >= parent_node.keys.len() {
-                    continue
-                } else {
-                    sibling = parent_node.children.get(i+2).unwrap().clone();
-                }
-            }
-        }
 
-        sibling
+        leaf_node.next
     }
 
     pub fn remove(&mut self, key: &K) -> Result<(), EzError> {
