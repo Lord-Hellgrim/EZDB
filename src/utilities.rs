@@ -1895,6 +1895,8 @@ impl<T: Null + Clone + Debug + Ord + Eq + Sized, const N: usize> FixedList<T, N>
 
     pub fn set_last_slot(&mut self, t: &T) {
         self.list[N-1] = t.clone();
+    }
+    
     pub fn get_last(&self) -> Option<&T> {
         self.list.get(self.len-1)
     }
