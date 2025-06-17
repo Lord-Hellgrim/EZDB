@@ -943,42 +943,45 @@ pub fn sum_f32_slice(slice: &[f32]) -> f32 {
 
 pub unsafe fn raw_sum_f32_slice(slice: &[f32]) -> f32 {
 
-    let mut suma = x86_64::_mm_setzero_ps();
-    let mut sumb = x86_64::_mm_setzero_ps();
-    let mut sumc = x86_64::_mm_setzero_ps();
-    let mut sumd = x86_64::_mm_setzero_ps();
-    let mut i = 0;
-    while i + 15 < slice.len() {
-        suma = x86_64::_mm_add_ps(suma, x86_64::_mm_load_ps(slice[i..i+4].as_ptr()));
-        sumb = x86_64::_mm_add_ps(sumb, x86_64::_mm_load_ps(slice[i+4..i+8].as_ptr()));
-        sumc = x86_64::_mm_add_ps(sumc, x86_64::_mm_load_ps(slice[i+8..i+12].as_ptr()));
-        sumd = x86_64::_mm_add_ps(sumd, x86_64::_mm_load_ps(slice[i+12..i+16].as_ptr()));
-        i += 16;
+    unsafe {
+
+        let mut suma = x86_64::_mm_setzero_ps();
+        let mut sumb = x86_64::_mm_setzero_ps();
+        let mut sumc = x86_64::_mm_setzero_ps();
+        let mut sumd = x86_64::_mm_setzero_ps();
+        let mut i = 0;
+        while i + 15 < slice.len() {
+            suma = x86_64::_mm_add_ps(suma, x86_64::_mm_load_ps(slice[i..i+4].as_ptr()));
+            sumb = x86_64::_mm_add_ps(sumb, x86_64::_mm_load_ps(slice[i+4..i+8].as_ptr()));
+            sumc = x86_64::_mm_add_ps(sumc, x86_64::_mm_load_ps(slice[i+8..i+12].as_ptr()));
+            sumd = x86_64::_mm_add_ps(sumd, x86_64::_mm_load_ps(slice[i+12..i+16].as_ptr()));
+            i += 16;
+        }
+
+        let mut pa = [0f32;4];
+        let mut pb = [0f32;4];
+        let mut pc = [0f32;4];
+        let mut pd = [0f32;4];
+
+        x86_64::_mm_store_ps(pa.as_mut_ptr(), suma);
+        x86_64::_mm_store_ps(pb.as_mut_ptr(), sumb);
+        x86_64::_mm_store_ps(pc.as_mut_ptr(), sumc);
+        x86_64::_mm_store_ps(pd.as_mut_ptr(), sumd);
+
+        let suma = pa.iter().fold(0.0, |acc: f32, x| acc + *x);
+        let sumb = pb.iter().fold(0.0, |acc: f32, x| acc + *x);
+        let sumc = pc.iter().fold(0.0, |acc: f32, x| acc + *x);
+        let sumd = pd.iter().fold(0.0, |acc: f32, x| acc + *x);
+
+
+        let mut sum = suma + sumb + sumc + sumd;
+        while i < slice.len() {
+            sum = sum + slice[i];
+            i += 1;
+        }
+
+        sum
     }
-
-    let mut pa = [0f32;4];
-    let mut pb = [0f32;4];
-    let mut pc = [0f32;4];
-    let mut pd = [0f32;4];
-
-    x86_64::_mm_store_ps(pa.as_mut_ptr(), suma);
-    x86_64::_mm_store_ps(pb.as_mut_ptr(), sumb);
-    x86_64::_mm_store_ps(pc.as_mut_ptr(), sumc);
-    x86_64::_mm_store_ps(pd.as_mut_ptr(), sumd);
-
-    let suma = pa.iter().fold(0.0, |acc: f32, x| acc + *x);
-    let sumb = pb.iter().fold(0.0, |acc: f32, x| acc + *x);
-    let sumc = pc.iter().fold(0.0, |acc: f32, x| acc + *x);
-    let sumd = pd.iter().fold(0.0, |acc: f32, x| acc + *x);
-
-
-    let mut sum = suma + sumb + sumc + sumd;
-    while i < slice.len() {
-        sum = sum + slice[i];
-        i += 1;
-    }
-
-    sum
 }
 
 #[inline]
@@ -1833,6 +1836,7 @@ impl<T: Null + Clone + Debug + Ord + Eq + Sized, const N: usize> FixedList<T, N>
         Ok(())
     }
 
+    ///Removes item at index and shifts subsequent items down
     pub fn remove(&mut self, index: usize) -> T {
         let t = self.list[index].clone();
         for i in index .. self.len()-1 {
@@ -1891,6 +1895,33 @@ impl<T: Null + Clone + Debug + Ord + Eq + Sized, const N: usize> FixedList<T, N>
 
     pub fn set_last_slot(&mut self, t: &T) {
         self.list[N-1] = t.clone();
+    pub fn get_last(&self) -> Option<&T> {
+        self.list.get(self.len-1)
+    }
+
+    pub fn get_last_mut(&mut self) -> Option<&mut T> {
+        self.list.get_mut(self.len-1)
+    }
+
+    pub fn set(&mut self, index: usize, value: T) {
+        self.list[index] = value;
+    }
+
+    pub fn drain(&mut self, other: &mut FixedList<T, N>) {
+
+        let mut head = 0;
+        
+        while head < other.len && head < N - self.len {
+            self.push(other.list[head].clone());
+            head += 1;
+        }
+
+        other.len -= head;
+
+        for i in 0..other.len {
+            other.list[i] = other.list[i + head].clone();
+        }
+
     }
 }
 
@@ -2080,6 +2111,25 @@ mod tests {
         println!("list1.len(): {}\nlist2.len(): {}", list1.len(), list2.len());
 
         assert_eq!(list1, list2);
+    }
+
+    #[test]
+    fn test_fixed_list_drain() {
+        let mut list1: FixedList<i32, 10> = FixedList::new();
+        let mut list2: FixedList<i32, 10> = FixedList::new();
+
+        for i in 0..3 {
+            list1.push(i);
+            list2.push(i);
+        }
+
+        println!("list1: {}", list1);
+        println!("list2: {}", list2);
+
+        list1.drain(&mut list2);
+
+        println!("list1: {}", list1);
+        println!("list2: {}", list2);
     }
 
 }
