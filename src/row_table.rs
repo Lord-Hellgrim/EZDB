@@ -57,6 +57,14 @@ impl <T: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeNode<T> {
         self.keys = FixedList::new();
     }
 
+    fn get_right_sibling_pointer(&self) -> Pointer {
+        self.children.get_end_slot()
+    }
+
+    fn set_right_sibling_pointer(&mut self, pointer: Pointer) {
+        self.children.set_end_slot(pointer);
+    }
+
 }
 
 
@@ -209,29 +217,12 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeMap<K> {
                 sibling = parent_node.children.get(i).unwrap().clone();
             }
         }
-
         sibling
     }
 
-    fn get_right_sibling_pointer(&self, leaf_node: &BPlusTreeNode<K>) -> Pointer {
-        let parent_node = &self.nodes[leaf_node.parent];
-        let leaf_key = leaf_node.keys.get(0).unwrap();
-        let mut sibling = NULLPTR;
-        for i in 0..parent_node.keys.len() {
-            if parent_node.keys.get(i).unwrap() <= leaf_key {
-                if i+2 >= parent_node.keys.len() {
-                    continue
-                } else {
-                    sibling = parent_node.children.get(i+2).unwrap().clone();
-                }
-            }
-        }
 
-        sibling
-    }
-
-    pub fn remove(&mut self, key: &K) -> Result<(), EzError> {
-        let current_node_pointer = self.find_leaf(key);
+    pub fn delete_key(&mut self, key: &K) -> Result<(), EzError> {
+        let mut current_node_pointer = self.find_leaf(key);
         if current_node_pointer.is_null() {
             return Err(EzError { tag: ErrorTag::Query, text: format!("Key: '{:?}' does not exist in table: '{}'", key, self.name) } )
         }
@@ -241,35 +232,43 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeMap<K> {
         current_node.keys.remove(key_index);
         current_node.children.remove(key_index);
         
-        // let mut num_keys = current_node.keys.len();
-        // while num_keys < cut(ORDER) {
-        //     let current_node = &self.nodes[current_node_pointer];
-        //     let right_sibling_pointer = self.get_right_sibling_pointer(current_node);
-        //     let right_sibling = &mut self.nodes[right_sibling_pointer];
-        //     let mut temp_keys = FixedList::new();
-        //     let mut temp_children = FixedList::new();
-        //     if right_sibling.keys.len() == ORDER/2 {
-        //         temp_keys.drain(&mut right_sibling.keys);
-        //         temp_children.drain(&mut right_sibling.children);
+        let mut num_keys = current_node.keys.len();
+        while num_keys < cut(ORDER) {
+            let current_node = &self.nodes[current_node_pointer];
+            let right_sibling_pointer = current_node.get_right_sibling_pointer();
+            if right_sibling_pointer.is_null() {
+
+            }
+            let right_sibling = &mut self.nodes[right_sibling_pointer];
+            let mut temp_keys = FixedList::new();
+            let mut temp_children = FixedList::new();
+            if right_sibling.keys.len() == cut(ORDER) {
+                temp_keys.drain(&mut right_sibling.keys);
+                temp_children.drain(&mut right_sibling.children);
                 
-        //         let right_parent_pointer = right_sibling.parent;
-        //         let current_node = &mut self.nodes[current_node_pointer];
-        //         current_node.keys.drain(&mut temp_keys);
-        //         current_node.children.drain(&mut temp_children);
+                let right_parent_pointer = right_sibling.parent;
+                let right_sibling_right_sibling = right_sibling.get_right_sibling_pointer();
+                let current_node = &mut self.nodes[current_node_pointer];
+                current_node.keys.drain(&mut temp_keys);
+                current_node.children.drain(&mut temp_children);
                 
-        //         self.nodes.remove(right_sibling_pointer);
-        //         let right_parent = &mut self.nodes[right_parent_pointer];
-        //         let right_index = right_parent.children.find(&right_sibling_pointer).unwrap();
+                current_node.set_right_sibling_pointer(right_sibling_right_sibling);
 
-        //         right_parent.keys.remove(right_index);
-        //         right_parent.children.remove(right_index);
-        //         num_keys = right_parent.keys.len();
-        //         current_node_pointer = right_sibling_pointer;
+                self.nodes.remove(right_sibling_pointer);
+                let right_parent = &mut self.nodes[right_parent_pointer];
+                let right_index = right_parent.children.find(&right_sibling_pointer).unwrap();
 
-        //     } else {
+                right_parent.keys.remove(right_index-1);
+                right_parent.children.remove(right_index);
+                num_keys = right_parent.keys.len();
+                current_node_pointer = right_parent_pointer;
 
-        //     }
-        // }
+            } else {
+
+                
+
+            }
+        }
 
         Ok(())
     }
