@@ -238,10 +238,13 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeMap<K> {
             let right_sibling_pointer = current_node.get_right_sibling_pointer();
             if right_sibling_pointer.is_null() {
 
+                /*WHAT IF WE HAVE THE RIGHTMOST NODE */
+
             }
             let right_sibling = &mut self.nodes[right_sibling_pointer];
             let mut temp_keys = FixedList::new();
             let mut temp_children = FixedList::new();
+            
             if right_sibling.keys.len() == cut(ORDER) {
                 temp_keys.drain(&mut right_sibling.keys);
                 temp_children.drain(&mut right_sibling.children);
@@ -265,7 +268,18 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeMap<K> {
 
             } else {
 
+                let temp_key = right_sibling.keys.remove(0);
+                let temp_child = right_sibling.children.remove(0);
+
+                let current_node = &mut self.nodes[current_node_pointer];
+                current_node.keys.push(temp_key);
+                current_node.children.push(temp_child);
+
+                let parent_node_pointer = current_node.parent;
+                let right_sibling_parent_pointer = right_sibling.parent;
+
                 
+
 
             }
         }
