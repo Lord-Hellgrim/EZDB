@@ -1897,6 +1897,14 @@ impl<T: Null + Clone + Debug + Ord + Eq + Sized, const N: usize> FixedList<T, N>
         self.list.get_mut(self.len-1)
     }
 
+    pub fn get_end_slot(&self) -> T {
+        self.list[N-1].clone()
+    }
+
+    pub fn set_end_slot(&mut self, value: T) {
+        self.list[N-1] = value;
+    }
+
     pub fn set(&mut self, index: usize, value: T) {
         self.list[index] = value;
     }

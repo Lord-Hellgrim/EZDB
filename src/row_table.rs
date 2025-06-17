@@ -73,8 +73,19 @@ impl <K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeNode<K> {
             node_pointer = *self.children.get(i).unwrap();
         }
 
-        node_pointer
-            
+        node_pointer  
+    }
+
+    pub fn get_right_sibling_pointer(&self) -> Pointer {
+        self.children.get_end_slot()
+    }
+
+    pub fn set_right_sibling_pointer(&mut self, pointer: Pointer) {
+        self.children.set_end_slot(pointer);
+    }
+
+    pub fn get_left_sibling_pointer(&self) -> Pointer {
+        self.children.get_end_slot()
     }
 
 }
