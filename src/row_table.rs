@@ -12,13 +12,14 @@ pub const ZEROES: [u8;4096] = [0u8;4096];
 pub const CHUNK_SIZE: usize = 4096;
 
 pub const ORDER: usize = 10;
+pub const ORDER_PLUS_ONE: usize = ORDER + 1;
 
 
 #[derive(Clone, PartialEq)]
 pub struct BPlusTreeNode<T: Null + Clone + Debug + Ord + Eq + Sized> {
-    keys: FixedList<T, 20>,
+    keys: FixedList<T, ORDER>,
     parent: Pointer,
-    children: FixedList<Pointer, 21>,
+    children: FixedList<Pointer, ORDER_PLUS_ONE>,
     is_leaf: bool,
 }
 
@@ -37,7 +38,7 @@ impl<T: Null + Clone + Debug + Display + Ord + Eq + Sized> Display for BPlusTree
 
 impl <T: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeNode<T> {
     pub fn new(key: &T, pointer: Pointer) -> BPlusTreeNode<T> {
-        let mut keys: FixedList<T, 20> = FixedList::new();
+        let mut keys: FixedList<T, ORDER> = FixedList::new();
         keys.push(key.clone());
         let mut children = FixedList::new();
         children.push(pointer);

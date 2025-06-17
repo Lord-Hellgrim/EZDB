@@ -1884,6 +1884,14 @@ impl<T: Null + Clone + Debug + Ord + Eq + Sized, const N: usize> FixedList<T, N>
     pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
         self.list.get_mut(index)
     }
+
+    pub fn get_last_slot(&self) -> T {
+        self.list[N-1].clone()
+    }
+
+    pub fn set_last_slot(&mut self, t: &T) {
+        self.list[N-1] = t.clone();
+    }
 }
 
 impl<T: Null + Clone + Debug + Display + Ord + Eq + Sized, const N: usize> Display for FixedList<T, N> {
