@@ -235,12 +235,16 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeMap<K> {
         let mut num_keys = current_node.keys.len();
         while num_keys < cut(ORDER) {
             let current_node = &self.nodes[current_node_pointer];
-            let right_sibling_pointer = current_node.get_right_sibling_pointer();
+            let mut right_sibling_pointer = current_node.get_right_sibling_pointer();
             if right_sibling_pointer.is_null() {
-
                 /*WHAT IF WE HAVE THE RIGHTMOST NODE */
 
+                let left_sibling_pointer = self.get_left_sibling_pointer(current_node);
+                right_sibling_pointer = current_node_pointer;
+                current_node_pointer = left_sibling_pointer;
+
             }
+
             let right_sibling = &mut self.nodes[right_sibling_pointer];
             let mut temp_keys = FixedList::new();
             let mut temp_children = FixedList::new();
@@ -268,18 +272,29 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeMap<K> {
 
             } else {
 
+                let mut left_split: SplitFreeList<BPlusTreeNode<K>>;
+                let mut right_split: SplitFreeList<BPlusTreeNode<K>>;
+                if current_node_pointer > right_sibling_pointer {
+                    (left_split, right_split) = self.nodes.split_at_mut(current_node_pointer.pointer);
+                } else {
+                    (left_split, right_split) = self.nodes.split_at_mut(right_sibling_pointer.pointer);
+                }
+
+                let current_node = &mut left_split[current_node_pointer];
+                let right_sibling = &mut right_split[right_sibling_pointer];
+
                 let temp_key = right_sibling.keys.remove(0);
                 let temp_child = right_sibling.children.remove(0);
-
-                let current_node = &mut self.nodes[current_node_pointer];
+                let new_key = right_sibling.keys.get(0).unwrap().clone();
+                
                 current_node.keys.push(temp_key);
                 current_node.children.push(temp_child);
 
-                let parent_node_pointer = current_node.parent;
-                let right_sibling_parent_pointer = right_sibling.parent;
+                let parent_node_pointer = right_sibling.parent;
 
-                
-
+                let parent_node = &mut self.nodes[parent_node_pointer];
+                let key_index = parent_node.children.find(&right_sibling_pointer).unwrap() - 1;
+                *parent_node.keys.get_mut(key_index).unwrap() = new_key;
 
             }
         }

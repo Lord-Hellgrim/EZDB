@@ -1436,6 +1436,47 @@ impl<T: Null + Clone> FreeListVec<T> {
             return res
         }
     }
+
+    pub fn split_at_mut(&mut self, index: usize) -> (SplitFreeList<T>, SplitFreeList<T>) {
+        let (left_slice, right_slice) = self.list.split_at_mut(index);
+        let left_list = SplitFreeList {
+            slice: left_slice,
+            free_list: &self.free_list,
+        };
+
+        let right_list = SplitFreeList {
+            slice: right_slice,
+            free_list: &self.free_list,
+        };
+
+        (left_list, right_list)
+    }
+}
+
+pub struct SplitFreeList<'a, T> {
+    slice: &'a mut [T],
+    free_list: &'a FnvHashSet<usize>,
+}
+
+impl<'a, T: Null + Clone> Index<Pointer> for SplitFreeList<'a, T> {
+    type Output = T;
+
+    fn index(&self, index: Pointer) -> &Self::Output {
+        if self.free_list.contains(&index.pointer) {
+            panic!("Tried to access a freed value with index: {}", index.pointer)
+        }
+        &self.slice[index.pointer]
+    }
+}
+
+impl<'a, T: Null + Clone> IndexMut<Pointer> for SplitFreeList<'a, T> {
+
+    fn index_mut(&mut self, index: Pointer) -> &mut Self::Output {
+        if self.free_list.contains(&index.pointer) {
+            panic!("Tried to access a freed value with index: {}", index.pointer)
+        }
+        &mut self.slice[index.pointer]
+    }
 }
 
 impl<T: Null + Clone> Index<Pointer> for FreeListVec<T> {
