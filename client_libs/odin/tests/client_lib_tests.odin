@@ -27,3 +27,8 @@ test_u64_from_le_slice :: proc(t: ^testing.T) {
     testing.expect(t, num == parsed)
 
 }
+
+@(test)
+test_bplustree :: proc(t: ^testing.T) {
+    
+}

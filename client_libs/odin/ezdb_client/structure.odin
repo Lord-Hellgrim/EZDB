@@ -7,8 +7,8 @@ import "core:log"
 import "core:mem"
 import "base:runtime"
 
-import "vendor:libc"
 
+ORDER :: 20
 
 KeyString :: distinct [64]u8
 
@@ -148,4 +148,43 @@ new_hallocator :: proc(block_size: u32) -> Hallocator {
     memory : = make_dynamic_array([dynamic]byte)
 
     return hallocator
+}
+
+BPlusTreeNode :: struct($Key: typeid) {
+    parent: ^BPlusTreeNode(Key),
+    keys: [ORDER]Key,
+    children: [ORDER+1]^rawptr,
+    is_leaf: bool,
+}
+
+BPlusTree :: struct($Key: typeid) {
+    allocator: mem.Allocator,
+    root_node: BPlusTreeNode(Key),
+}
+
+
+new_BPlusTree_i32 :: proc(allocator := context.allocator) -> BPlusTree(i32) {
+    root_node : BPlusTreeNode(i32)
+    
+    tree := BPlusTree(i32){
+        allocator = allocator,
+        root_node = root_node,
+    }
+
+    return tree
+}
+
+new_BPlusTree_keystring :: proc(allocator := context.allocator) -> BPlusTree(KeyString) {
+    root_node : BPlusTreeNode(KeyString)
+    
+    tree := BPlusTree(KeyString){
+        allocator = allocator,
+        root_node = root_node,
+    }
+
+    return tree
+}
+
+bplustree_insert_key :: proc(tree: ^BPlusTree($Key), key: Key) {
+    tree.keys
 }
