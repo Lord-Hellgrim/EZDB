@@ -176,6 +176,9 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeMap<K> {
                 
                 let left_pointer = self.nodes.add(left_node);
                 let right_pointer = self.nodes.add(right_node);
+
+                let left_node = &mut self.nodes[left_pointer];
+                left_node.set_right_sibling_pointer(right_pointer);
                 
                 let new_root_node = &mut self.nodes[parent_pointer];
                 new_root_node.keys.push(key);
@@ -186,8 +189,11 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeMap<K> {
                 right_node.parent = parent_pointer;
                 self.nodes.remove(target_node_pointer);
                 
-                let _left_pointer = self.nodes.add(left_node);
+                let left_pointer = self.nodes.add(left_node);
                 let right_pointer = self.nodes.add(right_node);
+
+                let left_node = &mut self.nodes[left_pointer];
+                left_node.set_right_sibling_pointer(right_pointer);
                 
                 // self.update_keys(parent_pointer, left_pointer, &lower_key, &upper_key);
                 self.insert_into_node(&key, right_pointer, parent_pointer);
@@ -202,13 +208,20 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeMap<K> {
             return NULLPTR
         }
         let node = &self.nodes[node];
-        let index = node.keys.find(key).unwrap();
-        let value = node.children.get(index).unwrap().clone();
-        return value
+        
+        match node.keys.find(key) {
+            Some(index) => {
+                return node.children.get(index).unwrap().clone();
+            },
+            None => return NULLPTR,
+        }
 
     }
 
     fn get_left_sibling_pointer(&self, leaf_node: &BPlusTreeNode<K>) -> Pointer {
+        if leaf_node.parent.is_null() {
+            return NULLPTR
+        }
         let parent_node = &self.nodes[leaf_node.parent];
         let leaf_key = leaf_node.keys.get(0).unwrap();
         let mut sibling = NULLPTR;
@@ -232,9 +245,16 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeMap<K> {
         current_node.keys.remove(key_index);
         current_node.children.remove(key_index);
         
+        if current_node.parent.is_null() {
+            return Ok(())
+        }
+
         let mut num_keys = current_node.keys.len();
         while num_keys < cut(ORDER) {
             let current_node = &self.nodes[current_node_pointer];
+            if current_node.parent.is_null() {
+                return Ok(())
+            }
             let mut right_sibling_pointer = current_node.get_right_sibling_pointer();
             if right_sibling_pointer.is_null() {
                 /*WHAT IF WE HAVE THE RIGHTMOST NODE */
@@ -679,6 +699,11 @@ mod tests {
         for node in test_tree.nodes.into_iter() {
             println!("node:\n{}", node);
         }
+
+        let test_value = test_tree.get(&10);
+        println!("test_value: {}", test_value);
+
+        test_tree.delete_key(&10).unwrap();
 
         let test_value = test_tree.get(&10);
         println!("test_value: {}", test_value);
