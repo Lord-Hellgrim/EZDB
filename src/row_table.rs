@@ -12,17 +12,18 @@ pub const ZEROES: [u8;4096] = [0u8;4096];
 pub const CHUNK_SIZE: usize = 4096;
 
 pub const ORDER: usize = 10;
+pub const ORDER_PLUS_ONE: usize = ORDER + 1;
 
 
-#[derive(Clone, PartialEq)]
-pub struct BPlusTreeNode<T: Null + Clone + Debug + Ord + Eq + Sized> {
-    keys: FixedList<T, 20>,
+#[derive(Clone, PartialEq, Debug)]
+pub struct BPlusTreeNode<T: Null + Clone + Debug + Ord + Eq + Sized + Display> {
+    keys: FixedList<T, ORDER>,
     parent: Pointer,
-    children: FixedList<Pointer, 21>,
+    children: FixedList<Pointer, ORDER_PLUS_ONE>,
     is_leaf: bool,
 }
 
-impl<T: Null + Clone + Debug + Ord + Eq + Sized> Null for BPlusTreeNode<T> {
+impl<T: Null + Clone + Debug + Ord + Eq + Sized + Display> Null for BPlusTreeNode<T> {
     fn null() -> Self {
         BPlusTreeNode::blank()
     }
@@ -30,14 +31,19 @@ impl<T: Null + Clone + Debug + Ord + Eq + Sized> Null for BPlusTreeNode<T> {
 
 impl<T: Null + Clone + Debug + Display + Ord + Eq + Sized> Display for BPlusTreeNode<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "parent: {}\nis_leaf: {}\nkeys: {}\nchildren: {}", self.parent, self.is_leaf, self.keys, self.children)
+        if self.is_leaf {
+            writeln!(f, "LEAF:   parent: {}\nis_leaf: {}\nkeys: {}\nchildren: {}\nRight_sibling: {}", self.parent, self.is_leaf, self.keys, self.children, self.get_right_sibling_pointer())
+        } else {
+            writeln!(f, "BRANCH: parent: {}\nis_leaf: {}\nkeys: {}\nchildren: {}\n", self.parent, self.is_leaf, self.keys, self.children)
+
+        }
     }
 }
 
 
-impl <T: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeNode<T> {
+impl <T: Null + Clone + Debug + Ord + Eq + Sized + Display + Display> BPlusTreeNode<T> {
     pub fn new(key: &T, pointer: Pointer) -> BPlusTreeNode<T> {
-        let mut keys: FixedList<T, 20> = FixedList::new();
+        let mut keys: FixedList<T, ORDER> = FixedList::new();
         keys.push(key.clone());
         let mut children = FixedList::new();
         children.push(pointer);
@@ -70,13 +76,28 @@ impl <T: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeNode<T> {
 
 
 
-pub struct BPlusTreeMap<K: Null + Clone + Debug + Ord + Eq + Sized> {
+pub struct BPlusTreeMap<K: Null + Clone + Debug + Ord + Eq + Sized + Display + Display> {
     name: KeyString,
     root_node: Pointer,
     nodes: FreeListVec<BPlusTreeNode<K>>,
 }
 
-impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeMap<K> {
+impl<K: Null + Clone + Debug + Ord + Eq + Sized + Display> Display for BPlusTreeMap<K> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        
+        let mut printer = String::new();
+
+        for node in self.nodes.into_iter() {
+            printer.push_str(&format!("{}", node));
+            printer.push('\n');
+            printer.push('\n');
+        }
+        
+        writeln!(f, "{}", printer)
+    }
+}
+
+impl<K: Null + Clone + Debug + Ord + Eq + Sized + Display> BPlusTreeMap<K> {
     pub fn new(name: KeyString) -> BPlusTreeMap<K> {
         let mut root: BPlusTreeNode<K> = BPlusTreeNode::blank();
         root.is_leaf = true;
@@ -241,7 +262,14 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeMap<K> {
         }
 
         let current_node = &mut self.nodes[current_node_pointer];
-        let key_index = current_node.keys.find(key).unwrap();
+        let key_index = match current_node.keys.find(key) {
+            Some(index) => index,
+            None => {
+                println!("{}", self);
+                println!("Couldn't find key: '{}' in node: '{}'", key, current_node_pointer);
+                panic!()
+            }
+        };
         current_node.keys.remove(key_index);
         current_node.children.remove(key_index);
         
@@ -295,12 +323,18 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeMap<K> {
                 let mut left_split: SplitFreeList<BPlusTreeNode<K>>;
                 let mut right_split: SplitFreeList<BPlusTreeNode<K>>;
                 if current_node_pointer > right_sibling_pointer {
-                    (left_split, right_split) = self.nodes.split_at_mut(current_node_pointer.pointer);
+                    (right_split, left_split) = self.nodes.split_at_mut(right_sibling_pointer.pointer);
                 } else {
                     (left_split, right_split) = self.nodes.split_at_mut(right_sibling_pointer.pointer);
                 }
 
                 let current_node = &mut left_split[current_node_pointer];
+                if right_sibling_pointer.pointer > right_split.slice.len() {
+                    println!("current_node_pointer : {}", current_node_pointer);
+                    println!("right_sibling_pointer : {}", right_sibling_pointer);
+                    println!("{}", self);
+                    panic!()
+                }
                 let right_sibling = &mut right_split[right_sibling_pointer];
 
                 let temp_key = right_sibling.keys.remove(0);
@@ -325,7 +359,7 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeMap<K> {
 
 }
 
-pub fn check_tree_height<K: Null + Clone + Debug + Ord + Eq + Sized>(tree: &BPlusTreeMap<K>) -> (bool, String) {
+pub fn check_tree_height<K: Null + Clone + Debug + Ord + Eq + Sized + Display>(tree: &BPlusTreeMap<K>) -> (bool, String) {
 
     let mut node = &tree.nodes[tree.root_node];
         
@@ -668,6 +702,7 @@ impl<'a> Iterator for RowTableIteratorMut<'a> {
 #[cfg(test)]
 mod tests {
 
+    use core::panic::PanicInfo;
     use std::collections::HashSet;
 
     use fnv::FnvHashSet;
@@ -806,17 +841,18 @@ mod tests {
         // println!("sibling: {}", right_sibling);
     }
 
+
     #[test]
     fn test_BPlusTree_proper() {
         let mut tree: BPlusTreeMap<u32> = BPlusTreeMap::new(ksf("test"));
 
         let mut inserts = FnvHashSet::default();
         for _ in 0..100 {
-            let insert: u32 = rand::random();
+            let insert: u32 = rand::random_range(0..1000);
             inserts.insert(insert);
         }
         
-        let mut log = Vec::new();
+        // let mut log = Vec::new();
         let mut inserted = Vec::new();
         loop {
             let item = pop_from_hashset(&mut inserts);
@@ -825,12 +861,13 @@ mod tests {
             } else {
                 let item = item.unwrap();
                 tree.insert(&item, ptr(item as usize));
-                log.push(format!("+{}", item));
+                println!("+{}", item);
                 inserted.push(item);
             }
             if rand::random_bool(0.1) {
                 let delete = inserted.swap_remove(rand::random_range(0..inserted.len()));
                 tree.delete_key(&delete).unwrap();
+                println!("-{}", delete);
             }
         }
 
@@ -840,17 +877,22 @@ mod tests {
 
         let mut we_should_panic = false;
         if !height_is_correct {
+            println!("tree: {}", tree);
             println!("{}", height_error);
             we_should_panic = true;
         }
 
         if !order_is_correct {
+            println!("tree: {}", tree);
             println!("{}", order_error);
+
             we_should_panic = true;
         }
 
         if !tree_is_accurate {
+            println!("tree: {}", tree);
             println!("{}", accuracy_error);
+
             we_should_panic = true;
         }
 

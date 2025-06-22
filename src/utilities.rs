@@ -1411,6 +1411,7 @@ impl Null for usize {
 }
 
 
+#[derive(Clone, Debug)]
 pub struct FreeListVec<T: Null> {
     list: Vec<T>,
     free_list: FnvHashSet<usize>,
@@ -1460,7 +1461,7 @@ impl<T: Null + Clone> FreeListVec<T> {
 }
 
 pub struct SplitFreeList<'a, T> {
-    slice: &'a mut [T],
+    pub slice: &'a mut [T],
     free_list: &'a FnvHashSet<usize>,
 }
 
