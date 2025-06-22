@@ -325,6 +325,90 @@ impl<K: Null + Clone + Debug + Ord + Eq + Sized> BPlusTreeMap<K> {
 
 }
 
+pub fn check_tree_height<K: Null + Clone + Debug + Ord + Eq + Sized>(tree: &BPlusTreeMap<K>) -> (bool, String) {
+
+    let mut node = &tree.nodes[tree.root_node];
+        
+    let mut node_pointer: Pointer;
+    let mut i = 0;
+    while !node.is_leaf {
+        i += 1;
+        node_pointer = node.children.get(0).unwrap().clone();
+        node = &tree.nodes[node_pointer];
+    }
+
+    let leftmost_node = node;
+    let mut node_pointer = leftmost_node.get_right_sibling_pointer();
+    
+    while !node_pointer.is_null() {
+        node = &tree.nodes[node_pointer];
+        node_pointer = node.get_right_sibling_pointer();
+        let mut j = 0;
+        let mut backtrack_node = node;
+        while !backtrack_node.parent.is_null() {
+            backtrack_node = &tree.nodes[backtrack_node.parent];
+            j += 1;
+        }
+        if j != i {
+            return (false, format!("Node: '{}' is at height '{}' but the leftmost node is of height '{}'", node_pointer, j, i))
+        }
+    }
+
+    (true, "ALL GOOD".to_owned())
+}
+
+pub fn check_tree_ordering<K: Null + Clone + Debug + Display + Ord + Eq + Sized>(tree: &BPlusTreeMap<K>) -> (bool, String) {
+
+    let mut node = &tree.nodes[tree.root_node];
+
+    let mut node_pointer = NULLPTR;
+    while !node.is_leaf {
+        node_pointer = node.children.get(0).unwrap().clone();
+        node = &tree.nodes[node_pointer];
+    }
+
+    let mut last_key = node.keys.get(0).unwrap().clone();
+    while !node_pointer.is_null() {
+        node = &tree.nodes[node_pointer];
+        for key in node.keys.iter() {
+            if &last_key > key {
+                return (false, format!("Found out of order key in node: {}. Key '{}' is larger than key: '{}'", node_pointer, last_key, key))
+            } else {
+                last_key = key.clone();
+            }
+        }
+        node_pointer = node.get_right_sibling_pointer();
+    }
+
+    (true, "ALL GOOD".to_owned())
+}
+
+pub fn check_tree_accuracy(tree: &BPlusTreeMap<u32>) -> (bool, String) {
+
+    let mut node = &tree.nodes[tree.root_node];
+
+    let mut node_pointer = NULLPTR;
+    while !node.is_leaf {
+        node_pointer = node.children.get(0).unwrap().clone();
+        node = &tree.nodes[node_pointer];
+    }
+
+    while !node_pointer.is_null() {
+        node = &tree.nodes[node_pointer];
+        for i in 0..node.keys.len() {
+            let key = node.keys.get(i).unwrap().clone();
+            let value = node.children.get(i).unwrap().clone();
+            if value != ptr(key as usize) {
+                return (false, format!("In node: '{}' - Key '{}' points to Pointer '{}'", node_pointer, key, value))
+            }
+        }
+        node_pointer = node.get_right_sibling_pointer();
+    }
+
+
+    (true, format!("ALL GOOD"))
+
+}
 
 #[inline]
 pub fn cut(length: usize) -> usize {
@@ -580,8 +664,13 @@ impl<'a> Iterator for RowTableIteratorMut<'a> {
 
 
 
+
 #[cfg(test)]
 mod tests {
+
+    use std::collections::HashSet;
+
+    use fnv::FnvHashSet;
 
     use crate::db_structure::TableKey;
 
@@ -715,6 +804,60 @@ mod tests {
         // println!("sibling: {}", left_sibling);
         // let right_sibling = test_tree.get_right_sibling_pointer(test_leaf);
         // println!("sibling: {}", right_sibling);
+    }
+
+    #[test]
+    fn test_BPlusTree_proper() {
+        let mut tree: BPlusTreeMap<u32> = BPlusTreeMap::new(ksf("test"));
+
+        let mut inserts = FnvHashSet::default();
+        for _ in 0..100 {
+            let insert: u32 = rand::random();
+            inserts.insert(insert);
+        }
+        
+        let mut log = Vec::new();
+        let mut inserted = Vec::new();
+        loop {
+            let item = pop_from_hashset(&mut inserts);
+            if item.is_none() {
+                break
+            } else {
+                let item = item.unwrap();
+                tree.insert(&item, ptr(item as usize));
+                log.push(format!("+{}", item));
+                inserted.push(item);
+            }
+            if rand::random_bool(0.1) {
+                let delete = inserted.swap_remove(rand::random_range(0..inserted.len()));
+                tree.delete_key(&delete).unwrap();
+            }
+        }
+
+        let (height_is_correct, height_error) = check_tree_height(&tree);
+        let (order_is_correct, order_error) = check_tree_ordering(&tree);
+        let (tree_is_accurate, accuracy_error) = check_tree_accuracy(&tree);
+
+        let mut we_should_panic = false;
+        if !height_is_correct {
+            println!("{}", height_error);
+            we_should_panic = true;
+        }
+
+        if !order_is_correct {
+            println!("{}", order_error);
+            we_should_panic = true;
+        }
+
+        if !tree_is_accurate {
+            println!("{}", accuracy_error);
+            we_should_panic = true;
+        }
+
+        if we_should_panic {
+            panic!()
+        }
+
     }
 
 

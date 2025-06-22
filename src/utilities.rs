@@ -1382,13 +1382,19 @@ pub trait Null: PartialEq + Sized {
 
 impl Null for i32 {
     fn null() -> i32 {
-        0
+        i32::MAX
     }
 }
 
 impl Null for f32 {
     fn null() -> f32 {
-        0.0
+        std::f32::NAN
+    }
+}
+
+impl Null for u32 {
+    fn null() -> u32 {
+        u32::MAX
     }
 }
 
@@ -1400,7 +1406,7 @@ impl Null for KeyString {
 
 impl Null for usize {
     fn null() -> usize {
-        0
+        usize::MAX
     }
 }
 
