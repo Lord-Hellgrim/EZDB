@@ -6,7 +6,7 @@ import "core:slice"
 import "core:log"
 import "core:mem"
 import "base:runtime"
-
+import smarr "../smarray"
 
 ORDER :: 20
 
@@ -150,23 +150,47 @@ new_hallocator :: proc(block_size: u32) -> Hallocator {
     return hallocator
 }
 
+BPlusTreeStatusCode :: enum {
+    Ok,
+    Error,
+}
+
 BPlusTreeNode :: struct($Key: typeid) {
+    keys: smarr.Small_Array(ORDER, Key),
     parent: ^BPlusTreeNode(Key),
-    keys: [ORDER]Key,
-    children: [ORDER+1]^rawptr,
+    children: smarr.Small_Array(ORDER+1, rawptr),
     is_leaf: bool,
+}
+
+BPlusTreeLeaf :: struct($Key: typeid) {
+    keys: smarr.Small_Array(ORDER, Key),
+    parent: ^BPlusTreeNode(Key),
+    children: smarr.Small_Array(ORDER, rawptr),
+    next: ^BPlusTreeLeaf(Key),
+    is_leaf: bool,
+}
+
+new_BPlusTree_leaf :: proc($Key: typeid, allocator := context.allocator) -> ^BPlusTreeNode(Key) {
+    node := new(BPlusTreeNode(Key), allocator)
+    node.is_leaf = true
+    return node
+}
+
+new_BPlusTree_branch :: proc($Key: typeid, allocator := context.allocator) -> ^BPlusTreeNode(Key) {
+    node := new(BPlusTreeNode(Key), allocator)
+    return node
 }
 
 BPlusTree :: struct($Key: typeid) {
     allocator: mem.Allocator,
-    root_node: BPlusTreeNode(Key),
+    root_node: ^BPlusTreeNode(Key),
 }
 
 
-new_BPlusTree_i32 :: proc(allocator := context.allocator) -> BPlusTree(i32) {
-    root_node : BPlusTreeNode(i32)
+new_BPlusTree :: proc($Key: typeid, allocator := context.allocator) -> BPlusTree(Key) {
+    root_node := new_BPlusTree_leaf(Key)
     
-    tree := BPlusTree(i32){
+    tree := BPlusTree(Key){
         allocator = allocator,
         root_node = root_node,
     }
@@ -174,17 +198,109 @@ new_BPlusTree_i32 :: proc(allocator := context.allocator) -> BPlusTree(i32) {
     return tree
 }
 
-new_BPlusTree_keystring :: proc(allocator := context.allocator) -> BPlusTree(KeyString) {
-    root_node : BPlusTreeNode(KeyString)
-    
-    tree := BPlusTree(KeyString){
-        allocator = allocator,
-        root_node = root_node,
+bplus_tree_find_leaf :: proc(tree: BPlusTree($Key), key: Key) -> ^BPlusTreeNode(Key) {
+    node := tree.root_node
+    i := 0
+    for !node.is_leaf {
+        i = 0
+        for i < smarr.len(node.keys) {
+            if key >= smarr.get(node.keys, i) {
+                i += 1;
+            }
+            else {
+                break;
+            }
+        }
+        node: ^BPlusTreeNode = transmute(^BPlusTreeNode)smarr.get(node.children, i)
     }
-
-    return tree
+    return node
 }
 
-bplustree_insert_key :: proc(tree: ^BPlusTree($Key), key: Key) {
-    tree.keys
+cut :: proc(x: $NUMBER) -> NUMBER {
+    if x%2 == 0 {
+        return x/2
+    } else {
+        return (x/2) + 1
+    }
+}
+
+linear_search :: proc(haystack: smarr.Small_Array($N, $T), needle: T) -> int {
+    for i in 0..< smarr.len(haystack) {
+        if smarr.get(haystack, i) == needle {
+            return i
+        }
+    }
+
+    return -1
+}
+
+split_small_array :: proc(array: smarr.Small_Array($N, $T)) -> (smarr.Small_Array(N, T), smarr.Small_Array(N, T)) {
+    first_array : smarr.Small_Array(N, T)
+    second_array : smarr.Small_Array(N, T)
+
+    for i in 0..<cut(smarr.len(array)) {
+        smarr.push_back(&first_array, smarr.get(array, i))
+    }
+
+    for i in cut(smarr.len(array)) ..< smarr.len(array) {
+        smarr.push_back(&second_array, smarr.get(array, i))
+    }
+
+    return first_array, second_array
+}
+
+bplustree_insert_key :: proc(tree: ^BPlusTree($Key), key: Key, value: rawptr) -> BPlusTreeStatusCode {
+    context.allocator = tree.allocator
+    defer context.allocator = default_allocator
+    
+    node := bplus_tree_find_leaf(tree^, key)
+
+    key_index := linear_search(node.keys, key)
+    smarr.push_back(&node.keys, key)
+    smarr.push_back(&node.children, value)
+
+    if smarr.len(node.keys) > ORDER -1 {
+        panic("Node somehow has more keys than the tree ORDER")
+    } else if smarr.len(node.keys) == ORDER-1 {
+
+        left_node := new_BPlusTree_leaf(Key)
+        right_node := new_BPlusTree_leaf(Key)
+
+        split_key := smarr.get(node.keys, cut(ORDER))
+
+        left_keys, right_keys := split_small_array(node.keys)
+        left_children, right_children := split_small_array(node.children)
+
+        parent := node.parent
+        for i in 0 ..< 100_000 {
+            
+            if parent == nil {
+                parent = new_BPlusTree_branch(Key)
+                smarr.push_back(&parent.keys, split_key)
+                smarr.push_back(&parent.children, left_node)
+                smarr.push_back(&parent.children, right_node)
+                break
+            } else {
+                key_index := linear_search(parent.children, node)
+                smarr.inject_at(&parent.keys, key_index+1, split_key)
+                smarr.set(&parent.children, key_index, left_node)
+                smarr.inject_at(&parent.children, right_node, key_index + 1)
+                if smarr.len(parent.keys) == ORDER - 1 {
+                    left_node := new_BPlusTree_branch(Key)
+                    right_node := new_BPlusTree_branch(Key)
+
+                    split_key := smarr.get(node.keys, cut(ORDER))
+
+                    left_keys, right_keys := split_small_array(node.keys)
+                    left_children, right_children := split_small_array(node.children)
+
+                    parent := node.parent
+                } else {
+                    break
+                }
+            }
+        }
+    }
+
+    return .Ok
 }
