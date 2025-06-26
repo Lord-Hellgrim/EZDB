@@ -1828,14 +1828,13 @@ impl Drop for BlockAllocator {
 }
 
 
-
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub struct FixedList<T: Null + Clone + Debug + Ord + Eq + Sized, const N: usize> {
+pub struct FixedList<T: Null + Clone + Copy + Debug + Ord + Eq + Sized, const N: usize> {
     list: [T ; N],
     len: usize,
 }
 
-impl<T: Null + Clone + Debug + Ord + Eq + Sized, const N: usize> FixedList<T, N> {
+impl<T: Null + Clone + Copy + Debug + Ord + Eq + Sized, const N: usize> FixedList<T, N> {
     pub fn new() -> FixedList<T, N> {
         FixedList {
             list: std::array::from_fn(|_| T::null()),
@@ -1983,7 +1982,7 @@ impl<T: Null + Clone + Debug + Ord + Eq + Sized, const N: usize> FixedList<T, N>
     }
 }
 
-impl<T: Null + Clone + Debug + Display + Ord + Eq + Sized, const N: usize> Display for FixedList<T, N> {
+impl<T: Null + Clone + Copy + Debug + Display + Ord + Eq + Sized, const N: usize> Display for FixedList<T, N> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut printer = String::from("[");
         for item in &self.list[0..self.len()] {
@@ -1994,6 +1993,22 @@ impl<T: Null + Clone + Debug + Display + Ord + Eq + Sized, const N: usize> Displ
         write!(f, "{}",printer)
     }
 }
+
+impl<T: Null + Clone + Copy + Debug + Display + Ord + Eq + Sized, const N: usize> Index<usize> for FixedList<T, N> {
+    type Output = T;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.list[index]
+    }
+}
+
+impl<T: Null + Clone + Copy + Debug + Display + Ord + Eq + Sized, const N: usize> IndexMut<usize> for FixedList<T, N> {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.list[index]
+    }
+}
+
+
 
 
 
