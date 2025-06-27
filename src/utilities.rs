@@ -1886,11 +1886,16 @@ impl<T: Null + Clone + Copy + Debug + Ord + Eq + Sized, const N: usize> FixedLis
 
     ///Removes item at index and shifts subsequent items down
     pub fn remove(&mut self, index: usize) -> T {
-        let t = self.list[index].clone();
-        for i in index .. self.len()-1 {
-            self.list[i] = self.list[i+1].clone();
-            self.list[i+1] = T::null();
+        if self.len() == 0 {
+            return T::null()
         }
+        let t = self.list[index];
+        
+        for i in index..self.len() - 1 {
+            self.list[i] = self.list[i + 1];
+        }
+        self.list[self.len() - 1] = T::null();
+
         self.len -= 1;
 
         t
@@ -2204,6 +2209,22 @@ mod tests {
 
         println!("list1: {}", list1);
         println!("list2: {}", list2);
+    }
+
+    #[test]
+    fn test_fixed_list_removes() {
+        let mut list = FixedList::<u32, 6>::new();
+        list.push(1);
+        list.push(2);
+        list.push(3);
+        list.push(4);
+        list.push(5);
+        println!("list: {}", list);
+        dbg!(&list);
+        list.remove(2);
+        println!("list: {}", list);
+        dbg!(&list);
+
     }
 
 }

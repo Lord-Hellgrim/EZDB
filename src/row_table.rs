@@ -400,7 +400,6 @@ impl<K: Null + Clone + Copy + Debug + Ord + Eq + Sized + Display> BPlusTreeMap<K
                 right_parent.children.remove(right_index);
                 num_keys = right_parent.keys.len();
                 current_node_pointer = right_parent_pointer;
-                println!("{}", self);
 
             } else {
 
@@ -418,13 +417,7 @@ impl<K: Null + Clone + Copy + Debug + Ord + Eq + Sized + Display> BPlusTreeMap<K
 
 
                 let parent_node = &mut self.nodes[parent_node_pointer];
-                let key_index = match parent_node.children.find(&right_sibling_pointer){
-                    Some(idx) => idx - 1,
-                    None => {
-                        println!("{}", self);
-                        panic!()
-                    },
-                };
+                let key_index = parent_node.children.find(&right_sibling_pointer).unwrap() - 1;
                 
                 *parent_node.keys.get_mut(key_index).unwrap() = new_key;
 
