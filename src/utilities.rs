@@ -1869,7 +1869,8 @@ impl<T: Null + Clone + Copy + Debug + Ord + Eq + Sized, const N: usize> FixedLis
 
     pub fn insert_at(&mut self, index: usize, value: &T) -> Result<(), EzError> {
         if self.full() || index > self.len {
-            return Err(EzError { tag: ErrorTag::Query, text: format!("Tried to insert {:?} past the bounds of a FixedList", value) })
+            self.push(*value);
+            // return Err(EzError { tag: ErrorTag::Query, text: format!("Tried to insert {:?} at index {} in a FixedList of len {}", value, index, self.len) })
         }
 
         let temp = self.list[index..].to_vec();
