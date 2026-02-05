@@ -4,3 +4,11 @@
 /.vscode
 /table.txt
 /read_table.txt
+/combined.csv
+/client_libs/odin/noise.bin
+/client_libs/odin/tests.bin
+/client_libs/odin/noise/noise
+/client_libs/odin/ezdb_client/odin
+/client_libs/C/test
+/client_libs/C/.vscode
+/sqlite_benchmark_comparison\benchmark

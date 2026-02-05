@@ -1,3 +1,31 @@
+# THIS PROJECT IS RETIRED
+Tl;dr
+I've learned enough to know that I would need a total rewrite. Not doing that. Other plans.
+
+I started this project at a time that I thought all a database did was store .csv files.
+I had just gotten sick of Python abstracting away all the actual information of how a 
+computer works and figured I should do a "real" program. A database seemed like a decent
+place to start, since it touched on all the different aspects of programming except graphics,
+which I am still not very interested in. My original intention was to write all the code from
+scratch in the lowest level language I could find. Many lessons have been learned.
+
+I didn't know any rust when I started this. I didn't know what TCP was, or really anything
+about internet protocols at all. I had a passing familiarity with cryptography terms, but
+no idea how they were implemented.
+
+In hindsight, rust was a good choice for this project. While it took learning C to actually
+understand what the & operator is really doing, I don't think I could have gotten this far
+if I had to start by implementing my own Vec, HashMap, Locking primitives, and so on. Rust
+allowed me to build the stupid version of what I wanted while still making me aware of memory
+to a degree (Vec::with_capacity(n), I love you forever).
+At this point, however, rust is mostly just annoying and won't prevent the most serious integrity issues that I foresee being the biggest problem of a database engine, and the
+compile time has become unacceptable.
+
+Therefore I am going to move on to my next project, leaving this unfinished. I have learned
+what I needed to learn from EZDB, but the codebase is too big of a mess to fix without a
+total rewrite anyway. Rest in peace, EZDB. You served me well.
+
+
 # EZDB
 
 A small database for small bespoke apps. Meant to be fast, easy to use with .csv files, and lightweight to host.
